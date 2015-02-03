@@ -267,10 +267,11 @@ get_arch()
 build_packages()
 {
     local PKG_DIR=$build_base/scripts/packages
-    pushd $PKG_DIR
 
     local ARCH=$(get_arch)
     local WHOAMI=$(whoami)
+
+    local RET=0
 
     export BUILD_BASE=$build_base
     export GALERA_VER=$RELEASE
@@ -289,22 +290,34 @@ build_packages()
 
     set +e
     if [ $DEBIAN -ne 0 ]; then # build DEB
-        ./deb.sh $GALERA_VER
-    elif [ "$OS" == "FreeBSD" ]; then
-        if test "$NO_STRIP" != "yes"; then
-            strip $build_base/{garb/garbd,libgalera_smm.so}
+        debian_version="$(lsb_release -sc)"
+
+        # Adjust compat for older platforms
+        test "$debian_version" != "lucid" || echo 7 > debian/compat
+        test "$debian_version" != "squeeze" || echo 8 > debian/compat
+
+        dch -m -D "$debian_version" --force-distribution -v "$GALERA_VER-$debian_version" "Version upgrade"
+        # -d : Do not check build dependencies and conflicts.
+        dpkg-buildpackage -us -uc -b -d
+        RET=$?
+    else
+        pushd $PKG_DIR
+        if [ "$OS" == "FreeBSD" ]; then
+            if test "$NO_STRIP" != "yes"; then
+                strip $build_base/{garb/garbd,libgalera_smm.so}
+            fi
+            ./freebsd.sh $GALERA_VER
+        else # build RPM
+            ./rpm.sh $GALERA_VER
         fi
-        ./freebsd.sh $GALERA_VER
-    else # build RPM
-        ./rpm.sh $GALERA_VER
+        RET=$?
+        popd
     fi
-    local RET=$?
 
     set -e
 
-    popd
     if [ $DEBIAN -ne 0 ]; then
-        mv -f $PKG_DIR/$ARCH/*.deb ./
+        echo Debian - Do nothing
     elif [ "$OS" == "FreeBSD" ]; then
         mv -f $PKG_DIR/*.tbz ./
     else

@@ -123,6 +123,10 @@ start() {
 
 	# Find a working node
 	for ADDRESS in ${GALERA_NODES} 0; do
+		if [ ${ADDRESS} == "0" ]; then
+                    # Nothing needs to be done.
+                    continue
+                fi
 		HOST=$(echo $ADDRESS | cut  -d \: -f 1 )
 		PORT=$(echo $ADDRESS | cut -sd \: -f 2 )
 		PORT=${PORT:-$GALERA_PORT}
