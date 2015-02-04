@@ -44,7 +44,7 @@ $(which rpmbuild) --clean --define "_topdir $RPM_TOP_DIR" \
                   --define "optflags $RPM_OPT_FLAGS" \
                   --define "version $1" \
                   --define "release $RELEASE" \
-                  -bb --short-circuit -bi $GALERA_SPEC
+                  -bb $GALERA_SPEC
 
 RPM_ARCH=$(uname -m | sed s/i686/i386/)
 
