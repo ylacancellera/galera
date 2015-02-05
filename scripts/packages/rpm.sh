@@ -38,6 +38,9 @@ else
     DISTRO_VERSION=
 fi
 
+# Perhaps not needed for fc20? As it causes package name to be
+# galera...fc20.fc20..rpm
+# See %_rpmfilename (http://rpm.org/api/4.4.2.2/config_macros.html)
 [ -n "$DISTRO_VERSION" ] && RELEASE=$RELEASE.$DISTRO_VERSION
 
 $(which rpmbuild) --clean --define "_topdir $RPM_TOP_DIR" \
@@ -46,7 +49,7 @@ $(which rpmbuild) --clean --define "_topdir $RPM_TOP_DIR" \
                   --define "release $RELEASE" \
                   -bb $GALERA_SPEC
 
-RPM_ARCH=$(uname -m | sed s/i686/i386/)
+RPM_ARCH=$(uname -m)
 
 mv $RPM_TOP_DIR/RPMS/$RPM_ARCH/galera-*.rpm ./
 
