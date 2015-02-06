@@ -43,10 +43,20 @@ fi
 # See %_rpmfilename (http://rpm.org/api/4.4.2.2/config_macros.html)
 [ -n "$DISTRO_VERSION" ] && RELEASE=$RELEASE.$DISTRO_VERSION
 
+# %dist does not return a value for centos5
+# https://bugs.centos.org/view.php?id=3239
+if [ ${DISTRO_VERSION} = "rhel5" ]
+then
+  DIST_TAG="dist .el5"
+else
+  DIST_TAG="_foo bar"
+fi
+
 $(which rpmbuild) --clean --define "_topdir $RPM_TOP_DIR" \
                   --define "optflags $RPM_OPT_FLAGS" \
                   --define "version $1" \
                   --define "release $RELEASE" \
+                  --define "$DIST_TAG" \
                   -bb $GALERA_SPEC
 
 RPM_ARCH=$(uname -m)
