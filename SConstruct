@@ -92,20 +92,23 @@ if x86 == 32:
     link_arch    = compile_arch
     if sysname == 'linux':
         link_arch = link_arch + ' -Wl,-melf_i386'
-elif x86 == 64 and sysname != 'sunos':
-    compile_arch = ' -m64'
-    link_arch    = compile_arch
+elif x86 == 64:
     if sysname == 'linux':
-        link_arch = link_arch + ' -Wl,-melf_x86_64'
-elif machine == 'ppc64':
-    compile_arch = ' -mtune=native'
-    link_arch    = ''
-elif sysname == 'sunos':
-    compile_arch = ' -mtune=native'
-    link_arch    = ''
-else:
-    compile_arch = ''
-    link_arch    = ''
+        if machine == 'ppc64':
+            compile_arch = ' -mtune=native'
+            link_arch = link_arch + ' -Wl,-melf64ppc'
+        elif machine == 'ppc64le':
+            compile_arch = ' -mtune=native'
+            link_arch = link_arch + ' -Wl,-melf64lppc'
+        else:
+            compile_arch = ' -m64'
+            link_arch = link_arch + ' -Wl,-melf_x86_64'
+    elif sysname == 'sunos':
+        compile_arch = ' -mtune=native'
+        link_arch    = ''
+    else:
+        compile_arch = ''
+        link_arch    = ''
 
 
 boost      = int(ARGUMENTS.get('boost', 1))
@@ -172,7 +175,9 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(LIBPATH  = ['/usr/local/lib'])
     env.Append(CPPFLAGS = ' -I/usr/local/include ')
 if sysname == 'sunos':
-   env.Replace(SHLINKFLAGS = '-shared ')
+    env.Replace(SHLINKFLAGS = '-shared ')
+if sysname == 'linux' and (machine == 'ppc64' or machine == 'ppc64le'):
+    env.Append(LIBPATH = ['/opt/at7.1/lib64/'])
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
@@ -413,7 +418,7 @@ if strict_build_flags == 1:
     conf.env.Append(CXXFLAGS = ' -Weffc++ -Wold-style-cast')
 
 env = conf.Finish()
-Export('x86', 'env', 'sysname', 'libboost_program_options')
+Export('x86', 'env', 'sysname', 'machine', 'libboost_program_options')
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
