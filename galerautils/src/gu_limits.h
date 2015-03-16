@@ -40,7 +40,13 @@ static inline size_t gu_avphys_pages() { return sysconf(_SC_AVPHYS_PAGES); }
 
 /* We need this as a compile-time constant. Runtime check is implemented
  * in gu_init.c */
+#if defined(__powerpc__)
+#define GU_PAGE_SIZE 65536
+#define GU_PAGE_MULTIPLIER 1
+#else
 #define GU_PAGE_SIZE 4096
+#define GU_PAGE_MULTIPLIER 16
+#endif
 
 static inline size_t gu_avphys_bytes()
 {

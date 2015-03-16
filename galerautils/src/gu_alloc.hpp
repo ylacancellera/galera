@@ -159,7 +159,7 @@ private:
     private:
 
         /* to avoid too frequent allocation, make it 64K */
-        static page_size_type const PAGE_SIZE = GU_PAGE_SIZE * 16;
+        static page_size_type const PAGE_SIZE = GU_PAGE_SIZE * GU_PAGE_MULTIPLIER;
 
         heap_size_type left_;
 
