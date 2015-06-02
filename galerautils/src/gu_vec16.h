@@ -50,7 +50,8 @@ static GU_FORCE_INLINE gu_vec16_t
 gu_vec16_xor (gu_vec16_t l, gu_vec16_t r)
 {
     gu_vec16_t ret;
-    ret.vec_ = (l.vec_ ^ r.vec_);
+    ret.int_[0] = (l.int_[0] ^ r.int_[0]);
+    ret.int_[1] = (l.int_[1] ^ r.int_[1]);
     return ret;
 }
 
