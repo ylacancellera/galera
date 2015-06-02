@@ -91,6 +91,21 @@ BuildRequires: systemd
 %define systemd 0
 %endif
 
+%ifarch ppc64le 
+%if 0%{?rhel} >= 7
+Requires: advance-toolchain-at8.0-rc1-runtime
+%endif
+AutoReq: 0
+%endif
+
+%ifarch ppc64
+%if 0%{?rhel} >= 7
+Requires: advance-toolchain-at8.0-runtime
+%else 
+Requires: advance-toolchain-at7.0-runtime
+%endif
+AutoReq: 0
+%endif
 
 Requires:      openssl nmap
 
