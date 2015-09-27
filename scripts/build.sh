@@ -2,6 +2,9 @@
 
 # $Id$
 
+# Galera library version
+VERSION="3.9"
+
 get_cores()
 {
     case $OS in
@@ -237,6 +240,9 @@ if [ "$CONFIGURE" == "yes" ] && [ "$SCONS" != "yes" ]; then SCRATCH="yes"; fi
 # Build process base directory
 build_base=${GALERA_SRC:-$(cd $(dirname $0)/..; pwd -P)}
 
+# Use $VERSION if one is not specified via --release
+RELEASE=${RELEASE:-$VERSION}
+
 get_arch()
 {
     if ! [ -z "$TARGET" ]
@@ -364,29 +370,22 @@ build_sources()
     echo $PWD/$ret
 }
 
-pushd "$build_base"
-#GALERA_REV="$(svnversion | sed s/\:/,/g)"
-#if [ "$GALERA_REV" == "exported" ]
-#then
-    GALERA_REV=$(git log --pretty=oneline | wc -l) || \
-    GALERA_REV=$(bzr revno --tree -q)              || \
-    GALERA_REV=$(svn info >&/dev/null && svnversion | sed s/\:/,/g) || \
-    GALERA_REV="XXXX"
-    # trim spaces (sed is not working on Solaris, so using bash built-in)
-    GALERA_REV=${GALERA_REV//[[:space:]]/}
-#fi
-popd
+GALERA_VER=$RELEASE
 
-#if [ -z "$RELEASE" ]
-#then
-#    RELEASE=$GALERA_REV
-#fi
+pushd "$build_base"
+GALERA_REV=$(git log --pretty=oneline | wc -l) || \
+GALERA_REV=$(bzr revno --tree -q)              || \
+GALERA_REV=$(svn info >&/dev/null && svnversion | sed s/\:/,/g) || \
+GALERA_REV="XXXX"
+# trim spaces (sed is not working on Solaris, so using bash built-in)
+GALERA_REV=${GALERA_REV//[[:space:]]/}
+popd
 
 if [ "$SCONS" == "yes" ] # Build using Scons
 then
     # Scons variant dir, defaults to GALERA_SRC
     export SCONS_VD=$build_base
-    scons_args="-C $build_base revno=$GALERA_REV tests=$RUN_TESTS"
+    scons_args="-C $build_base version=$GALERA_VER revno=$GALERA_REV tests=$RUN_TESTS"
 
     [ -n "$TARGET"        ] && scons_args="$scons_args arch=$TARGET"
     [ -n "$RELEASE"       ] && scons_args="$scons_args version=$RELEASE"
