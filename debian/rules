@@ -20,6 +20,17 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	SCONS_ARGS += tests=1
 endif
 
+# Galera Version
+ifneq (,$(filter version=%,$(DEB_BUILD_OPTIONS)))
+       VERSION = $(filter version=%,$(DEB_BUILD_OPTIONS))
+       SCONS_ARGS += $(VERSION)
+endif
+
+# Galera revision number
+ifneq (,$(filter revno=%,$(DEB_BUILD_OPTIONS)))
+       REVNO = $(filter revno=%,$(DEB_BUILD_OPTIONS))
+       SCONS_ARGS += $(REVNO)
+endif
 
 override_dh_auto_build:
 	@echo $(SCONS_ARGS)

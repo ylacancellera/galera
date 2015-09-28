@@ -46,6 +46,7 @@ Commandline Options:
     revno=XXXX          source code revision number
     bpostatic=path      a path to static libboost_program_options.a
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
+    version=X.X.X       galera version
 ''')
 # bpostatic option added on Percona request
 
