@@ -9,7 +9,8 @@
 
 #include "galera_info.hpp"
 
-#include "gu_debug_sync.hpp"
+#include <gu_debug_sync.hpp>
+#include <gu_abort.h>
 
 #include <sstream>
 #include <iostream>
@@ -58,14 +59,14 @@ apply_trx_ws(void*                    recv_ctx,
                 if (err > 0)
                 {
                     wsrep_bool_t unused(false);
-                    int const rcode(
+                    wsrep_cb_status const rcode(
                         commit_cb(
                             recv_ctx,
                             TrxHandle::trx_flags_to_wsrep_flags(trx.flags()),
                             &meta,
                             &unused,
                             false));
-                    if (WSREP_OK != rcode)
+                    if (WSREP_CB_SUCCESS != rcode)
                     {
                         gu_throw_fatal << "Rollback failed. Trx: " << trx;
                     }
@@ -129,7 +130,7 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     :
     init_lib_           (reinterpret_cast<gu_log_cb_t>(args->logger_cb)),
     config_             (),
-    init_config_        (config_, args->node_address),
+    init_config_        (config_, args->node_address, args->data_dir),
     parse_options_      (*this, config_, args->options),
     init_ssl_           (config_),
     str_proto_ver_      (-1),
@@ -139,11 +140,9 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     sst_state_          (SST_NONE),
     co_mode_            (CommitOrder::from_string(
                              config_.get(Param::commit_order))),
-    data_dir_           (args->data_dir ? args->data_dir : ""),
-    state_file_         (data_dir_.length() ?
-                         data_dir_+'/'+GALERA_STATE_FILE : GALERA_STATE_FILE),
+    state_file_         (config_.get(BASE_DIR)+'/'+GALERA_STATE_FILE),
     st_                 (state_file_),
-    trx_params_         (data_dir_, -1,
+    trx_params_         (config_.get(BASE_DIR), -1,
                          KeySet::version(config_.get(Param::key_format)),
                          gu::from_string<int>(config_.get(
                              Param::max_write_set_size))),
@@ -165,7 +164,7 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     sst_mutex_          (),
     sst_cond_           (),
     sst_retry_sec_      (1),
-    gcache_             (config_, data_dir_),
+    gcache_             (config_, config_.get(BASE_DIR)),
     gcs_                (config_, gcache_, proto_max_, args->proto_ver,
                          args->node_name, args->node_incoming),
     service_thd_        (gcs_, gcache_),
@@ -450,7 +449,7 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandle* trx)
             &exit_loop,
             true));
 
-    if (gu_unlikely (rcode > 0))
+    if (gu_unlikely (rcode != WSREP_CB_SUCCESS))
         gu_throw_fatal << "Commit failed. Trx: " << trx;
 
     if (gu_likely(co_mode_ != CommitOrder::BYPASS))
@@ -872,7 +871,7 @@ wsrep_status_t galera::ReplicatorSMM::replay_trx(TrxHandle* trx, void* trx_ctx)
                     &unused,
                     true));
 
-            if (gu_unlikely(rcode > 0))
+            if (gu_unlikely(rcode != WSREP_CB_SUCCESS))
                 gu_throw_fatal << "Commit failed. Trx: " << trx;
         }
         catch (gu::Exception& e)

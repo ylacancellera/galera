@@ -3,7 +3,7 @@
 # $Id$
 
 # Galera library version
-VERSION="25.3.9"
+VERSION="25.3.12"
 
 get_cores()
 {

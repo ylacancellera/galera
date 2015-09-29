@@ -144,8 +144,9 @@ extern "C" void* sender_thd(void* arg)
     mark_point();
 
     const sender_args* sargs(reinterpret_cast<const sender_args*>(arg));
+
     gu::Config conf;
-    galera::ReplicatorSMM::InitConfig(conf, NULL);
+    galera::ReplicatorSMM::InitConfig(conf, NULL, NULL);
     pthread_barrier_wait(&start_barrier);
     galera::ist::Sender sender(conf, sargs->gcache_, sargs->peer_,
                                sargs->version_);
@@ -159,6 +160,7 @@ extern "C" void* trx_thread(void* arg)
     trx_thread_args* targs(reinterpret_cast<trx_thread_args*>(arg));
     pthread_barrier_wait(&start_barrier);
     targs->receiver_.ready();
+
     while (true)
     {
         galera::TrxHandle* trx(0);
@@ -184,7 +186,7 @@ extern "C" void* receiver_thd(void* arg)
     receiver_args* rargs(reinterpret_cast<receiver_args*>(arg));
 
     gu::Config conf;
-    galera::ReplicatorSMM::InitConfig(conf, NULL);
+    galera::ReplicatorSMM::InitConfig(conf, NULL, NULL);
 
     mark_point();
 
@@ -250,7 +252,7 @@ static void test_ist_common(int const version)
     TrxHandle::Params const trx_params("", trx_version,
                                        galera::KeySet::MAX_VERSION);
     gu::Config conf;
-    galera::ReplicatorSMM::InitConfig(conf, NULL);
+    galera::ReplicatorSMM::InitConfig(conf, NULL, NULL);
     std::string gcache_file("ist_check.cache");
     conf.set("gcache.name", gcache_file);
     std::string dir(".");

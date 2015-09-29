@@ -158,7 +158,7 @@ namespace galera
 
         struct InitConfig
         {
-            InitConfig(gu::Config&, const char* node_address);
+            InitConfig(gu::Config&, const char* node_address, const char *base_dir);
         };
 
     private:
@@ -170,6 +170,7 @@ namespace galera
         {
             static const std::string base_host;
             static const std::string base_port;
+            static const std::string base_dir;
             static const std::string proto_max;
             static const std::string key_format;
             static const std::string commit_order;
@@ -284,6 +285,14 @@ namespace galera
                     unlock();
                     mutex.unlock();
                     GU_DBUG_SYNC_WAIT("apply_monitor_enter_sync");
+                    mutex.lock();
+                    lock();
+                }
+                else
+                {
+                    unlock();
+                    mutex.unlock();
+                    GU_DBUG_SYNC_WAIT("apply_monitor_slave_enter_sync");
                     mutex.lock();
                     lock();
                 }
@@ -446,6 +455,9 @@ namespace galera
                                      const void*         sst_req,
                                      ssize_t             sst_req_len);
 
+        wsrep_seqno_t donate_sst(void* recv_ctx, const StateRequest& streq,
+                                 const wsrep_gtid_t& state_id, bool bypass);
+
         /* local state seqno for internal use (macro mock up) */
         wsrep_seqno_t STATE_SEQNO(void) { return apply_monitor_.last_left(); }
 
@@ -499,7 +511,6 @@ namespace galera
         const CommitOrder::Mode co_mode_; // commit order mode
 
         // persistent data location
-        std::string           data_dir_;
         std::string           state_file_;
         SavedState            st_;
 
