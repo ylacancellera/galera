@@ -418,7 +418,7 @@ if strict_build_flags == 1:
 
 env = conf.Finish()
 
-Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options')
+Export('x86', 'bits', 'env', 'sysname', 'machine', 'libboost_program_options')
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
