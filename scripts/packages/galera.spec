@@ -182,7 +182,7 @@ install -m 644 $RBD/scripts/packages/README-MySQL $RBR%{docs}/README-MySQL
 
 install -d $RBR%{_mandir}
 install -d $RBR%{_mandir}/man8
-install -m 644 $RBD/man/garbd.1        $RBR%{_mandir}/man8/garbd.1
+install -m 644 $RBD/man/garbd.8        $RBR%{_mandir}/man8/garbd.8
 
 %pre
 
@@ -225,7 +225,7 @@ rm -f $(find %{libs} -type l)
 %doc %attr(0644,root,root) %{docs}/README
 %doc %attr(0644,root,root) %{docs}/README-MySQL
 
-%doc %attr(644, root, man) %{_mandir}/man8/garbd.1*
+%doc %attr(644, root, man) %{_mandir}/man8/garbd.8*
 
 %clean
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
