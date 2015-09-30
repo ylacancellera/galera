@@ -107,11 +107,7 @@ Requires: advance-toolchain-at7.0-runtime
 AutoReq: 0
 %endif
 
-Requires:      openssl nmap
-
-%if 0%{?centos} == 6
-Requires: nc
-%endif
+Requires:      openssl
 
 Provides:      wsrep, %{name} = %{version}-%{release}
 
