@@ -321,11 +321,7 @@ if boost == 1:
     conf.env.Append(CPPFLAGS = ' -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1')
 
     # Common procedure to find boost static library
-    if bits == 64:
-        boost_libpaths = [ boost_library_path, '/usr/lib64', '/usr/local/lib64' ]
-    else:
-        boost_libpaths = [ boost_library_path, '/usr/local/lib', '/usr/lib' ]
-
+    boost_libpaths = [ boost_library_path, '/usr/local/lib', '/usr/local/lib64', '/usr/lib', '/usr/lib64' ]
     def check_boost_library(libBaseName, header, configuredLibPath, autoadd = 1):
         libName = libBaseName + boost_library_suffix
         if configuredLibPath != '' and not os.path.isfile(configuredLibPath):
