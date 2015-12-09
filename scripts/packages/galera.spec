@@ -61,7 +61,7 @@ BuildRequires: openssl-devel
 BuildRequires: scons
 %if 0%{?suse_version} == 1110
 # On SLES11 SPx use the linked gcc47 to build instead of default gcc43
-BuildRequires: gcc47 gcc47-c++
+#BuildRequires: gcc47 gcc47-c++
 # On SLES11 SP2 the libgfortran.3.so provider must be explicitly defined
 BuildRequires: libgfortran3
 # On SLES11 we got error "conflict for provider of libgcc_s1 >= 4.7.4_20140612-2.1
