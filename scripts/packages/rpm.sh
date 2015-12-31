@@ -59,7 +59,7 @@ $(which rpmbuild) --clean --define "_topdir $RPM_TOP_DIR" \
                   --define "$DIST_TAG" \
                   -bb $GALERA_SPEC
 
-RPM_ARCH=$(uname -m)
+RPM_ARCH=$(rpm --showrc | grep "^build arch" | awk '{print $4}')
 
 mv $RPM_TOP_DIR/RPMS/$RPM_ARCH/galera-*.rpm ./
 
