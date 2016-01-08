@@ -76,6 +76,7 @@ public:
       impl = ::SSL_CTX_new(::SSLv2_server_method());
       break;
 */
+/* Not available since 1.0.2
     case context_base::sslv3:
       impl = ::SSL_CTX_new(::SSLv3_method());
       break;
@@ -85,6 +86,7 @@ public:
     case context_base::sslv3_server:
       impl = ::SSL_CTX_new(::SSLv3_server_method());
       break;
+*/
     case context_base::tlsv1:
       impl = ::SSL_CTX_new(::TLSv1_method());
       break;
