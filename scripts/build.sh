@@ -105,6 +105,14 @@ then
     echo "$CC"  | grep "ccache" > /dev/null || CC="ccache $CC"
     echo "$CXX" | grep "ccache" > /dev/null || CXX="ccache $CXX"
 fi
+
+# MariaDB centos5 buildbot image requires LD_LIBRARY_PATH to /usr/local/lib
+if [ -r /etc/redhat-release ]; then
+  if grep 'CentOS release 5' /etc/redhat-release > /dev/null 2>&1; then
+    LD_LIBRARY_PATH=/usr/local/lib64/:/usr/local/lib/:${LD_LIBRARY_PATH:-}
+  fi
+fi
+
 export CC CXX LD_LIBRARY_PATH
 
 CFLAGS=${CFLAGS:-"-O2"}
@@ -205,27 +213,6 @@ do
     shift
 done
 
-# check whether sudo accepts -E to preserve environment
-if [ "$PACKAGE" == "yes" ]
-then
-    echo "testing sudo"
-    if sudo -E $true >/dev/null 2>&1
-    then
-        echo "sudo accepts -E"
-        SUDO="sudo -E"
-    else
-        echo "sudo does not accept param -E"
-        if [ $(id -ur) != 0 ]
-        then
-            echo "error, must build as root"
-            exit 1
-        else
-            echo "I'm root, can continue"
-            SUDO=""
-        fi
-    fi
-fi
-
 if [ "$OPT"   == "yes" ]; then CONFIGURE="yes";
    conf_flags="--disable-debug --disable-dbug";
 fi
@@ -292,7 +279,7 @@ build_packages()
     local STRIP_OPT=""
     [ "$NO_STRIP" == "yes" ] && STRIP_OPT="-g"
 
-    $SUDO rm -rf $ARCH
+    rm -rf $ARCH
 
     set +e
     if [ $DEBIAN -ne 0 ]; then # build DEB
