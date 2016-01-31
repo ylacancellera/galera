@@ -43,6 +43,7 @@ Options:
     --scons         build using Scons build system (yes)
     --so            Sconscript option
     -j|--jobs       how many parallel jobs to use for Scons (1)
+    -a|--archive    Generate source archive (tar.gz)
     "\nSet DISABLE_GCOMM/DISABLE_VSBES to 'yes' to disable respective modules"
 EOF
 }
@@ -65,6 +66,8 @@ OPT="yes"
 NO_STRIP=${NO_STRIP:-"no"}
 WITH_SPREAD="no"
 RUN_TESTS=${RUN_TESTS:-1}
+ARCHIVE=${ARCHIVE:-"no"}
+
 if [ "$OS" == "FreeBSD" ]; then
   chown=/usr/sbin/chown
   true=/usr/bin/true
@@ -202,6 +205,9 @@ do
             DEBUG_LEVEL=$2
             shift
             ;;
+        -a|--archive)
+            ARCHIVE="yes"   # Generate source archive
+            ;;
         *)
             if test ! -z "$1"; then
                echo "Unrecognized option: $1"
@@ -319,6 +325,14 @@ build_packages()
     return $RET
 }
 
+gen_source_archive()
+{
+  SOURCE_DIR="galera-$VERSION"
+  rm -rf "$SOURCE_DIR.tar.gz" "$SOURCE_DIR"
+  git checkout-index -a --prefix="$SOURCE_DIR/"
+  tar czf "$SOURCE_DIR.tar.gz" "$SOURCE_DIR"
+}
+
 build_source()
 {
     local module="$1"
@@ -393,6 +407,12 @@ elif test "$SKIP_BUILD" == "no"; then # Build using autotools
     echo "Error: autotools not supported anymore! Nothing was built."
     exit 1
 fi # SKIP_BUILD / SCONS
+
+if test "$ARCHIVE" == "yes"
+then
+    echo "Generating source archive ..."
+    gen_source_archive
+fi
 
 if test "$PACKAGE" == "yes"
 then
