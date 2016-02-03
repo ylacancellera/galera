@@ -185,7 +185,8 @@ if sysname == 'freebsd' or sysname == 'sunos':
 if sysname == 'sunos':
     env.Replace(SHLINKFLAGS = '-shared ')
 if sysname == 'linux' and (machine == 'ppc64' or machine == 'ppc64le'):
-    env.Append(LIBPATH = ['/opt/at7.1/lib64/'])
+    env.Append(LIBPATH = ['/opt/at8.0/lib64/'])
+    env.Append(LIBPATH = ['/opt/at7.0/lib64/'])
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
