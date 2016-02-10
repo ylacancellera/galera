@@ -71,7 +71,7 @@ BuildRequires: libgfortran3
 # of libstdc++6 >= 4.7.4_20140612-2.1 needed by libstdc++47-devel,
 # (provider libstdc++6 conflicts with installed libstdc++43)
 # therefore:
-BuildRequires: libgcc_s1
+#BuildRequires: libgcc_s1
 BuildRequires: libgomp1
 BuildRequires: libstdc++6
 #!BuildIgnore: libgcc43

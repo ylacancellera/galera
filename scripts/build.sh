@@ -109,9 +109,15 @@ then
     echo "$CXX" | grep "ccache" > /dev/null || CXX="ccache $CXX"
 fi
 
-# MariaDB centos5 buildbot image requires LD_LIBRARY_PATH to /usr/local/lib
+# MariaDB Centos5 & SLES-SP1 buildbot images require LD_LIBRARY_PATH to
+# /usr/local/lib
 if [ -r /etc/redhat-release ]; then
   if grep 'CentOS release 5' /etc/redhat-release > /dev/null 2>&1; then
+    LD_LIBRARY_PATH=/usr/local/lib64/:/usr/local/lib/:${LD_LIBRARY_PATH:-}
+  fi
+fi
+if [ -r /etc/issue ]; then
+  if grep 'SUSE Linux Enterprise Server 11 SP1' /etc/issue > /dev/null 2>&1; then
     LD_LIBRARY_PATH=/usr/local/lib64/:/usr/local/lib/:${LD_LIBRARY_PATH:-}
   fi
 fi
