@@ -93,7 +93,7 @@ BuildRequires: systemd
 
 %ifarch ppc64le 
 %if 0%{?rhel} >= 7
-Requires: advance-toolchain-at8.0-rc1-runtime
+Requires: advance-toolchain-at8.0-runtime
 %endif
 AutoReq: 0
 %endif
