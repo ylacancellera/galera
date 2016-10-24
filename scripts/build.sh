@@ -233,7 +233,7 @@ if [ -n "$WITH_SPREAD" ]; then CONFIGURE="yes"; fi
 
 if [ "$CONFIGURE" == "yes" ] && [ "$SCONS" != "yes" ]; then SCRATCH="yes"; fi
 
-# MariaDB Centos5 require -d otherwise tests fails MDEV-8249
+#A workaround to fix MDEV-8249 on Centos 5.
 if [ -r /etc/redhat-release ]; then
   if grep 'CentOS release 5' /etc/redhat-release > /dev/null 2>&1; then
     DEBUG="yes"
