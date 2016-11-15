@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2010-2014 Codership Oy <info@codership.com>
+// Copyright (C) 2010-2016 Codership Oy <info@codership.com>
 //
 
 
@@ -36,7 +36,11 @@ namespace galera
     public:
 
         /* signed int here is to detect SIZE < sizeof(TrxHandle) */
-        static int const LOCAL_STORAGE_SIZE = GU_PAGE_SIZE * 2; // 8K
+        static size_t LOCAL_STORAGE_SIZE()
+        {
+            static size_t const ret(gu_page_size_multiple(1 << 13 /* 8Kb */));
+            return ret;
+        }
 
         struct Params
         {
@@ -288,6 +292,18 @@ namespace galera
                 assert(WSREP_SEQNO_UNDEFINED == last_seen_seqno_);
                 last_seen_seqno_ = global_seqno_ - 1;
             }
+        }
+
+        /* obtain global and depends seqno from the writeset (IST) */
+        void set_received_from_ws()
+        {
+            wsrep_seqno_t const seqno_g(write_set_in_.seqno());
+            set_received(0, -1, seqno_g);
+            wsrep_seqno_t const seqno_d
+                (std::max<wsrep_seqno_t>
+                    (global_seqno_ - write_set_in_.pa_range(),
+                     WSREP_SEQNO_UNDEFINED));
+            set_depends_seqno(seqno_d);
         }
 
         void set_last_seen_seqno(wsrep_seqno_t last_seen_seqno)
