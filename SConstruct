@@ -199,13 +199,6 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(CPPFLAGS = ' -I/usr/local/include ')
 if sysname == 'sunos':
     env.Replace(SHLINKFLAGS = '-shared ')
-if sysname == 'linux' and (machine == 'ppc64' or machine == 'ppc64le'):
-    # Special case for P8 RHEL 6.5
-    if (platform.linux_distribution()[0] == 'Red Hat Enterprise Linux Server' and
-        platform.linux_distribution()[1] == '6.5'):
-        env.Append(LIBPATH = ['/opt/at7.0/lib64/'])
-    else:
-        env.Append(LIBPATH = ['/opt/at8.0/lib64/'])
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
