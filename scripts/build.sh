@@ -1,9 +1,11 @@
-#!/bin/bash -eu
+#!/usr/bin/env bash
+
+set -eu
 
 # $Id$
 
 # Galera library version
-VERSION="25.3.20"
+VERSION="25.3.22"
 
 get_cores()
 {
@@ -399,7 +401,7 @@ if [ "$SCONS" == "yes" ] # Build using Scons
 then
     # Scons variant dir, defaults to GALERA_SRC
     export SCONS_VD=$build_base
-    scons_args="-C $build_base version=$GALERA_VER revno=$GALERA_REV tests=$RUN_TESTS"
+    scons_args="-C $build_base version=$GALERA_VER revno=$GALERA_REV tests=$RUN_TESTS strict_build_flags=1"
 
     [ -n "$TARGET"        ] && scons_args="$scons_args arch=$TARGET"
     [ -n "$RELEASE"       ] && scons_args="$scons_args version=$RELEASE"
