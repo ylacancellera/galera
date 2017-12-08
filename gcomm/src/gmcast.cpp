@@ -335,7 +335,7 @@ void gcomm::GMCast::close(bool force)
 {
     log_debug << "gmcast " << uuid() << " close";
     pstack_.pop_proto(this);
-    if (mcast_ != 0)
+    if (mcast_)
     {
         mcast_->close();
         // delete mcast;
@@ -609,8 +609,8 @@ void gcomm::GMCast::handle_established(Proto* est)
     else if (AddrList::value(i).uuid() != est->remote_uuid())
     {
         log_info << "remote endpoint " << est->remote_addr()
-                 << " changed identity " << AddrList::value(i).uuid()
-                 << " -> " << est->remote_uuid();
+                 << " changed identity " << AddrList::value(i).uuid().full_str()
+                 << " -> " << est->remote_uuid().full_str();
         remote_addrs_.erase(i);
         i = remote_addrs_.insert_unique(
             make_pair(est->remote_addr(),
@@ -901,7 +901,7 @@ void gcomm::GMCast::update_addresses()
 
     Segment& local_segment(segment_map_[segment_]);
 
-    if (mcast_ != 0)
+    if (mcast_)
     {
         log_debug << mcast_addr_;
         local_segment.push_back(mcast_.get());
@@ -1292,7 +1292,7 @@ void gcomm::GMCast::handle_up(const void*        id,
     {
         gmcast_accept();
     }
-    else if (mcast_.get() != 0 && id == mcast_->id())
+    else if (mcast_ && id == mcast_->id())
     {
         Message msg;
 

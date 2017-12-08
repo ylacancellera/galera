@@ -105,9 +105,15 @@ namespace galera
             F_NATIVE      = 1 << 5
         };
 
-        /* this takes care of converting wsrep API flags to on-the-wire flags */
-        static uint32_t
-        wsrep_flags_to_ws_flags (uint32_t const flags);
+        static bool const FLAGS_MATCH_API_FLAGS =
+                           (WSREP_FLAG_TRX_END     == F_COMMIT       &&
+                            WSREP_FLAG_ROLLBACK    == F_ROLLBACK     &&
+                            WSREP_FLAG_ISOLATION   == F_TOI          &&
+                            WSREP_FLAG_PA_UNSAFE   == F_PA_UNSAFE    &&
+                            WSREP_FLAG_COMMUTATIVE == F_COMMUTATIVE  &&
+                            WSREP_FLAG_NATIVE      == F_NATIVE);
+
+        static uint32_t wsrep_flags_to_ws_flags (uint32_t flags);
 
         typedef gu::RecordSet::GatherVector GatherVector;
 
@@ -130,7 +136,12 @@ namespace galera
             {
                 switch (ver)
                 {
-                case VER3: return V3_SIZE;
+                case VER3:
+                {
+                    GU_COMPILE_ASSERT(0 == (V3_SIZE % GU_MIN_ALIGNMENT),
+                                      unaligned_header_size);
+                    return V3_SIZE;
+                }
                 }
 
                 log_fatal << "Unknown writeset version: " << ver;
@@ -143,6 +154,7 @@ namespace galera
             Header (Version ver)
             : local_(), ptr_(local_), ver_(ver), size_(size(ver)), chksm_()
             {
+                assert((uintptr_t(ptr_) % GU_WORD_BYTES) == 0);
                 assert (size_t(size_) <= sizeof(local_));
             }
 
@@ -157,17 +169,13 @@ namespace galera
                            GatherVector&          out);
 
             /* records last_seen, timestamp and CRC before replication */
-            void set_last_seen (const wsrep_seqno_t& ls);
+            void finalize(wsrep_seqno_t ls, int pa_range);
 
             /* records partial seqno, pa_range, timestamp and CRC before
              * replication (for preordered events)*/
-            void set_preordered (uint16_t pa_range)
+            void finalize_preordered(uint16_t pa_range)
             {
-                uint16_t* const pa(reinterpret_cast<uint16_t*>
-                                   (ptr_ + V3_PA_RANGE_OFF));
-
-                *pa = gu::htog<uint16_t>(pa_range);
-                set_last_seen (0);
+                finalize(0, pa_range);
             }
 
             /* This is for WriteSetIn */
@@ -175,12 +183,13 @@ namespace galera
             Header (const gu::Buf& buf)
                 :
                 local_(),
-                ptr_  (reinterpret_cast<gu::byte_t*>(
-                           const_cast<void*>(buf.ptr))),
+                ptr_  (static_cast<gu::byte_t*>(const_cast<void*>(buf.ptr))),
                 ver_  (version(buf)),
                 size_ (check_size(ver_, ptr_, buf.size)),
                 chksm_(ver_, ptr_, size_)
-            {}
+            {
+                assert((uintptr_t(ptr_) % GU_WORD_BYTES) == 0);
+            }
 
             Header () : local_(), ptr_(NULL), ver_(), size_(0), chksm_()
             {}
@@ -189,9 +198,8 @@ namespace galera
             void read_buf (const gu::Buf& buf)
             {
                 ver_ = version(buf);
-                ptr_ =
-                    reinterpret_cast<gu::byte_t*>(const_cast<void*>(buf.ptr));
-                size_ = check_size (ver_, ptr_, buf.size);
+                ptr_ = static_cast<gu::byte_t*>(const_cast<void*>(buf.ptr));
+                gu_trace(size_ = check_size (ver_, ptr_, buf.size));
                 Checksum::verify(ver_, ptr_, size_);
             }
 
@@ -236,16 +244,16 @@ namespace galera
 
             uint16_t         flags() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint16_t*>(ptr_ + V3_FLAGS_OFF))
-                    );
+                uint16_t ret;
+                gu::unserialize2(ptr_, V3_FLAGS_OFF, ret);
+                return ret;
             }
 
             uint16_t         pa_range() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint16_t*>(ptr_ + V3_PA_RANGE_OFF))
-                    );
+                uint16_t ret;
+                gu::unserialize2(ptr_, V3_PA_RANGE_OFF, ret);
+                return ret;
             }
 
             wsrep_seqno_t    last_seen() const
@@ -262,29 +270,33 @@ namespace galera
 
             long long        timestamp() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint64_t*>(ptr_+ V3_TIMESTAMP_OFF))
-                    );
+                long long ret;
+                gu::unserialize8(ptr_, V3_TIMESTAMP_OFF, ret);
+                return ret;
             }
 
             const wsrep_uuid_t& source_id() const
             {
+                /* This one is tricky. I would not like to create a copy
+                 * of 16 bytes for the sole purpose of referencing it when
+                 * alignment in the buffer is already guaranteed */
+                assert(uintptr_t(ptr_ + V3_SOURCE_ID_OFF)%GU_WORD_BYTES == 0);
                 return *(reinterpret_cast<const wsrep_uuid_t*>
                          (ptr_ + V3_SOURCE_ID_OFF));
             }
 
-            wsrep_trx_id_t conn_id() const
+            wsrep_conn_id_t conn_id() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint64_t*>(ptr_ + V3_CONN_ID_OFF))
-                    );
+                wsrep_conn_id_t ret;
+                gu::unserialize8(ptr_, V3_CONN_ID_OFF, ret);
+                return ret;
             }
 
             wsrep_trx_id_t trx_id() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint64_t*>(ptr_ + V3_TRX_ID_OFF))
-                    );
+                wsrep_trx_id_t ret;
+                gu::unserialize8(ptr_, V3_TRX_ID_OFF, ret);
+                return ret;
             }
 
             const gu::byte_t* payload() const
@@ -292,18 +304,8 @@ namespace galera
                 return ptr_ + size();
             }
 
-            uint64_t get_checksum() const
-            {
-                const void* const checksum_ptr
-                    (reinterpret_cast<const gu::byte_t*>(ptr_) + size_ -
-                     V3_CHECKSUM_SIZE);
-
-                return gu::gtoh<Checksum::type_t>(
-                    *(static_cast<const Checksum::type_t*>(checksum_ptr)));
-            }
-
             /* to set seqno and parallel applying range after certification */
-            void set_seqno(const wsrep_seqno_t& seqno, uint16_t pa_range);
+            void set_seqno(wsrep_seqno_t seqno, uint16_t pa_range);
 
             gu::Buf copy(bool include_keys, bool include_unrd) const;
 
@@ -335,12 +337,10 @@ namespace galera
             public:
                 typedef uint64_t type_t;
 
-                /* produce value (corrected for endianness) */
                 static void
                 compute (const void* ptr, size_t size, type_t& value)
                 {
                     gu::FastHash::digest (ptr, size, value);
-                    value = gu::htog<type_t>(value);
                 }
 
                 static void
@@ -421,9 +421,9 @@ namespace galera
 
             wsrep_seqno_t seqno_priv() const
             {
-                return gu::gtoh(
-                    *(reinterpret_cast<const uint64_t*>(ptr_+ V3_LAST_SEEN_OFF))
-                    );
+                wsrep_seqno_t ret;
+                gu::unserialize8(ptr_, V3_LAST_SEEN_OFF, ret);
+                return ret;
             }
 
             static void
@@ -431,31 +431,24 @@ namespace galera
             {
                 Checksum::type_t cval;
                 Checksum::compute (ptr, size, cval);
-                *reinterpret_cast<Checksum::type_t*>(ptr + size) = cval;
+                gu::serialize(cval, ptr, size);
             }
         }; /* class Header */
 
     private:
 
-        static bool const WRITESET_FLAGS_MATCH_API_FLAGS =
-                           (WSREP_FLAG_COMMIT      == F_COMMIT       &&
-                            WSREP_FLAG_ROLLBACK    == F_ROLLBACK     &&
-                            WSREP_FLAG_ISOLATION   == F_TOI          &&
-                            WSREP_FLAG_PA_UNSAFE   == F_PA_UNSAFE    &&
-                            WSREP_FLAG_COMMUTATIVE == F_COMMUTATIVE  &&
-                            WSREP_FLAG_NATIVE      == F_NATIVE);
-
         /* this assert should be removed when wsrep API flags become
          * explicitly incompatible with wirteset flags */
-        GU_COMPILE_ASSERT(WRITESET_FLAGS_MATCH_API_FLAGS, flags_incompatible);
+        GU_COMPILE_ASSERT(FLAGS_MATCH_API_FLAGS, flags_incompatible);
 
-        template<bool>
+        template <bool>
         static inline uint32_t
         wsrep_flags_to_ws_flags_tmpl (uint32_t const flags)
         {
+            assert(0); // remove when needed
             uint32_t ret(0);
 
-            if (flags & WSREP_FLAG_COMMIT)      ret |= F_COMMIT;
+            if (flags & WSREP_FLAG_TRX_END)     ret |= F_COMMIT;
             if (flags & WSREP_FLAG_ROLLBACK)    ret |= F_ROLLBACK;
             if (flags & WSREP_FLAG_ISOLATION)   ret |= F_TOI;
             if (flags & WSREP_FLAG_PA_UNSAFE)   ret |= F_PA_UNSAFE;
@@ -467,17 +460,13 @@ namespace galera
 
     }; /* class WriteSetNG */
 
-    /* specialization for the case when WS flags fully match API flags */
     template <> inline uint32_t
     WriteSetNG::wsrep_flags_to_ws_flags_tmpl<true>(uint32_t const flags)
     { return flags; }
 
     inline uint32_t
     WriteSetNG::wsrep_flags_to_ws_flags (uint32_t const flags)
-    {
-        return wsrep_flags_to_ws_flags_tmpl<WRITESET_FLAGS_MATCH_API_FLAGS>
-            (flags);
-    }
+    { return wsrep_flags_to_ws_flags_tmpl<FLAGS_MATCH_API_FLAGS>(flags); }
 
     class WriteSetOut
     {
@@ -491,6 +480,7 @@ namespace galera
                      gu::byte_t*             reserved,
                      size_t                  reserved_size,
                      uint16_t                flags    = 0,
+                     gu::RecordSet::Version  rsv      = gu::RecordSet::VER2,
                      WriteSetNG::Version     ver      = WriteSetNG::MAX_VERSION,
                      DataSet::Version        dver     = DataSet::MAX_VERSION,
                      DataSet::Version        uver     = DataSet::MAX_VERSION,
@@ -502,20 +492,22 @@ namespace galera
             kbn_   (base_name_),
             keys_  (reserved,
                     (reserved_size >>= 6, reserved_size <<= 3, reserved_size),
-                    kbn_, kver),
+                    kbn_, kver, rsv),
             /* 5/8 of reserved goes to data set  */
             dbn_   (base_name_),
-            data_  (reserved + reserved_size, reserved_size*5, dbn_, dver),
+            data_  (reserved + reserved_size, reserved_size*5, dbn_, dver, rsv),
             /* 2/8 of reserved goes to unordered set  */
             ubn_   (base_name_),
-            unrd_  (reserved + reserved_size*6, reserved_size*2, ubn_, uver),
+            unrd_  (reserved + reserved_size*6, reserved_size*2, ubn_, uver,rsv),
             /* annotation set is not allocated unless requested */
             abn_   (base_name_),
             annt_  (NULL),
             left_  (max_size - keys_.size() - data_.size() - unrd_.size()
                     - header_.size()),
             flags_ (flags)
-        {}
+        {
+            assert ((uintptr_t(reserved) % GU_WORD_BYTES) == 0);
+        }
 
         ~WriteSetOut() { delete annt_; }
 
@@ -538,7 +530,9 @@ namespace galera
         {
             if (NULL == annt_)
             {
-                annt_ = new DataSetOut(NULL, 0, abn_, DataSet::MAX_VERSION);
+                annt_ = new DataSetOut(NULL, 0, abn_, DataSet::MAX_VERSION,
+                                       // use the same version as the dataset
+                                       data_.gu::RecordSet::version());
                 left_ -= annt_->size();
             }
 
@@ -558,13 +552,14 @@ namespace galera
 
 
         /* !!! This returns header without checksum! *
-         *     Use set_last_seen() to finalize it.   */
+         *     Use finalize() to finalize it.   */
         size_t gather(const wsrep_uuid_t&       source,
                       const wsrep_conn_id_t&    conn,
                       const wsrep_trx_id_t&     trx,
                       WriteSetNG::GatherVector& out)
         {
-            check_size();
+            assert(flags_ != 0);
+            gu_trace(check_size());
 
             out->reserve (out->size() + keys_.page_count() + data_.page_count()
                           + unrd_.page_count() + 1 /* global header */);
@@ -576,6 +571,7 @@ namespace galera
                                              NULL != annt_,
                                              flags_, source, conn, trx,
                                              out));
+            assert(header_.flags() == flags_);
 
             out_size += keys_.gather(out);
             out_size += data_.gather(out);
@@ -586,12 +582,36 @@ namespace galera
             return out_size;
         }
 
-        void set_last_seen (const wsrep_seqno_t& ls)
+        void finalize(wsrep_seqno_t const ls, int const pa_range)
         {
-            header_.set_last_seen(ls);
+            header_.finalize(ls, pa_range);
         }
 
-        void set_preordered (ssize_t pa_range)
+        /* Serializes wiriteset into a single buffer (for unit test purposes)
+         * set last_seen to -1 if ws was explicitly finalized */
+        void serialize(std::vector<gu::byte_t>& ret,
+                       const wsrep_uuid_t&      source,
+                       const wsrep_conn_id_t&   conn,
+                       const wsrep_trx_id_t&    trx,
+                       const wsrep_seqno_t      last_seen,
+                       const int                pa_range = -1)
+        {
+            WriteSetNG::GatherVector out;
+            size_t const out_size(gather(source, conn, trx, out));
+            finalize(last_seen, pa_range);
+
+            ret.clear(); ret.reserve(out_size);
+
+            /* concatenate all out buffers into ret */
+            for (size_t i(0); i < out->size(); ++i)
+            {
+                const gu::byte_t* ptr
+                    (static_cast<const gu::byte_t*>(out[i].ptr));
+                ret.insert (ret.end(), ptr, ptr + out[i].size);
+            }
+        }
+
+        void finalize_preordered (ssize_t pa_range)
         {
             assert (pa_range >= 0);
 
@@ -599,11 +619,7 @@ namespace galera
              * 0 meaning failed certification. */
             pa_range++;
 
-            /* cap PA range by maximum we can represent */
-            if (gu_unlikely(pa_range > WriteSetNG::MAX_PA_RANGE))
-                pa_range = WriteSetNG::MAX_PA_RANGE;
-
-            header_.set_preordered(pa_range + 1);
+            header_.finalize_preordered(pa_range);
         }
 
     private:
@@ -683,7 +699,7 @@ namespace galera
               check_thr_(false),
               check_ (false)
         {
-            init (st);
+            gu_trace(init(st));
         }
 
         WriteSetIn ()
@@ -698,23 +714,34 @@ namespace galera
               check_ (false)
         {}
 
-        /* WriteSetIn(buf) == WriteSetIn() + read_buf(buf) */
-        void read_buf (const gu::Buf& buf, ssize_t const st = SIZE_THRESHOLD)
+        void read_header (const gu::Buf& buf)
         {
             assert (0 == size_);
             assert (false == check_);
 
             header_.read_buf (buf);
             size_ = buf.size;
-            init (st);
         }
 
-        void read_buf (const gu::byte_t* const ptr, ssize_t const len)
+        /*
+         * WriteSetIn(buf) == WriteSetIn() + read_buf(buf)
+         *
+         * @param st threshold at which launch dedicated thread for checksumming
+         *           0 - no checksumming
+         */
+        void read_buf (const gu::Buf& buf, ssize_t const st = SIZE_THRESHOLD)
+        {
+            read_header (buf);
+            gu_trace(init(st));
+        }
+
+        void read_buf (const void* const ptr, ssize_t const len,
+                       ssize_t const st = SIZE_THRESHOLD)
         {
             assert (ptr != NULL);
             assert (len >= 0);
-            gu::Buf tmp = { ptr, len };
-            read_buf (tmp);
+            gu::Buf tmp = { static_cast<const gu::byte_t*>(ptr), len };
+            read_buf (tmp, st);
         }
 
         ~WriteSetIn ()
@@ -728,10 +755,11 @@ namespace galera
             delete annt_;
         }
 
-        size_t        size()      const { return size_;               }
+        WriteSetNG::Version version()   const { return header_.version(); }
+
+        ssize_t       size()      const { return size_;               }
         uint16_t      flags()     const { return header_.flags();     }
-        bool          is_toi()    const
-        { return flags() & WriteSetNG::F_TOI; }
+        bool          is_toi()    const { return flags() & WriteSetNG::F_TOI; }
         bool          pa_unsafe() const
         { return flags() & WriteSetNG::F_PA_UNSAFE; }
         int           pa_range()  const { return header_.pa_range();  }
@@ -760,7 +788,7 @@ namespace galera
                 /* checksum was performed in a parallel thread */
                 gu_thread_join (check_thr_id_, NULL);
                 check_thr_ = false;
-                checksum_fin();
+                gu_trace(checksum_fin());
             }
         }
 
@@ -771,7 +799,7 @@ namespace galera
             return (data_.get_checksum());
         }
 
-        void set_seqno(const wsrep_seqno_t& seqno, ssize_t pa_range)
+        void set_seqno(wsrep_seqno_t const seqno, int pa_range)
         {
             assert (seqno    >  0);
             assert (pa_range >= 0);

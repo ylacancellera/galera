@@ -1,7 +1,8 @@
-// Copyright (C) 2009-2013 Codership Oy <info@codership.com>
+// Copyright (C) 2009-2017 Codership Oy <info@codership.com>
 
 #include "galera_info.hpp"
 #include <galerautils.h>
+#include <gu_uuid.hpp>
 #include <string.h>
 
 static size_t
@@ -33,7 +34,6 @@ wsrep_view_info_t* galera_view_info_create (const gcs_act_conf_t* conf,
             ret->view      = conf->conf_id;
             ret->status    = conf->conf_id != -1 ?
                 WSREP_VIEW_PRIMARY : WSREP_VIEW_NON_PRIMARY;
-            ret->state_gap = st_required;
             ret->my_idx    = conf->my_idx;
             ret->memb_num  = conf->memb_num;
             ret->proto_ver = conf->appl_proto_ver;
@@ -42,8 +42,7 @@ wsrep_view_info_t* galera_view_info_create (const gcs_act_conf_t* conf,
                 wsrep_member_info_t* member = &ret->members[m];
 
                 size_t id_len = strlen(str);
-                gu_uuid_scan (str, id_len,
-                              reinterpret_cast<gu_uuid_t*>(&member->id));
+                gu_uuid_from_string(str, member->id);
                 str = str + id_len + 1;
 
                 strncpy(member->name, str, sizeof(member->name) - 1);
@@ -62,7 +61,6 @@ wsrep_view_info_t* galera_view_info_create (const gcs_act_conf_t* conf,
             memset(&ret->state_id, 0, sizeof(ret->state_id));
             ret->view = -1;
             ret->status = WSREP_VIEW_NON_PRIMARY;
-            ret->state_gap = false;
             ret->my_idx = -1;
             ret->memb_num = 0;
             ret->proto_ver = -1;

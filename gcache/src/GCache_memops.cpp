@@ -11,6 +11,7 @@ namespace gcache
     bool
     GCache::discard_seqno (int64_t seqno)
     {
+        assert(mtx.locked() && mtx.owned());
         for (seqno2ptr_t::iterator i = seqno2ptr.begin();
              i != seqno2ptr.end() && i->first <= seqno;)
         {
@@ -54,7 +55,7 @@ namespace gcache
 
         if (gu_likely(s > 0))
         {
-            size_type const size(s + sizeof(BufferHeader));
+            size_type const size(MemOps::align_size(s + sizeof(BufferHeader)));
 
             gu::Lock lock(mtx);
 
@@ -71,6 +72,8 @@ namespace gcache
 #endif
         }
 
+        assert((uintptr_t(ptr) % MemOps::ALIGNMENT) == 0);
+
         return ptr;
     }
 
@@ -83,13 +86,13 @@ namespace gcache
         if (gu_likely(SEQNO_NONE != bh->seqno_g))
         {
 #ifndef NDEBUG
-            if (!(seqno_released + 1 == bh->seqno_g ||
+            if (!(seqno_released < bh->seqno_g ||
                   SEQNO_NONE == seqno_released))
             {
                 log_fatal << "OOO release: seqno_released " << seqno_released
                           << ", releasing " << bh->seqno_g;
             }
-            assert(seqno_released + 1 == bh->seqno_g ||
+            assert(seqno_released < bh->seqno_g ||
                    SEQNO_NONE == seqno_released);
 #endif
             seqno_released = bh->seqno_g;
@@ -157,7 +160,9 @@ namespace gcache
             return NULL;
         }
 
-        size_type const size(s + sizeof(BufferHeader));
+        assert((uintptr_t(ptr) % MemOps::ALIGNMENT) == 0);
+
+        size_type const size(MemOps::align_size(s + sizeof(BufferHeader)));
 
         void*               new_ptr(NULL);
         BufferHeader* const bh(ptr2BH(ptr));
@@ -210,6 +215,7 @@ namespace gcache
 
         }
 #endif
+        assert((uintptr_t(new_ptr) % MemOps::ALIGNMENT) == 0);
 
         return new_ptr;
     }

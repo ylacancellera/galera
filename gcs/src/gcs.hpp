@@ -17,6 +17,7 @@
 #include <gu_buf.h>
 #include <gu_errno.h>
 #include <gu_uuid.h>
+#include <gu_gtid.hpp>
 #include <gu_status.hpp>
 
 #include <stdint.h>
@@ -66,17 +67,15 @@ gcs_create  (gu_config_t* conf, gcache_t* cache,
  *
  * This function must be called before gcs_open() or after gcs_close().
  *
- * @param seqno Sequence number of the application state (last action applied).
- *              Should be negative for undefined state.
- * @param uuid  UUID of the sequence (group ID).
- *              Should be all zeroes for undefined state.
+ * @param position Global Transaction ID corresponding to the current
+ *                 application state.
+ *                 Should be undefined for undefined state.
  *
  * @return 0 in case of success, -EBUSY if conneciton is already opened,
  *         -EBADFD if connection object is being destroyed.
  */
-extern long gcs_init (gcs_conn_t   *conn,
-                      gcs_seqno_t   seqno,
-                      const uint8_t uuid[GCS_UUID_LEN]);
+extern long gcs_init (gcs_conn_t*     conn,
+                      const gu::GTID& position);
 
 /*! @brief Opens connection to group (joins channel).
  *
@@ -172,6 +171,7 @@ extern const char* gcs_act_type_to_str(gcs_act_type_t);
  * @param act_size   total action size (the sum of buffer sizes)
  * @param act_type   action type
  * @param scheduled  whether the call was scheduled by gcs_schedule()
+ * @param grab       use gcs_sm_grab() instead of gcs_sm_enter()
  * @return           negative error code, action size in case of success
  * @retval -EINTR    thread was interrupted while waiting to enter the monitor
  */
@@ -179,7 +179,8 @@ extern long gcs_sendv (gcs_conn_t*          conn,
                        const struct gu_buf* act_bufs,
                        size_t               act_size,
                        gcs_act_type_t       act_type,
-                       bool                 scheduled);
+                       bool                 scheduled,
+                       bool                 grab);
 
 /*! A wrapper for single buffer communication */
 static inline long gcs_send (gcs_conn_t*    const conn,
@@ -189,17 +190,19 @@ static inline long gcs_send (gcs_conn_t*    const conn,
                              bool           const scheduled)
 {
     struct gu_buf const buf = { act, static_cast<ssize_t>(act_size) };
-    return gcs_sendv (conn, &buf, act_size, act_type, scheduled);
+    return gcs_sendv (conn, &buf, act_size, act_type, scheduled, false);
 }
 
 /*!*/
 struct gcs_action {
-    const void*    buf; /*! unlike input, output goes as a single buffer */
-    ssize_t        size;
     gcs_seqno_t    seqno_g;
     gcs_seqno_t    seqno_l;
+    const void*    buf; /*! unlike input, output goes as a single buffer */
+    int32_t        size;
     gcs_act_type_t type;
 };
+
+std::ostream& operator <<(std::ostream& os, const gcs_action& act);
 
 /*! @brief Replicates a vector of buffers as a single action.
  * Sends action to group and blocks until it is received. Upon return global
@@ -282,7 +285,7 @@ extern long gcs_resume_recv (gcs_conn_t* conn);
  *
  * @return global sequence number or negative error code
  */
-extern gcs_seqno_t gcs_caused(gcs_conn_t* conn);
+extern long gcs_caused(gcs_conn_t* conn, gu::GTID& gtid);
 
 /*! @brief Sends state transfer request
  * Broadcasts state transfer request which will be passed to one of the
@@ -295,20 +298,20 @@ extern gcs_seqno_t gcs_caused(gcs_conn_t* conn);
  * @param size  request size
  * @param donor desired state transfer donor name. Supply empty string to
  *              choose automatically.
- * @param seqno response to request was ordered with this seqno.
+ * @param ist_gtid where to start IST from
+ * @param order response to request was ordered with this local order.
  *              Must be skipped in local queues.
  * @return negative error code, index of state transfer donor in case of success
  *         (notably, -EAGAIN means try later, -EHOSTUNREACH means desired donor
  *         is unavailable)
  */
-extern long gcs_request_state_transfer (gcs_conn_t  *conn,
-                                        int          ver,
-                                        const void  *req,
-                                        size_t       size,
-                                        const char  *donor,
-                                        const gu_uuid_t* ist_uuid,
-                                        gcs_seqno_t ist_seqno,
-                                        gcs_seqno_t *seqno);
+extern long gcs_request_state_transfer (gcs_conn_t*     conn,
+                                        int             ver,
+                                        const void*     req,
+                                        size_t          size,
+                                        const char*     donor,
+                                        const gu::GTID& ist_gtid,
+                                        gcs_seqno_t&    order);
 
 /*! @brief Turns off flow control on the node.
  * Effectively desynchronizes the node from the cluster (while the node keeps on
@@ -319,7 +322,7 @@ extern long gcs_request_state_transfer (gcs_conn_t  *conn,
  *              Must be skipped in local queues.
  * @return negative error code, 0 in case of success.
  */
-extern long gcs_desync (gcs_conn_t* conn, gcs_seqno_t* seqno);
+extern long gcs_desync (gcs_conn_t* conn, gcs_seqno_t& order);
 
 /*! @brief Informs group on behalf of donor that state stransfer is over.
  * If status is non-negative, joiner will be considered fully joined to group.
@@ -329,7 +332,7 @@ extern long gcs_desync (gcs_conn_t* conn, gcs_seqno_t* seqno);
  *               0 or (optional) seqno corresponding to transferred state.
  * @return negative error code, 0 in case of success
  */
-extern long gcs_join (gcs_conn_t *conn, gcs_seqno_t status);
+extern long gcs_join (gcs_conn_t *conn, const gu::GTID& gtid, int code);
 
 /*! @brief Allocate local seqno for accessing local resources.
  *
@@ -345,7 +348,12 @@ extern gcs_seqno_t gcs_local_sequence(gcs_conn_t* conn);
 /* Service functions */
 
 /*! Informs group about the last applied action on this node */
-extern long gcs_set_last_applied (gcs_conn_t* conn, gcs_seqno_t seqno);
+extern long
+gcs_set_last_applied (gcs_conn_t* conn, const gu::GTID& gtid);
+
+/*! @return currently established GCS protocol */
+extern int
+gcs_proto_ver(gcs_conn_t* conn);
 
 /* GCS Configuration */
 
@@ -417,13 +425,13 @@ typedef struct gcs_act_conf {
                                 *  incoming address, 8-byte cached seqno) */
 } gcs_act_conf_t;
 
-typedef struct gcs_backend_stats {
+struct gcs_backend_stats {
     struct stats_t {
         const char* key;
         const char* value;
     }* stats;
     void* ctx;
-} gcs_backend_stats_t;
+};
 
 struct gcs_stats
 {
@@ -441,7 +449,7 @@ struct gcs_stats
     int       send_q_len;     //! current send queue length
     int       send_q_len_max; //! maximum send queue length
     int       send_q_len_min; //! minimum send queue length
-    gcs_backend_stats_t backend_stats; //! backend stats.
+    struct gcs_backend_stats backend_stats; //! backend stats.
 };
 
 /*! Fills stats struct */
