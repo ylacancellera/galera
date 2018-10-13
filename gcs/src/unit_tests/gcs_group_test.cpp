@@ -104,7 +104,7 @@ START_TEST (gcs_group_configuration)
     frg1.frag      = NULL;
     frg1.frag_len  = 0;
     frg1.frag_no   = 0;
-    frg1.act_type  = GCS_ACT_TORDERED;
+    frg1.act_type  = GCS_ACT_WRITESET;
     frg1.proto_ver = 0;
 
     // normal fragments
@@ -149,8 +149,8 @@ START_TEST (gcs_group_configuration)
     ret = gcs_group_handle_act_msg (&group, &frg, &(msg), &r_act, true);
 
     // 1. Try fragment that is not the first
-    memset (&r_act, 0, sizeof(r_act));
-//    ret = gcs_group_handle_act_msg (&group, &frg, &msg3, &r_act);
+    r_act = gcs_act_rcvd();
+    //    ret = gcs_group_handle_act_msg (&group, &frg, &msg3, &r_act);
     TRY_MESSAGE(msg3);
     fail_if (ret != -EPROTO);
     fail_if (act->buf != NULL);
@@ -201,7 +201,7 @@ START_TEST (gcs_group_configuration)
     fail_if (r_act.id != seqno, "Expected seqno %llu, found %llu", seqno, r_act.id);
     seqno++;
     // cleanup
-    memset (&r_act, 0, sizeof(r_act));
+    r_act = gcs_act_rcvd();
 
     // 10. New component message
     gcs_comp_msg_delete (comp);
@@ -234,12 +234,12 @@ START_TEST (gcs_group_configuration)
     fail_if (strncmp((const char*)act->buf, act_buf, act_len),
              "Action received: '%s', expected '%s'", act_buf);
     fail_if (r_act.sender_idx != 0);
-    fail_if (act->type != GCS_ACT_TORDERED);
+    fail_if (act->type != GCS_ACT_WRITESET);
     fail_if (r_act.id != seqno, "Expected seqno %llu, found %llu", seqno, r_act.id);
     seqno++;
     // cleanup
     free ((void*)act->buf);
-    memset (&r_act, 0, sizeof(r_act));
+    r_act = gcs_act_rcvd();
 
     // 12. Try foreign action with a new node joined in the middle.
     gcs_comp_msg_delete (comp);
@@ -279,12 +279,12 @@ START_TEST (gcs_group_configuration)
     fail_if (strncmp((const char*)act->buf, act_buf, act_len),
              "Action received: '%s', expected '%s'", act_buf);
     fail_if (r_act.sender_idx != 0);
-    fail_if (act->type != GCS_ACT_TORDERED);
+    fail_if (act->type != GCS_ACT_WRITESET);
     fail_if (r_act.id != seqno, "Expected seqno %llu, found %llu", seqno, r_act.id);
     seqno++;
     // cleanup
     free ((void*)act->buf);
-    memset (&r_act, 0, sizeof(r_act));
+    r_act = gcs_act_rcvd();
 
     // 13. Try to send an action with one node disappearing in the middle
     //     and order of nodes changed
@@ -345,7 +345,7 @@ return;
     fail_if (act->buf_len != act_len);
     fail_if (act->buf != NULL);
     fail_if (r_act.sender_idx != 0);
-    fail_if (act->type != GCS_ACT_TORDERED);
+    fail_if (act->type != GCS_ACT_WRITESET);
     fail_if (r_act.id != seqno, "Expected seqno %llu, found %llu", seqno, r_act.id);
     seqno++;
 
@@ -358,12 +358,12 @@ return;
     fail_if (strncmp((const char*)act->buf, act_buf, act_len),
              "Action received: '%s', expected '%s'", act_buf);
     fail_if (r_act.sender_idx != 1);
-    fail_if (act->type != GCS_ACT_TORDERED);
+    fail_if (act->type != GCS_ACT_WRITESET);
     fail_if (r_act.id != seqno, "Expected seqno %llu, found %llu", seqno, r_act.id);
     seqno++;
     // cleanup
     free ((void*)act->buf);
-    memset (&r_act, 0, sizeof(r_act));
+    r_act = gcs_act_rcvd();
 
     // Leave group
     comp = gcs_comp_msg_new (FALSE, false, -1, 0, 0);
@@ -524,6 +524,7 @@ START_TEST(test_gcs_group_find_donor)
 
     for(int i = 0; i < number; i++)
     {
+        uint8_t const vp(gcs_group_conf_to_vote_policy(cnf));
         char name[32];
         snprintf(name, sizeof(name), "home%d", i);
         gcs_node_init(&nodes[i], NULL, name, name,
@@ -532,6 +533,7 @@ START_TEST(test_gcs_group_find_donor)
         nodes[i].state_msg = gcs_state_msg_create(
             &GU_UUID_NIL, &GU_UUID_NIL, &GU_UUID_NIL,
             0, 0, seqnos[i], 0,
+            GCS_SEQNO_ILL, 0, vp,
             0, GCS_NODE_STATE_SYNCED, GCS_NODE_STATE_SYNCED,
             "", "", 0, 0, 0, 0, 0);
     }

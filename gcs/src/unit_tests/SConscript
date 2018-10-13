@@ -39,6 +39,8 @@ gcs_tests_sources = Split('''
                              ../gcs_defrag.cpp
                              gcs_node_test.cpp
                              ../gcs_node.cpp
+                             gcs_act_cchange_test.cpp
+                             ../gcs_act_cchange.cpp
                              gcs_group_test.cpp
                              gcs_memb_test.cpp
                              ../gcs_code_msg.cpp

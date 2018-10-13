@@ -129,10 +129,13 @@ WriteSetNG::Header::set_seqno(wsrep_seqno_t const seqno,
     assert (seqno > 0);
     assert (wsrep_seqno_t(pa_range) <= seqno);
 
+    uint16_t* const fl(reinterpret_cast<uint16_t*>(ptr_ + V3_FLAGS_OFF));
     uint16_t* const pa(reinterpret_cast<uint16_t*>(ptr_ + V3_PA_RANGE_OFF));
     uint64_t* const sq(reinterpret_cast<uint64_t*>(ptr_ + V3_SEQNO_OFF));
 
-    *pa = gu::htog<uint16_t>(pa_range);
+    uint16_t  const flags(gu::htog<uint16_t>(*fl));
+    *fl = gu::htog<uint16_t>(flags | F_CERTIFIED); // certification happened
+    *pa = gu::htog<uint16_t>(pa_range);            // certification outcome
     *sq = gu::htog<uint64_t>(seqno);
 
     update_checksum (ptr_, size() - V3_CHECKSUM_SIZE);

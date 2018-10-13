@@ -34,7 +34,11 @@ namespace galera
         {
         public:
             // Process transaction from IST
-            virtual void ist_trx(const TrxHandlePtr&, bool must_apply) = 0;
+            virtual void ist_trx(const TrxHandleSlavePtr&, bool must_apply,
+                                 bool preload) = 0;
+            // Process conf change from IST
+            virtual void ist_cc(const gcs_action&, bool must_apply,
+                                bool preload) = 0;
             // Report IST end
             virtual void ist_end(int error) = 0;
         protected:
@@ -48,7 +52,7 @@ namespace galera
             static std::string const RECV_BIND;
 
             Receiver(gu::Config& conf, gcache::GCache&,
-                     TrxHandle::SlavePool& slave_pool,
+                     TrxHandleSlave::Pool& slave_pool,
                      EventObserver&, const char* addr);
             ~Receiver();
 
@@ -83,7 +87,7 @@ namespace galera
             wsrep_seqno_t         current_seqno_;
             gu::Config&           conf_;
             gcache::GCache&       gcache_;
-            TrxHandle::SlavePool& slave_pool_;
+            TrxHandleSlave::Pool& slave_pool_;
             wsrep_uuid_t          source_id_;
             EventObserver&        observer_;
             gu_thread_t           thread_;
@@ -110,7 +114,10 @@ namespace galera
 
             // first - first trx seqno
             // last  - last trx seqno
-            void send(wsrep_seqno_t first, wsrep_seqno_t last);
+            // preload_start - the seqno from which sent transactions
+            // are accompanied with index preload flag
+            void send(wsrep_seqno_t first, wsrep_seqno_t last,
+                      wsrep_seqno_t preload_start);
 
             void cancel()
             {
@@ -155,6 +162,7 @@ namespace galera
                      const std::string& peer,
                      wsrep_seqno_t first,
                      wsrep_seqno_t last,
+                     wsrep_seqno_t preload_start,
                      int           version);
 
             void remove(AsyncSender*, wsrep_seqno_t);

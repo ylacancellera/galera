@@ -22,7 +22,9 @@
 
 #include "gu_config.hpp"
 
+extern std::string const GCS_VOTE_POLICY_KEY;
 extern void gcs_group_register(gu::Config* cnf); // register parameters
+extern uint8_t gcs_group_conf_to_vote_policy(gu::Config& cnf);
 
 #include "gu_status.hpp"
 #include "gu_utils.hpp"
@@ -39,6 +41,10 @@ gcs_group_state_t;
 
 extern const char* gcs_group_state_str[];
 
+typedef gu::UnorderedMap<gu::GTID, int64_t, gu::GTID::TableHash> VoteHistory;
+
+struct VoteResult { gcs_seqno_t seqno; int64_t res; };
+
 typedef struct gcs_group
 {
     gcache_t*     cache;
@@ -54,6 +60,10 @@ typedef struct gcs_group
     gcs_group_state_t state;    // group state: PRIMARY | NON_PRIMARY
     gcs_seqno_t   last_applied; // last_applied action group-wide
     long          last_node;    // node that last reported commit_cut
+    gcs_seqno_t   vote_request_seqno; // last vote request was passed for it
+    VoteResult    vote_result;  // last vote result
+    VoteHistory*  vote_history; // history of group votes
+    uint8_t       vote_policy;
     bool          frag_reset;   // indicate that fragmentation was reset
     gcs_node_t*   nodes;        // array of node contexts
 
@@ -125,6 +135,9 @@ gcs_group_handle_state_msg (gcs_group_t* group, const gcs_recv_msg_t* msg);
 extern gcs_seqno_t
 gcs_group_handle_last_msg  (gcs_group_t* group, const gcs_recv_msg_t* msg);
 
+extern VoteResult
+gcs_group_handle_vote_msg  (gcs_group_t* group, const gcs_recv_msg_t* msg);
+
 /*! @return 0 for success, 1 for (success && i_am_sender)
  * or negative error code */
 extern int
@@ -174,7 +187,7 @@ gcs_group_handle_act_msg (gcs_group_t*          const group,
 
         rcvd->act.type = frg->act_type;
 
-        if (gu_likely(GCS_ACT_TORDERED  == rcvd->act.type &&
+        if (gu_likely(GCS_ACT_WRITESET  == rcvd->act.type &&
                       GCS_GROUP_PRIMARY == group->state   &&
                       group->nodes[sender_idx].status >= GCS_NODE_STATE_DONOR &&
                       !(group->frag_reset && local) &&
@@ -184,12 +197,12 @@ gcs_group_handle_act_msg (gcs_group_t*          const group,
              * and only in PRIM (skip messages while in state exchange) */
             rcvd->id = ++group->act_id_;
         }
-        else if (GCS_ACT_TORDERED  == rcvd->act.type) {
+        else if (GCS_ACT_WRITESET  == rcvd->act.type) {
             /* Rare situations */
             if (local) {
                 /* Let the sender know that it failed */
                 rcvd->id = -ERESTART;
-                gu_debug("Returning -ERESTART for TORDERED action: group->state"
+                gu_debug("Returning -ERESTART for WRITESET action: group->state"
                          " = %s, sender->status = %s, frag_reset = %s, "
                          "buf = %p",
                          gcs_group_state_str[group->state],
@@ -232,7 +245,7 @@ gcs_group_my_idx (const gcs_group_t* group)
  * @param proto protocol version gcs should use for this configuration
  */
 extern ssize_t
-gcs_group_act_conf (gcs_group_t* group, struct gcs_act* act, int* proto);
+gcs_group_act_conf (gcs_group_t* group, struct gcs_act_rcvd* rcvd, int* proto);
 
 /*! Returns state object for state message */
 extern gcs_state_msg_t*

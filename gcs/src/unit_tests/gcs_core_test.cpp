@@ -187,26 +187,35 @@ static bool COMMON_RECV_CHECKS(action_t*      act,
 
     if (act->type == GCS_ACT_STATE_REQ) return false;
 
-    // action is ordered only if it is of type GCS_ACT_TORDERED and not an error
-    if (act->seqno > 0) {
-        FAIL_IF (GCS_ACT_TORDERED != act->type,
-                 "GCS_ACT_TORDERED != act->type (%d), while act->seqno: %lld",
+    // action is ordered only if it is of type GCS_ACT_WRITESET or
+    // GCS_ACT_CCHANGE and not an error
+    if (act->seqno > GCS_SEQNO_ILL) {
+        FAIL_IF (GCS_ACT_WRITESET != act->type && GCS_ACT_CCHANGE != act->type
+                 && act->seqno > 0,
+                 "GCS_ACT_WRITESET != act->type (%d), while act->seqno: %lld",
                  act->type, (long long)act->seqno);
 
-        FAIL_IF ((*seqno + 1) != act->seqno,
-                 "expected seqno %lld, got %lld",
-                 (long long)(*seqno + 1), (long long)act->seqno);
+        if (GCS_ACT_WRITESET == act->type)
+        {
+            assert((*seqno + 1) == act->seqno);
+            FAIL_IF ((*seqno + 1) != act->seqno,
+                     "expected seqno %lld, got %lld",
+                     (long long)(*seqno + 1), (long long)act->seqno);
+            *seqno = *seqno + 1;
+        }
+        else if (GCS_ACT_CCHANGE == act->type)
+        {
+            FAIL_IF (act->seqno < 0, "Negative seqno: %lld",
+                     (long long)act->seqno);
 
-        *seqno = *seqno + 1;
-    }
-    else if(GCS_ACT_CONF == act->type)
-    {
-        Uuid = gcs_core_get_group(Core)->group_uuid;
-        fail_if(Uuid == GU_UUID_NIL);
+            Uuid = gcs_core_get_group(Core)->group_uuid;
+
+            if (gcs_core_proto_ver(Core) >= 1) *seqno = *seqno + 1;
+        }
     }
 
     if (NULL != buf) {
-        if (GCS_ACT_TORDERED == act->type) {
+        if (GCS_ACT_WRITESET == act->type) {
             // local action buffer should not be copied
             FAIL_IF (act->local != act->in,
                      "Received buffer ptr is not the same as sent: %p != %p",
@@ -306,19 +315,17 @@ core_test_check_conf (const void* const conf_msg, int const conf_size,
 {
     long ret = 0;
 
-    assert(conf_size >= int(sizeof(gcs_act_conf_t)));
-    fail_if(conf_size < int(sizeof(gcs_act_conf_t)));
-    const gcs_act_conf_t* conf(static_cast<const gcs_act_conf_t*>(conf_msg));
+    gcs_act_cchange const conf(conf_msg, conf_size);
 
-    if ((conf->conf_id >= 0) != prim) {
+    if ((conf.conf_id >= 0) != prim) {
         gu_error ("Expected %s conf, received %s",
                   prim ? "PRIMARY" : "NON-PRIMARY",
-                  (conf->conf_id >= 0) ? "PRIMARY" : "NON-PRIMARY");
+                  (conf.conf_id >= 0) ? "PRIMARY" : "NON-PRIMARY");
         ret = -1;
     }
 
-    if (conf->memb_num != int(memb_num)) {
-        gu_error ("Expected memb_num = %zd, got %zd", memb_num, conf->memb_num);
+    if (conf.memb.size() != memb_num) {
+        gu_error ("Expected memb_num = %zd, got %zd", memb_num,conf.memb.size());
         ret = -1;
     }
 
@@ -394,9 +401,9 @@ core_test_init (bool bootstrap = true, int const gcs_proto_ver = 1)
     }
 
     // receive first configuration message
-    fail_if (CORE_RECV_ACT (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act.out, act.size, bootstrap, 0, 1));
-    ::free(act.out);
+    Cache->free(act.out);
 
     int const ver(gcs_core_proto_ver(Core));
     fail_if(ver != gcs_proto_ver, "Expected protocol version: %d, got: %d",
@@ -408,12 +415,12 @@ core_test_init (bool bootstrap = true, int const gcs_proto_ver = 1)
              ret, strerror(-ret));
 
     // try to send an action to check that everything's alright
-    ret = gcs_core_send (Core, act1, sizeof(act1_str), GCS_ACT_TORDERED);
+    ret = gcs_core_send (Core, act1, sizeof(act1_str), GCS_ACT_WRITESET);
     fail_if (ret != sizeof(act1_str), "Expected %d, got %d (%s)",
              sizeof(act1_str), ret, strerror (-ret));
     gu_warn ("Next CORE_RECV_ACT fails under valgrind");
     act.in = act1;
-    fail_if (CORE_RECV_ACT (&act, act1_str, sizeof(act1_str), GCS_ACT_TORDERED));
+    fail_if (CORE_RECV_ACT (&act, act1_str, sizeof(act1_str), GCS_ACT_WRITESET));
 
     ret = gcs_core_send_join (Core, gu::GTID(Uuid, Seqno), 0);
     fail_if (ret < 0, "gcs_core_send_join(): %ld (%s)",
@@ -458,9 +465,9 @@ core_test_cleanup ()
     ret = gcs_core_close (Core);
     fail_if (0 != ret, "Failed to close core: %ld (%s)",
              ret, strerror (-ret));
-    ret = CORE_RECV_END (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CONF);
+    ret = CORE_RECV_END (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE);
     fail_if (ret, "ret: %ld (%s)", ret, strerror(-ret));
-    ::free(act.out);
+    Cache->free(act.out);
 
     // check that backend is closed too
     ret = Backend->send (Backend, tmp, sizeof(tmp), GCS_MSG_ACTION);
@@ -495,7 +502,7 @@ START_TEST (gcs_core_test_api)
     const void* act_buf  = act3_str;
     size_t      act_size = sizeof(act3_str);
 
-    action_t act_s(act, NULL, NULL, act_size, GCS_ACT_TORDERED, -1, (gu_thread_t)-1);
+    action_t act_s(act, NULL, NULL, act_size, GCS_ACT_WRITESET, -1, (gu_thread_t)-1);
     action_t act_r(act, NULL, NULL, -1, (gcs_act_type_t)-1, -1, (gu_thread_t)-1);
     long i = 5;
 
@@ -517,7 +524,7 @@ START_TEST (gcs_core_test_api)
                  ret, strerror(-ret));
         fail_if (frags != 0, "frags = %ld, instead of 0", frags);
         fail_if (CORE_SEND_END (&act_s, act_size));
-        fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_TORDERED));
+        fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_WRITESET));
 
         ret = gcs_core_set_last_applied (Core, gu::GTID(Uuid, Seqno));
         fail_if (ret < 0, "gcs_core_set_last_applied(): %ld (%s)",
@@ -575,10 +582,10 @@ DUMMY_INSTALL_COMPONENT (gcs_backend_t* backend, const gcs_comp_msg_t* comp)
 
     FAIL_IF (gcs_dummy_set_component(Backend, comp), "", NULL);
     FAIL_IF (DUMMY_INJECT_COMPONENT (Backend, comp), "", NULL);
-    FAIL_IF (CORE_RECV_ACT (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CONF), "", NULL);
+    FAIL_IF (CORE_RECV_ACT (&act, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE), "", NULL);
     FAIL_IF (core_test_check_conf(act.out, act.size, primary, my_idx, members),
              "", NULL);
-    ::free(act.out);
+    Cache->free(act.out);
     return false;
 }
 
@@ -591,7 +598,7 @@ CORE_TEST_OWN (int gcs_proto_ver)
     const void*          act_buf  = act2_str;
     size_t               act_size = sizeof(act2_str);
 
-    action_t act_s(act, NULL, NULL, act_size, GCS_ACT_TORDERED, -1, (gu_thread_t)-1);
+    action_t act_s(act, NULL, NULL, act_size, GCS_ACT_WRITESET, -1, (gu_thread_t)-1);
     action_t act_r(act, NULL, NULL, -1, (gcs_act_type_t)-1, -1, (gu_thread_t)-1);
 
     // Create primary and non-primary component messages
@@ -618,7 +625,7 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (NULL != act_r.out); // should not have received anything
     fail_if (gcs_dummy_set_component (Backend, prim)); // return to PRIM state
     fail_if (CORE_SEND_END (&act_s, act_size));
-    fail_if (CORE_RECV_END (&act_r, act_buf, act_size, GCS_ACT_TORDERED));
+    fail_if (CORE_RECV_END (&act_r, act_buf, act_size, GCS_ACT_WRITESET));
 
     /*
      * TEST CASE 1: Action was sent successfully, but NON_PRIM component
@@ -632,10 +639,10 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 2nd frag
     fail_if (CORE_SEND_END (&act_s, act_size));
     fail_if (gcs_dummy_set_component(Backend, non_prim));
-    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act_r.out, act_r.size, false, 0, 1));
-    ::free(act_r.out);
-    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_TORDERED));
+    Cache->free(act_r.out);
+    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_WRITESET));
     fail_if (-ENOTCONN != act_r.seqno, "Expected -ENOTCONN, received %ld (%s)",
              act_r.seqno, strerror (-act_r.seqno));
 
@@ -662,9 +669,9 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (CORE_SEND_START (&act_s));
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 1st frag
     fail_if (CORE_SEND_END (&act_s, -ENOTCONN));
-    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act_r.out, act_r.size, false, 0, 1));
-    ::free(act_r.out);
+    Cache->free(act_r.out);
 
     /*
      * TEST CASE 4: Action was sent successfully, but NON_PRIM component
@@ -678,10 +685,10 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (DUMMY_INJECT_COMPONENT (Backend, non_prim));
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 2nd frag
     fail_if (CORE_SEND_END (&act_s, act_size));
-    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act_r.out, act_r.size, false, 0, 1));
-    ::free(act_r.out);
-    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_TORDERED));
+    Cache->free(act_r.out);
+    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_WRITESET));
     fail_if (-ENOTCONN != act_r.seqno, "Expected -ENOTCONN, received %ld (%s)",
              act_r.seqno, strerror (-act_r.seqno));
 
@@ -699,7 +706,7 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (DUMMY_INSTALL_COMPONENT (Backend, prim));
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 2nd frag
     fail_if (CORE_SEND_END (&act_s, act_size));
-    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_TORDERED));
+    fail_if (CORE_RECV_ACT (&act_r, act_buf, act_size, GCS_ACT_WRITESET));
     fail_if (-ERESTART != act_r.seqno, "Expected -ERESTART, received %ld (%s)",
              act_r.seqno, strerror (-act_r.seqno));
 
@@ -726,9 +733,9 @@ CORE_TEST_OWN (int gcs_proto_ver)
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 2nd frag
     usleep (500000); // fail_if_seq
     fail_if (gcs_dummy_set_component(Backend, non_prim));
-    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act_r.out, act_r.size, false, 0, 1));
-    ::free(act_r.out);
+    Cache->free(act_r.out);
     fail_if (CORE_SEND_STEP (Core, tout, 1)); // 3rd frag
     fail_if (CORE_SEND_END (&act_s, -ENOTCONN));
 
@@ -741,9 +748,9 @@ CORE_TEST_OWN (int gcs_proto_ver)
     usleep (1000000);
     fail_if (gcs_dummy_set_component(Backend, non_prim));
     fail_if (CORE_SEND_STEP (Core, 4*tout, 1)); // 3rd frag
-    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT (&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf(act_r.out, act_r.size, false, 0, 1));
-    ::free(act_r.out);
+    Cache->free(act_r.out);
     fail_if (CORE_SEND_END (&act_s, -ENOTCONN));
 
     gu_free (prim);
@@ -869,7 +876,7 @@ START_TEST (gcs_core_test_gh74)
     fail_if (gcs_dummy_inject_msg(Backend, state_buf2, state_len2, GCS_MSG_STATE_MSG, 1) !=
              (int)state_len2);
     // expect STR is lost here.
-    fail_if (CORE_RECV_END(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_END(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf((const gcs_act_cchange_t*)act_r.out, true, 0, 2));
     free(act_r.out);
     core_test_cleanup();
@@ -895,7 +902,7 @@ START_TEST (gcs_core_test_gh74)
              (int)uuid_len);
     fail_if (gcs_dummy_inject_msg(Backend, state_buf, state_len, GCS_MSG_STATE_MSG, 0) !=
              (int)state_len);
-    fail_if (CORE_RECV_ACT(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf((const gcs_act_cchange_t*)act_r.out, true, 1, 2));
     free(act_r.out);
 
@@ -977,7 +984,7 @@ START_TEST (gcs_core_test_gh74)
     fail_if (act_r.seqno != -EAGAIN);
     free(act_r.out);
 
-    fail_if (CORE_RECV_ACT(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CONF));
+    fail_if (CORE_RECV_ACT(&act_r, NULL, UNKNOWN_SIZE, GCS_ACT_CCHANGE));
     fail_if (core_test_check_conf((const gcs_act_cchange_t*)act_r.out, true, 1, 3));
     free(act_r.out);
 

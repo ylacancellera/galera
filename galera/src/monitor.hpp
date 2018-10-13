@@ -7,7 +7,6 @@
 
 #include "trx_handle.hpp"
 #include <gu_lock.hpp> // for gu::Mutex and gu::Cond
-#include <gu_gtid.hpp>
 #include <gu_limits.h>
 
 #include <vector>
@@ -84,6 +83,12 @@ namespace galera
             }
         }
 
+        /*
+         * For ordered CC events this had to be changed:
+         * - it either resets position to -1 or
+         * - merely advances it to seqno if current position is behind.
+         * Assumes that monitor has been drained.
+         */
         void set_initial_position(const wsrep_uuid_t& uuid,
                                   wsrep_seqno_t const seqno)
         {
@@ -98,12 +103,22 @@ namespace galera
                 last_entered_ = last_left_ = seqno;
             }
             else
+#if 1 // now
+            {
+                if (last_left_    < seqno)      last_left_    = seqno;
+                if (last_entered_ < last_left_) last_entered_ = last_left_;
+            }
+
+            // some drainers may wait for us here
+            cond_.broadcast();
+#else // before
             {
                 // drain monitor up to seqno but don't reset last_entered_
                 // or last_left_
                 drain_common(seqno, lock);
                 drain_seqno_ = GU_LLONG_MAX;
             }
+#endif
             if (seqno != -1)
             {
                 const size_t idx(indexof(seqno));
@@ -172,6 +187,11 @@ namespace galera
             return state(obj) == Process::S_FINISHED;
         }
 
+        bool canceled(const C& obj) const
+        {
+            return state(obj) == Process::S_CANCELED;
+        }
+
         void leave(const C& obj)
         {
 #ifndef NDEBUG
@@ -213,6 +233,11 @@ namespace galera
 
             assert(process_[idx].state_ == Process::S_IDLE ||
                    process_[idx].state_ == Process::S_CANCELED);
+
+#ifndef NDEBUG
+            process_[idx].dobj_.~C();
+            new (&process_[idx].dobj_) C(obj);
+#endif /* NDEBUG */
 
             if (obj_seqno > last_entered_) last_entered_ = obj_seqno;
 
@@ -358,6 +383,7 @@ namespace galera
         template <typename T>
         void state_debug_print(const std::string& method, const T& x)
         {
+// #define GALERA_MONITOR_DEBUG_PRINT
 #ifdef GALERA_MONITOR_DEBUG_PRINT
             log_info << typeid(C).name() << ": " << method << "(" << x
                      << "): le " << last_entered_ << ", ll " << last_left_;

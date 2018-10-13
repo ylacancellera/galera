@@ -74,6 +74,7 @@ Commandline Options:
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
     version=X.X.X       galera version
     bits=[32bit|64bit]
+    gcov=[True|False]   compile Galera for code coverage reporting
 ''')
 # bpostatic option added on Percona request
 
@@ -104,6 +105,8 @@ build_dir = ARGUMENTS.get('build_dir', '')
 debug = ARGUMENTS.get('debug', -1)
 dbug  = ARGUMENTS.get('dbug', False)
 
+gcov = ARGUMENTS.get('gcov', False)
+
 debug_lvl = int(debug)
 if debug_lvl >= 0 and debug_lvl < 3:
     opt_flags = ' -g -O%d -fno-inline' % debug_lvl
@@ -113,6 +116,9 @@ elif debug_lvl == 3:
 
 if dbug:
     opt_flags = opt_flags + ' -DGU_DBUG_ON'
+
+if gcov:
+    opt_flags = opt_flags + ' --coverage -g'
 
 if sysname == 'sunos':
     compile_arch = ' -mtune=native'
@@ -149,7 +155,7 @@ deterministic_tests = int(ARGUMENTS.get('deterministic_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 
 
-GALERA_VER = ARGUMENTS.get('version', '4.dev')
+GALERA_VER = ARGUMENTS.get('version', '4.0dev')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -165,7 +171,7 @@ Export('GALERA_VER', 'GALERA_REV')
 print('Signature: version: ' + GALERA_VER + ', revision: ' + GALERA_REV)
 
 LIBBOOST_PROGRAM_OPTIONS_A = ARGUMENTS.get('bpostatic', '')
-LIBBOOST_SYSTEM_A = string.replace(LIBBOOST_PROGRAM_OPTIONS_A, 'boost_program_options', 'boost_system')
+LIBBOOST_SYSTEM_A = LIBBOOST_PROGRAM_OPTIONS_A.replace('boost_program_options', 'boost_system')
 
 #
 # Set up and export default build environment
@@ -194,8 +200,8 @@ if link != 'default':
     env.Replace(LINK = link)
 
 # Get compiler name/version, CXX may be set to "c++" which may be clang or gcc
-cc_version = read_first_line(env['CC'].split() + ['--version'])
-cxx_version = read_first_line(env['CXX'].split() + ['--version'])
+cc_version = str(read_first_line(env['CC'].split() + ['--version']))
+cxx_version = str(read_first_line(env['CXX'].split() + ['--version']))
 
 print('Using C compiler executable: ' + env['CC'])
 print('C compiler version is: ' + cc_version)
@@ -265,6 +271,9 @@ if sysname != 'sunos':
 # static linking have beed addressed
 #
 #env.Prepend(LINKFLAGS = '-Wl,--warn-common -Wl,--fatal-warnings ')
+
+if gcov:
+   env.Append(LINKFLAGS = '--coverage -g')
 
 #
 # Check required headers and libraries (autoconf functionality)
@@ -351,6 +360,27 @@ int main() { return 0; }
     context.Result(result)
     return result
 
+# advanced SSL features
+def CheckSetEcdhAuto(context):
+    test_source = """
+#include <openssl/ssl.h>
+int main() { SSL_CTX* ctx=NULL; return !SSL_CTX_set_ecdh_auto(ctx, 1); }
+"""
+    context.Message('Checking for SSL_CTX_set_ecdh_auto() ... ')
+    result = context.TryLink(test_source, '.cpp')
+    context.Result(result)
+    return result
+
+def CheckSetTmpEcdh(context):
+    test_source = """
+#include <openssl/ssl.h>
+int main() { SSL_CTX* ctx=NULL; EC_KEY* ecdh=NULL; return !SSL_CTX_set_tmp_ecdh(ctx,ecdh); }
+"""
+    context.Message('Checking for SSL_CTX_set_tmp_ecdh_() ... ')
+    result = context.TryLink(test_source, '.cpp')
+    context.Result(result)
+    return result
+
 #
 # Construct configuration context
 #
@@ -360,8 +390,12 @@ conf = Configure(env, custom_tests = {
     'CheckTr1Array': CheckTr1Array,
     'CheckTr1SharedPtr': CheckTr1SharedPtr,
     'CheckTr1UnorderedMap': CheckTr1UnorderedMap,
-    'CheckWeffcpp': CheckWeffcpp
+    'CheckWeffcpp': CheckWeffcpp,
+    'CheckSetEcdhAuto': CheckSetEcdhAuto,
+    'CheckSetTmpEcdh': CheckSetTmpEcdh
 })
+
+conf.env.Append(CPPPATH = [ '#/wsrep/src' ])
 
 # System headers and libraries
 
@@ -552,6 +586,12 @@ if not conf.CheckLib('crypto'):
     print('SSL support required libcrypto was not found')
     Exit(1)
 
+# advanced SSL features
+if conf.CheckSetEcdhAuto():
+    conf.env.Append(CPPFLAGS = ' -DOPENSSL_HAS_SET_ECDH_AUTO')
+elif conf.CheckSetTmpEcdh():
+    conf.env.Append(CPPFLAGS = ' -DOPENSSL_HAS_SET_TMP_ECDH')
+
 # these will be used only with our software
 if strict_build_flags == 1:
     conf.env.Append(CCFLAGS = ' -Werror -pedantic')
@@ -570,7 +610,7 @@ if conf.CheckWeffcpp():
 # We assume that if it is not Clang, then it is GCC
 if not 'clang' in cxx_version:
     gcc_version_num = read_first_line(conf.env['CXX'].split() + ['-dumpversion'])
-    if gcc_version_num < "4.9.0":
+    if str(gcc_version_num) < "4.9.0":
         conf.env.Prepend(CXXFLAGS = '-Wnon-virtual-dtor ')
     conf.env.Prepend(CXXFLAGS = '-Wold-style-cast ')
 

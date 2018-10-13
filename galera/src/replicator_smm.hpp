@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2010-2017 Codership Oy <info@codership.com>
+// Copyright (C) 2010-2018 Codership Oy <info@codership.com>
 //
 
 //! @file replicator_smm.hpp
@@ -22,7 +22,7 @@
 #include "write_set.hpp"
 #include "galera_service_thd.hpp"
 #include "fsm.hpp"
-#include "gcs_action_source.hpp"
+#include "action_source.hpp"
 #include "ist.hpp"
 #include "gu_atomic.hpp"
 #include "saved_state.hpp"
@@ -63,23 +63,23 @@ namespace galera
         wsrep_status_t close();
         wsrep_status_t async_recv(void* recv_ctx);
 
-        TrxHandlePtr get_local_trx(wsrep_trx_id_t trx_id, bool create = false)
+        TrxHandleMasterPtr get_local_trx(wsrep_trx_id_t trx_id,
+                                         bool create = false)
         {
             return wsdb_.get_trx(trx_params_, uuid_, trx_id, create);
         }
 
-        TrxHandlePtr new_local_trx(wsrep_trx_id_t trx_id)
+        TrxHandleMasterPtr new_local_trx(wsrep_trx_id_t trx_id)
         {
             return wsdb_.new_trx(trx_params_, uuid_, trx_id);
         }
 
-        void discard_local_trx(TrxHandle* trx)
+        void discard_local_trx(TrxHandleMaster* trx)
         {
-            trx->release_write_set_out();
             wsdb_.discard_trx(trx->trx_id());
         }
 
-        TrxHandlePtr local_conn_trx(wsrep_conn_id_t conn_id, bool create)
+        TrxHandleMasterPtr local_conn_trx(wsrep_conn_id_t conn_id, bool create)
         {
             return wsdb_.get_conn_query(trx_params_, uuid_, conn_id, create);
         }
@@ -89,43 +89,49 @@ namespace galera
             wsdb_.discard_conn_query(conn_id);
         }
 
-        void apply_trx(void* recv_ctx, TrxHandle& trx);
+        void apply_trx(void* recv_ctx, TrxHandleSlave& trx);
+        void handle_apply_error(TrxHandleSlave&    trx,
+                                const wsrep_buf_t& error_buf,
+                                const std::string& custom_msg);
+        void process_apply_error(TrxHandleSlave&, const wsrep_buf_t&);
 
-        wsrep_status_t send(TrxHandle* trx, wsrep_trx_meta_t*);
-        wsrep_status_t replicate(TrxHandlePtr& trx, wsrep_trx_meta_t*);
-        wsrep_status_t abort_trx(TrxHandle* trx, wsrep_seqno_t, wsrep_seqno_t*);
-        wsrep_status_t certify(TrxHandlePtr& trx, wsrep_trx_meta_t*);
-        wsrep_status_t commit_order_enter_local(TrxHandle& trx);
-        wsrep_status_t commit_order_enter_remote(TrxHandle& trx);
-        wsrep_status_t commit_order_leave(TrxHandle& trx,
+        wsrep_status_t send(TrxHandleMaster& trx, wsrep_trx_meta_t*);
+        wsrep_status_t replicate(TrxHandleMaster& trx, wsrep_trx_meta_t*);
+        wsrep_status_t abort_trx(TrxHandleMaster& trx, wsrep_seqno_t bf_seqno,
+                                 wsrep_seqno_t* victim_seqno);
+        wsrep_status_t certify(TrxHandleMaster& trx, wsrep_trx_meta_t*);
+        wsrep_status_t commit_order_enter_local(TrxHandleMaster& trx);
+        wsrep_status_t commit_order_enter_remote(TrxHandleSlave& trx);
+        wsrep_status_t commit_order_leave(TrxHandleSlave& trx,
                                           const wsrep_buf_t*  error);
-        wsrep_status_t release_commit(TrxHandle& trx);
-        wsrep_status_t release_rollback(TrxHandle& trx);
-        wsrep_status_t replay_trx(TrxHandlePtr& trx, void* replay_ctx);
+        wsrep_status_t release_commit(TrxHandleMaster& trx);
+        wsrep_status_t release_rollback(TrxHandleMaster& trx);
+        wsrep_status_t replay_trx(TrxHandleMaster& trx, void* replay_ctx);
 
         wsrep_status_t sync_wait(wsrep_gtid_t* upto,
                                  int           tout,
                                  wsrep_gtid_t* gtid);
         wsrep_status_t last_committed_id(wsrep_gtid_t* gtid);
 
-        wsrep_status_t to_isolation_begin(TrxHandlePtr& trx, wsrep_trx_meta_t*);
-        wsrep_status_t to_isolation_end(TrxHandlePtr& trx,
+        wsrep_status_t to_isolation_begin(TrxHandleMaster&  trx,
+                                          wsrep_trx_meta_t* meta);
+        wsrep_status_t to_isolation_end(TrxHandleMaster&   trx,
                                         const wsrep_buf_t* err);
         wsrep_status_t preordered_collect(wsrep_po_handle_t&      handle,
                                           const struct wsrep_buf* data,
                                           size_t                  count,
                                           bool                    copy);
-        wsrep_status_t preordered_commit(wsrep_po_handle_t&      handle,
-                                         const wsrep_uuid_t&     source,
-                                         uint64_t                flags,
-                                         int                     pa_range,
-                                         bool                    commit);
+        wsrep_status_t preordered_commit(wsrep_po_handle_t&       handle,
+                                         const wsrep_uuid_t&      source,
+                                         uint64_t                 flags,
+                                         int                      pa_range,
+                                         bool                     commit);
         wsrep_status_t sst_sent(const wsrep_gtid_t& state_id, int rcode);
         wsrep_status_t sst_received(const wsrep_gtid_t& state_id,
                                     const wsrep_buf_t*  state,
                                     int                 rcode);
 
-        void process_trx(void* recv_ctx, const TrxHandlePtr& trx);
+        void process_trx(void* recv_ctx, const TrxHandleSlavePtr& trx);
         void process_commit_cut(wsrep_seqno_t seq, wsrep_seqno_t seqno_l);
         void process_conf_change(void* recv_ctx, const struct gcs_action& cc);
         void process_state_req(void* recv_ctx, const void* req,
@@ -133,6 +139,7 @@ namespace galera
                                wsrep_seqno_t donor_seq);
         void process_join(wsrep_seqno_t seqno, wsrep_seqno_t seqno_l);
         void process_sync(wsrep_seqno_t seqno_l);
+        void process_vote(wsrep_seqno_t seq, int64_t code,wsrep_seqno_t seqno_l);
 
         const struct wsrep_stats_var* stats_get()  const;
         void                          stats_reset();
@@ -162,28 +169,35 @@ namespace galera
         }
 
         // IST Action handler interface
-        void ist_trx(const TrxHandlePtr& ts, bool must_apply);
+        void ist_trx(const TrxHandleSlavePtr& ts, bool must_apply,
+                     bool preload);
+        void ist_cc(const gcs_action&, bool must_apply, bool preload);
         void ist_end(int error);
 
         // Enter apply monitor without waiting
-        void apply_monitor_enter_immediately(const TrxHandle& trx)
+        void apply_monitor_enter_immediately(const TrxHandleSlave& ts)
         {
-            ApplyOrder ao(trx.global_seqno(), 0, trx.is_local());
+            assert(!ts.explicit_rollback());
+            assert(ts.state() == TrxHandle::S_ABORTING);
+            ApplyOrder ao(ts.global_seqno(), 0, ts.local());
             gu_trace(apply_monitor_.enter(ao));
         }
 
         // Cancel local and enter apply monitors for TrxHandle
-        void cancel_monitors_for_local(const TrxHandle& trx)
+        void cancel_monitors_for_local(const TrxHandleSlave& ts)
         {
-            log_debug << "canceling monitors on behalf of trx: " << trx;
-            assert(trx.is_local());
-            assert(trx.global_seqno() > 0);
+            log_debug << "canceling monitors on behalf of trx: " << ts;
+            assert(ts.local());
+            assert(ts.global_seqno() > 0);
 
-            LocalOrder lo(trx);
+            LocalOrder lo(ts);
             local_monitor_.self_cancel(lo);
 
-            gu_trace(apply_monitor_enter_immediately(trx));
+            gu_trace(apply_monitor_enter_immediately(ts));
         }
+
+        // Cancel all monitors for given seqnos
+        void cancel_seqnos(wsrep_seqno_t seqno_l, wsrep_seqno_t seqno_g);
 
         // Drain apply and commit monitors up to seqno
         void drain_monitors(wsrep_seqno_t seqno);
@@ -199,7 +213,7 @@ namespace galera
                 cond_(),
                 eof_(false),
                 error_(0),
-                trx_queue_()
+                ts_queue_()
             { }
             void reset() { eof_ = false; error_ = 0; }
             void eof(int error)
@@ -211,10 +225,10 @@ namespace galera
             }
 
             // Push back
-            void push_back(const TrxHandlePtr& trx)
+            void push_back(const TrxHandleSlavePtr& ts)
             {
                 gu::Lock lock(mutex_);
-                trx_queue_.push(trx);
+                ts_queue_.push(ts);
                 cond_.signal();
             }
 
@@ -223,19 +237,19 @@ namespace galera
             // Throws gu::Exception() in case of error for the first
             // caller which will detect the error.
             // Returns null in case of EOF
-            TrxHandlePtr pop_front()
+            TrxHandleSlavePtr pop_front()
             {
                 gu::Lock lock(mutex_);
-                while (eof_ == false && trx_queue_.empty() == true)
+                while (eof_ == false && ts_queue_.empty() == true)
                 {
                     lock.wait(cond_);
                 }
 
-                TrxHandlePtr ret;
-                if (trx_queue_.empty() == false)
+                TrxHandleSlavePtr ret;
+                if (ts_queue_.empty() == false)
                 {
-                    ret = trx_queue_.front();
-                    trx_queue_.pop();
+                    ret = ts_queue_.front();
+                    ts_queue_.pop();
                 }
                 else
                 {
@@ -256,7 +270,7 @@ namespace galera
             gu::Cond  cond_;
             bool eof_;
             int error_;
-            std::queue<TrxHandlePtr> trx_queue_;
+            std::queue<TrxHandleSlavePtr> ts_queue_;
         };
 
 
@@ -274,13 +288,13 @@ namespace galera
 
         struct InitConfig
         {
-            InitConfig(gu::Config&, const char* node_address,
-                       const char *base_dir);
+            InitConfig(gu::Config&, const char* node_addr,const char* base_dir);
         };
 
         class StateRequest
         {
         public:
+            virtual int         version () const = 0;
             virtual const void* req     () const = 0;
             virtual ssize_t     len     () const = 0;
             virtual const void* sst_req () const = 0;
@@ -334,11 +348,16 @@ namespace galera
             }
         }
 
-        wsrep_status_t cert(const TrxHandlePtr& trx);
-        wsrep_status_t cert_and_catch(const TrxHandlePtr& trx);
-        wsrep_status_t cert_for_aborted(const TrxHandlePtr& trx);
+        wsrep_status_t cert             (TrxHandleMaster*,
+                                         const TrxHandleSlavePtr&);
+        wsrep_status_t cert_and_catch   (TrxHandleMaster*,
+                                         const TrxHandleSlavePtr&);
+        wsrep_status_t cert_for_aborted (const TrxHandleSlavePtr&);
 
-        void update_state_uuid (const wsrep_uuid_t& u);
+        wsrep_status_t handle_commit_interrupt(TrxHandleMaster&,
+                                               const TrxHandleSlave&);
+
+        void update_state_uuid    (const wsrep_uuid_t& u);
         void update_incoming_list (const wsrep_view_info_t& v);
 
         /* aborts/exits the program in a clean way */
@@ -352,19 +371,20 @@ namespace galera
         {
         public:
 
-            LocalOrder(const TrxHandle& trx)
+            explicit
+            LocalOrder(const TrxHandleSlave& ts)
                 :
-                seqno_(trx.local_seqno())
+                seqno_(ts.local_seqno())
 #if defined(GU_DBUG_ON) || !defined(NDEBUG)
-                ,trx_(&trx)
+                ,trx_(&ts)
 #endif //GU_DBUG_ON
             { }
 
-            LocalOrder(wsrep_seqno_t seqno, const TrxHandle* trx = NULL)
+            LocalOrder(wsrep_seqno_t seqno, const TrxHandleSlave* ts = NULL)
                 :
                 seqno_(seqno)
 #if defined(GU_DBUG_ON) || !defined(NDEBUG)
-                ,trx_(trx)
+                ,trx_(ts)
 #endif //GU_DBUG_ON
             {
 #if defined(GU_DBUG_ON) || !defined(NDEBUG)
@@ -385,7 +405,7 @@ namespace galera
             {
                 if (trx_)
                 {
-                    if (trx_->is_local())
+                    if (trx_->local())
                     {
                         mutex.unlock();
                         GU_DBUG_SYNC_WAIT("local_monitor_master_enter_sync");
@@ -424,7 +444,7 @@ namespace galera
 #if defined(GU_DBUG_ON) || !defined(NDEBUG)
             // this pointer is for debugging purposes only and
             // is not guaranteed to point at a valid location
-            const TrxHandle* const trx_;
+            const TrxHandleSlave* const trx_;
 #endif /* GU_DBUG_ON || !NDEBUG */
         };
 
@@ -432,13 +452,13 @@ namespace galera
         {
         public:
 
-            ApplyOrder(const TrxHandle& trx)
+            ApplyOrder(const TrxHandleSlave& ts)
                 :
-                global_seqno_ (trx.global_seqno()),
-                depends_seqno_(trx.depends_seqno()),
-                is_local_     (trx.is_local())
+                global_seqno_ (ts.global_seqno()),
+                depends_seqno_(ts.depends_seqno()),
+                is_local_     (ts.local())
 #ifndef NDEBUG
-                ,trx_          (&trx)
+                ,trx_         (&ts)
 #endif
             {
 #ifndef NDEBUG
@@ -454,7 +474,7 @@ namespace galera
                 depends_seqno_(ds),
                 is_local_     (l)
 #ifndef NDEBUG
-                ,trx_          (NULL)
+                ,trx_         (NULL)
 #endif
             { }
 
@@ -504,14 +524,14 @@ namespace galera
         private:
 #ifdef NDEBUG
             ApplyOrder(const ApplyOrder&);
-#endif
+#endif /* NDEBUG */
             const wsrep_seqno_t global_seqno_;
             const wsrep_seqno_t depends_seqno_;
             const bool is_local_;
 #ifndef NDEBUG
             // this pointer is for debugging purposes only and
             // is not guaranteed to point at a valid location
-            const TrxHandle* const trx_;
+            const TrxHandleSlave* const trx_;
 #endif
         };
 
@@ -543,13 +563,13 @@ namespace galera
                 return static_cast<Mode>(ret);
             }
 
-            CommitOrder(const TrxHandle& trx, Mode mode)
+            CommitOrder(const TrxHandleSlave& ts, Mode mode)
                 :
-                global_seqno_(trx.global_seqno()),
+                global_seqno_(ts.global_seqno()),
                 mode_(mode),
-                is_local_(trx.is_local())
+                is_local_(ts.local())
 #ifndef NDEBUG
-                ,trx_(&trx)
+                ,trx_(&ts)
 #endif
             { }
 
@@ -564,6 +584,7 @@ namespace galera
             { }
 
             wsrep_seqno_t seqno() const { return global_seqno_; }
+
             bool condition(wsrep_seqno_t last_entered,
                            wsrep_seqno_t last_left) const
             {
@@ -629,7 +650,7 @@ namespace galera
 #ifndef NDEBUG
             // this pointer is for debugging purposes only and
             // is not guaranteed to point at a valid location
-            const TrxHandle* const trx_;
+            const TrxHandleSlave* const trx_;
 #endif
         };
 
@@ -669,7 +690,6 @@ namespace galera
             State to_;
         };
 
-
         void build_stats_vars (std::vector<struct wsrep_stats_var>& stats);
 
         void cancel_seqno(wsrep_seqno_t);
@@ -686,7 +706,7 @@ namespace galera
                               wsrep_seqno_t       group_seqno);
 
         void recv_IST(void* recv_ctx);
-        void process_IST_writeset(void* recv_ctx, const TrxHandlePtr& txp);
+        void process_IST_writeset(void* recv_ctx, const TrxHandleSlavePtr& ts);
 
         StateRequest* prepare_state_request (const void* sst_req,
                                              ssize_t     sst_req_len,
@@ -701,6 +721,9 @@ namespace galera
                                      const void*         sst_req,
                                      ssize_t             sst_req_len);
 
+        /* resume reception of GCS events */
+        void resume_recv() { gcs_.resume_recv(); ist_end(0); }
+
         /* These methods facilitate closing procedure.
          * They must be called under closing_mutex_ lock */
         void start_closing();
@@ -712,6 +735,9 @@ namespace galera
 
         /* local state seqno for internal use (macro mock up) */
         wsrep_seqno_t STATE_SEQNO(void) { return commit_monitor_.last_left(); }
+
+        /* Wait until NBO end criteria is met */
+        wsrep_status_t wait_nbo_end(TrxHandleMaster*, wsrep_trx_meta_t*);
 
         class InitLib /* Library initialization routines */
         {
@@ -738,6 +764,7 @@ namespace galera
         } init_ssl_; // initialize global SSL parameters
 
         static int const       MAX_PROTO_VER;
+
         /*
          * |--------------------------------------------------------------------|
          * | protocol_version_ | trx version | str_proto_ver_ | record_set_ver_ |
@@ -745,11 +772,13 @@ namespace galera
          * |                 1 |           1 |              0 |               1 |
          * |                 2 |           1 |              1 |               1 |
          * |                 3 |           2 |              1 |               1 |
-         * |                 4 |           2 |              1 |               1 |
+         * |                 4 |           2 |  v2.1        1 |               1 |
          * |                 5 |           3 |              1 |               1 |
          * |                 6 |           3 |              2 |               1 |
          * |                 7 |           3 |              2 |               1 |
-         * |                 8 |           4 |              2 |               2 |
+         * |                 8 |           3 |              2 | alignment     2 |
+         * |                 9 | SS keys   4 |              2 |               2 |
+         * | 4.x            10 |           4 | + CC events  3 |               2 |
          * |--------------------------------------------------------------------|
          */
 
@@ -776,13 +805,14 @@ namespace galera
         bool safe_to_bootstrap_;
 
         // currently installed trx parameters
-        TrxHandle::Params     trx_params_;
+        TrxHandleMaster::Params trx_params_;
 
         // identifiers
         wsrep_uuid_t          uuid_;
         wsrep_uuid_t const    state_uuid_;
         const char            state_uuid_str_[37];
         wsrep_seqno_t         cc_seqno_; // seqno of last CC
+        wsrep_seqno_t         cc_lowest_trx_seqno_;
         wsrep_seqno_t         pause_seqno_; // local seqno of last pause call
 
         // application callbacks
@@ -810,7 +840,7 @@ namespace galera
         ServiceThd     service_thd_;
 
         // action sources
-        TrxHandle::SlavePool slave_pool_;
+        TrxHandleSlave::Pool slave_pool_;
         ActionSource*        as_;
         ist::Receiver        ist_receiver_;
         ist::AsyncSenderMap  ist_senders_;
@@ -818,6 +848,56 @@ namespace galera
         // trx processing
         Wsdb            wsdb_;
         Certification   cert_;
+
+        class PendingCertQueue
+        {
+        public:
+            PendingCertQueue() :
+                mutex_(),
+                ts_queue_()
+            { }
+
+            void push(const TrxHandleSlavePtr& ts)
+            {
+                assert(ts->local());
+                gu::Lock lock(mutex_);
+                ts_queue_.push(ts);
+                ts->mark_queued();
+            }
+
+            TrxHandleSlavePtr must_cert_next(wsrep_seqno_t seqno)
+            {
+                gu::Lock lock(mutex_);
+                TrxHandleSlavePtr ret;
+                if (!ts_queue_.empty())
+                {
+                    const TrxHandleSlavePtr& top(ts_queue_.top());
+                    assert(top->global_seqno() != seqno);
+                    if (top->global_seqno() < seqno)
+                    {
+                        ret = top;
+                        ts_queue_.pop();
+                    }
+                }
+                return ret;
+            }
+
+        private:
+            struct TrxHandleSlavePtrCmpGlobalSeqno
+            {
+                bool operator()(const TrxHandleSlavePtr& lhs,
+                                const TrxHandleSlavePtr& rhs) const
+                {
+                    return lhs->global_seqno() > rhs->global_seqno();
+                }
+            };
+            gu::Mutex mutex_;
+            std::priority_queue<TrxHandleSlavePtr,
+                                std::vector<TrxHandleSlavePtr>,
+                                TrxHandleSlavePtrCmpGlobalSeqno> ts_queue_;
+        };
+
+        PendingCertQueue pending_cert_queue_;
 
         // concurrency control
         Monitor<LocalOrder>  local_monitor_;

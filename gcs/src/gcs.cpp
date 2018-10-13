@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2018 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -51,8 +51,8 @@ const char* gcs_act_type_to_str (gcs_act_type_t type)
 {
     static const char* str[GCS_ACT_UNKNOWN + 1] =
     {
-        "TORDERED", "COMMIT_CUT", "STATE_REQUEST", "CONFIGURATION",
-        "JOIN", "SYNC", "FLOW", "SERVICE", "ERROR", "UNKNOWN"
+        "WRITESET", "COMMIT_CUT", "STATE_REQUEST", "CONFIGURATION",
+        "JOIN", "SYNC", "FLOW", "VOTE", "SERVICE", "ERROR", "UNKNOWN"
     };
 
     if (type < GCS_ACT_UNKNOWN) return str[type];
@@ -116,11 +116,11 @@ __attribute__((__packed__));
 struct gcs_conn
 {
     gu::UUID group_uuid;
-    long  my_idx;
-    long  memb_num;
     char* my_name;
     char* channel;
     char* socket;
+    int   my_idx;
+    int   memb_num;
 
     gcs_conn_state_t  state;
 
@@ -207,6 +207,14 @@ struct gcs_conn
     /* gcs_core object */
     gcs_core_t*  core; // the context that is returned by
                        // the core group communication system
+
+    /* error vote */
+    gu_mutex_t vote_lock_;
+    gu_cond_t  vote_cond_;
+    gu::GTID   vote_gtid_;
+    int64_t    vote_res_;
+    bool       vote_wait_;
+    int        vote_err_;
 
     int inner_close_count; // how many times _close has been called.
     int outer_close_count; // how many times gcs_close has been called.
@@ -345,6 +353,8 @@ gcs_create (gu_config_t* const conf, gcache_t* const gcache,
         GCS_CONN_DONOR : GCS_CONN_JOINED;
 
     gu_mutex_init (&conn->fc_lock, NULL);
+    gu_mutex_init (&conn->vote_lock_, NULL);
+    gu_cond_init  (&conn->vote_cond_, NULL);
 
     return conn; // success
 
@@ -641,7 +651,7 @@ gcs_shift_state (gcs_conn_t*      const conn,
 
     if (!allowed[new_state][old_state]) {
         if (old_state != new_state) {
-            gu_warn ("Shifting %s -> %s is not allowed (TO: %lld)",
+            gu_warn ("GCS: Shifting %s -> %s is not allowed (TO: %lld)",
                      gcs_conn_state_str[old_state],
                      gcs_conn_state_str[new_state], conn->global_seqno);
         }
@@ -913,17 +923,48 @@ _join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
 // TODO: this function does not provide any way for recv_thread to gracefully
 //       exit in case of self-leave message.
 static void
-gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
+gcs_handle_act_conf (gcs_conn_t* conn, gcs_act_rcvd& rcvd)
 {
-    const gcs_act_conf_t* conf = (const gcs_act_conf_t*)action;
-    long ret;
+    const gcs_act& act(rcvd.act);
+    gcs_act_cchange const conf(act.buf, act.buf_len);
 
+    assert(rcvd.id >= 0 || 0 == conf.memb.size());
+    assert(conf.vote_res <= 0);
+
+    gu_mutex_lock(&conn->vote_lock_);
+    if (conn->vote_wait_)
     {
-        gu_uuid_t uuid;
-        ::memcpy(uuid.data, conf->uuid, sizeof(uuid.data));
-        conn->group_uuid = uuid;
+        assert(0 == conn->vote_err_);
+
+        if (conn->vote_gtid_.uuid() == conf.uuid)
+        {
+            if (conf.vote_seqno >= conn->vote_gtid_.seqno())
+            {
+                /* vote end by membership change */
+                conn->vote_res_ = conf.vote_res;
+                gu_cond_signal(&conn->vote_cond_);
+            }
+            /* else vote for this seqno has not been finalized */
+        }
+        else
+        {
+            /* vote end by group change */
+            conn->vote_err_ = -EREMCHG; gu_cond_signal(&conn->vote_cond_);
+        }
+
+        if (0 == conn->memb_num)
+        {
+            /* vote end by connection close */
+            conn->vote_err_ = -EBADFD; gu_cond_signal(&conn->vote_cond_);
+        }
     }
-    conn->my_idx = conf->my_idx;
+
+    conn->group_uuid = conf.uuid;
+    conn->my_idx = rcvd.id;
+
+    gu_mutex_unlock(&conn->vote_lock_);
+
+    long ret;
 
     gu_fifo_lock(conn->recv_q);
     {
@@ -931,8 +972,8 @@ gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
         if (!gu_mutex_lock (&conn->fc_lock)) {
             conn->stop_sent_  = 0;
             conn->stop_count  = 0;
-            conn->conf_id     = conf->conf_id;
-            conn->memb_num    = conf->memb_num;
+            conn->conf_id     = conf.conf_id;
+            conn->memb_num    = conf.memb.size();
 
             _set_fc_limits (conn);
 
@@ -950,51 +991,55 @@ gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
     }
     gu_fifo_release (conn->recv_q);
 
-    if (conf->conf_id < 0) {
-        if (0 == conf->memb_num) {
-            assert (conf->my_idx < 0);
+    if (conf.conf_id < 0) {
+        if (0 == conn->memb_num) {
+            assert (conn->my_idx < 0);
             gu_info ("Received SELF-LEAVE. Closing connection.");
             gcs_shift_state (conn, GCS_CONN_CLOSED);
         }
         else {
             gu_info ("Received NON-PRIMARY.");
-            assert (GCS_NODE_STATE_NON_PRIM == conf->my_state);
+            assert (GCS_NODE_STATE_NON_PRIM == conf.memb[conn->my_idx].state_);
             gcs_become_open (conn);
-            conn->global_seqno = conf->seqno;
+            conn->global_seqno = conf.seqno;
         }
 
         return;
     }
 
-    assert (conf->conf_id  >= 0);
+    assert (conf.conf_id  >= 0);
 
     /* <sanity_checks> */
-    if (conf->memb_num < 1) {
+    if (conn->memb_num < 1) {
+        assert(0);
         gu_fatal ("Internal error: PRIMARY configuration with %d nodes",
-                  conf->memb_num);
+                  conn->memb_num);
         abort();
     }
 
-    if (conf->my_idx < 0 || conf->my_idx >= conf->memb_num) {
+    if (conn->my_idx < 0 || conn->my_idx >= conn->memb_num) {
+        assert(0);
         gu_fatal ("Internal error: index of this node (%d) is out of bounds: "
-                  "[%d, %d]", conf->my_idx, 0, conf->memb_num - 1);
+                  "[%d, %d]", conn->my_idx, 0, conn->memb_num - 1);
         abort();
     }
 
-    if (conf->my_state < GCS_NODE_STATE_PRIM) {
+    if (conf.memb[conn->my_idx].state_ < GCS_NODE_STATE_PRIM) {
         gu_fatal ("Internal error: NON-PRIM node state in PRIM configuraiton");
         abort();
     }
     /* </sanity_checks> */
 
-    conn->global_seqno = conf->seqno;
+    conn->global_seqno = conf.seqno;
 
     /* at this point we have established protocol version,
      * so can set packet size */
 // Ticket #600: commented out as unsafe under load    _reset_pkt_size(conn);
 
     const gcs_conn_state_t old_state = conn->state;
-    switch (conf->my_state) {
+
+    switch (conf.memb[conn->my_idx].state_)
+    {
     case GCS_NODE_STATE_PRIM:   gcs_become_primary(conn);      return;
         /* Below are not real state transitions, rather state recovery,
          * so bypassing state transition matrix */
@@ -1004,7 +1049,7 @@ gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
     case GCS_NODE_STATE_SYNCED: conn->state = GCS_CONN_SYNCED; break;
     default:
         gu_fatal ("Internal error: unrecognized node state: %d",
-                  conf->my_state);
+                  conf.memb[conn->my_idx].state_);
         abort();
     }
 
@@ -1024,7 +1069,7 @@ gcs_handle_act_conf (gcs_conn_t* conn, const void* action)
     case GCS_CONN_JOINER:
     case GCS_CONN_DONOR:
         /* #603, #606 - duplicate JOIN msg in case we lost it */
-        assert (conf->conf_id >= 0);
+        assert (conf.conf_id >= 0);
 
         if (conn->need_to_join) _join (conn, conn->join_gtid, conn->join_code);
 
@@ -1079,6 +1124,68 @@ gcs_handle_state_change (gcs_conn_t*           conn,
     }
 }
 
+static int
+_handle_vote (gcs_conn_t& conn, const struct gcs_act& act)
+{
+    assert(act.type == GCS_ACT_VOTE);
+    assert(act.buf_len >= ssize_t(2 * sizeof(int64_t)));
+
+    int64_t seqno, res;
+    gu::unserialize8(act.buf, act.buf_len, 0, seqno);
+    gu::unserialize8(act.buf, act.buf_len, 8, res);
+
+    if (GCS_VOTE_REQUEST == res)
+    {
+        log_debug << "GCS got vote request for " << seqno;
+        return 1; /* pass request straight to slave q */
+    }
+    assert(res <= 0);
+
+    gu_mutex_lock(&conn.vote_lock_);
+
+    log_debug << "Got vote action: " << seqno << ',' << res;
+    assert(conn.vote_gtid_.seqno() != GCS_SEQNO_ILL);
+    int ret(1); /* by default pass action to slave queue as usual */
+
+    if (conn.vote_wait_)
+    {
+        log_debug << "Error voting thread is waiting for: "
+                  << conn.vote_gtid_.seqno() << ',' << conn.vote_res_;
+        assert(conn.group_uuid == conn.vote_gtid_.uuid());
+
+        if (conn.vote_res_ != 0 || seqno >= conn.vote_gtid_.seqno())
+        {
+            /* any non-zero vote on past seqno or end vote on future seqno
+             * must wake up voting thread:
+             * - negative vote on past seqno means this node is inconsistent
+             *   since it did not detect any problems with it.
+             * - any vote on a future seqno effectively means 0 vote on the
+             *   current vote_seqno. It also means that the current voter votes
+             *   otherwise (and too late), so is inconsistent.
+             * In any case vote_res mismatch will show that. */
+            if (seqno > conn.vote_gtid_.seqno())
+            {
+                conn.vote_res_ = 0; ret = 1; /* still pass to slave q */
+            }
+            else
+            {
+                conn.vote_res_ = res; ret = 0; /* consumed by voter */
+            }
+            gu_cond_signal(&conn.vote_cond_);
+        }
+    }
+    else
+    {
+        log_debug << "No error voting thread, returning " << ret;
+    }
+
+    gu_mutex_unlock(&conn.vote_lock_);
+
+    if (0 == ret) ::free(const_cast<void*>(act.buf)); /* consumed here */
+
+    return ret;
+}
+
 /*!
  * Performs work requred by action in current context.
  * @return negative error code, 0 if action should be discarded, 1 if should be
@@ -1094,8 +1201,8 @@ gcs_handle_actions (gcs_conn_t* conn, struct gcs_act_rcvd& rcvd)
         assert (sizeof(struct gcs_fc_event) == rcvd.act.buf_len);
         gcs_handle_flow_control (conn, (const gcs_fc_event*)rcvd.act.buf);
         break;
-    case GCS_ACT_CONF:
-        gcs_handle_act_conf (conn, rcvd.act.buf);
+    case GCS_ACT_CCHANGE:
+        gcs_handle_act_conf (conn, rcvd);
         ret = 1;
         break;
     case GCS_ACT_STATE_REQ:
@@ -1119,6 +1226,9 @@ gcs_handle_actions (gcs_conn_t* conn, struct gcs_act_rcvd& rcvd)
             ret = gcs_handle_state_change (conn, &rcvd.act);
             gcs_become_synced (conn);
         }
+        break;
+    case GCS_ACT_VOTE:
+        ret = _handle_vote (*conn, rcvd.act);
         break;
     default:
         break;
@@ -1314,7 +1424,8 @@ static void *gcs_recv_thread (void *arg)
         assert (rcvd.act.type < GCS_ACT_ERROR);
         assert (ret == rcvd.act.buf_len);
 
-        if (gu_unlikely(rcvd.act.type >= GCS_ACT_STATE_REQ))
+        if (gu_unlikely(rcvd.act.type >= GCS_ACT_STATE_REQ ||
+                        (conn->vote_wait_ && GCS_ACT_COMMIT_CUT==rcvd.act.type)))
         {
             ret = gcs_handle_actions (conn, rcvd);
 
@@ -1329,7 +1440,7 @@ static void *gcs_recv_thread (void *arg)
 
         /* deliver to application (note matching assert in the bottom-half of
          * gcs_repl()) */
-        if (gu_likely (rcvd.act.type != GCS_ACT_TORDERED ||
+        if (gu_likely (rcvd.act.type != GCS_ACT_WRITESET ||
                        (rcvd.id > 0 && (conn->global_seqno = rcvd.id)))) {
             /* successful delivery - increment local order */
             this_act_id = gu_atomic_fetch_and_add(&conn->local_act_id, 1);
@@ -1359,9 +1470,16 @@ static void *gcs_recv_thread (void *arg)
             gu_cond_signal  (&repl_act->wait_cond);
             gu_mutex_unlock (&repl_act->wait_mutex);
         }
-        else if (gu_likely(this_act_id >= 0))
+        else if (this_act_id >= 0 ||
+                 /* action that was SENT and there is no sender waiting for it */
+                 (rcvd.id == -EAGAIN && rcvd.act.type == GCS_ACT_WRITESET))
         {
             /* remote/non-repl'ed action */
+
+            assert(rcvd.local != NULL || rcvd.id != -EAGAIN);
+            /* Note that the resource pointed to by rcvd.local belongs to
+             * the original action sender, so we don't care about freeing it */
+
             struct gcs_recv_act* recv_act =
                 (struct gcs_recv_act*)gu_fifo_get_tail (conn->recv_q);
 
@@ -1371,7 +1489,10 @@ static void *gcs_recv_thread (void *arg)
                 recv_act->local_id = this_act_id;
 
                 conn->queue_len = gu_fifo_length (conn->recv_q) + 1;
-                bool const send_stop(gcs_fc_stop_begin(conn));
+
+                /* attempt to send stops only for foreign actions */
+                bool const send_stop
+                    (rcvd.local == NULL && gcs_fc_stop_begin(conn));
 
                 // release queue
                 GCS_FIFO_PUSH_TAIL (conn, rcvd.act.buf_len);
@@ -1397,10 +1518,22 @@ static void *gcs_recv_thread (void *arg)
 //                    "action %p", rcvd.act.type, rcvd.act.buf_len,
 //                    this_act_id, rcvd.act.buf);
         }
+        else if (rcvd.id == -EAGAIN)
+        {
+            assert(rcvd.local != NULL); /* local action */
+            gu_fatal("Action {%p, %zd, %s} needs resending: "
+                     "sender idx %d, my idx %d, local %p",
+                     rcvd.act.buf, rcvd.act.buf_len,
+                     gcs_act_type_to_str(rcvd.act.type),
+                     rcvd.sender_idx, conn->my_idx, rcvd.local);
+            assert (0);
+            ret = -ENOTRECOVERABLE;
+            break;
+        }
         else if (conn->my_idx == rcvd.sender_idx)
         {
             gu_debug("Discarding: unordered local action not in repl_q: "
-                     "{ {%p, %zd, %s}, %ld, %lld }.",
+                     "{ {%p, %zd, %s}, %d, %lld }.",
                      rcvd.act.buf, rcvd.act.buf_len,
                      gcs_act_type_to_str(rcvd.act.type), rcvd.sender_idx,
                      rcvd.id);
@@ -1408,7 +1541,7 @@ static void *gcs_recv_thread (void *arg)
         else
         {
             gu_fatal ("Protocol violation: unordered remote action: "
-                      "{ {%p, %zd, %s}, %ld, %lld }",
+                      "{ {%p, %zd, %s}, %d, %lld }",
                       rcvd.act.buf, rcvd.act.buf_len,
                       gcs_act_type_to_str(rcvd.act.type), rcvd.sender_idx,
                       rcvd.id);
@@ -1665,9 +1798,7 @@ long gcs_replv (gcs_conn_t*          const conn,      //!<in
         {
             struct gcs_repl_act** act_ptr;
 
-//#ifndef NDEBUG
             const void* const orig_buf = act->buf;
-//#endif
 
             // some hack here to achieve one if() instead of two:
             // ret = -EAGAIN part is a workaround for #569
@@ -1675,7 +1806,7 @@ long gcs_replv (gcs_conn_t*          const conn,      //!<in
             // ret will be -ENOTCONN
             if ((ret = -EAGAIN,
                  conn->upper_limit >= conn->queue_len ||
-                 act->type         != GCS_ACT_TORDERED)         &&
+                 act->type         != GCS_ACT_WRITESET)         &&
                 (ret = -ENOTCONN, GCS_CONN_OPEN >= conn->state) &&
                 (act_ptr = (struct gcs_repl_act**)gcs_fifo_lite_get_tail (conn->repl_q)))
             {
@@ -1724,7 +1855,7 @@ long gcs_replv (gcs_conn_t*          const conn,      //!<in
 
                 if (act->seqno_g < 0) {
                     assert (GCS_SEQNO_ILL    == act->seqno_l ||
-                            GCS_ACT_TORDERED != act->type);
+                            GCS_ACT_WRITESET != act->type);
 
                     if (act->seqno_g == GCS_SEQNO_ILL) {
                         /* action was not replicated for some reason */
@@ -1902,7 +2033,7 @@ long gcs_recv (gcs_conn_t*        conn,
         action->seqno_g = recv_act->rcvd.id;
         action->seqno_l = recv_act->local_id;
 
-        if (gu_unlikely (GCS_ACT_CONF == action->type)) {
+        if (gu_unlikely (GCS_ACT_CCHANGE == action->type)) {
             err = gu_fifo_cancel_gets (conn->recv_q);
             if (err) {
                 gu_fatal ("Internal logic error: failed to cancel recv_q "
@@ -2025,6 +2156,105 @@ gcs_set_last_applied (gcs_conn_t* conn, const gu::GTID& gtid)
 
     gu_cond_destroy (&cond);
 
+    return ret;
+}
+
+int
+gcs_proto_ver(gcs_conn_t* conn)
+{
+    return gcs_core_proto_ver(conn->core);
+}
+
+int
+gcs_vote (gcs_conn_t* const conn, const gu::GTID& gtid, uint64_t const code,
+          const void* const msg, size_t const msg_len)
+{
+    if (gcs_proto_ver(conn) < 1)
+    {
+        assert(code != 0); // should be here only our own initiative
+        log_error << "Not all group members support inconsistency voting. "
+                  << "Reverting to old behavior: abort on error.";
+        return 1; /* no voting with old protocol */
+    }
+
+    int const err(gu_mutex_lock(&conn->vote_lock_));
+    if (gu_unlikely(0 != err))
+    {
+        assert(0);
+        return -err;
+    }
+
+    while (conn->vote_wait_) /* only one at a time */
+    {
+        gu_mutex_unlock(&conn->vote_lock_);
+        usleep(10000);
+        gu_mutex_lock(&conn->vote_lock_);
+    }
+
+    if (gtid.uuid()  == conn->vote_gtid_.uuid() &&  /* seqno was voted already */
+        gtid.seqno() <= conn->vote_gtid_.seqno())   /* - ensure monotonicity   */
+    {
+        assert(0 == code); /* we can be here only by voting request */
+        gu_mutex_unlock(&conn->vote_lock_);
+        return -EALREADY;
+    }
+
+
+    gu::GTID const old_gtid(conn->vote_gtid_);
+    conn->vote_gtid_ = gtid;
+    conn->vote_err_  = 0;
+
+    /* We can reach this point for two reasons:
+     * 1. either we want to report an error
+     * 2. or we are voting by request (in which case code == 0) */
+
+    int64_t my_vote;
+    if (0 != code)
+    {
+        size_t const buf_len(gtid.serial_size() + sizeof(code));
+        char* const buf(new char[buf_len]);
+        size_t offset(0);
+
+        offset = gtid.serialize(buf, buf_len, offset);
+        offset = gu::serialize8(code, buf, buf_len, offset);
+        assert(buf_len == offset);
+
+        gu::MMH3 hash;
+        hash.append(buf, buf_len);
+        hash.append(msg, msg_len);
+
+        my_vote = (hash.gather8() | (1ULL << 63));
+        // make sure it is never 0 (and always negative) in case of error
+    }
+    else
+    {
+        my_vote = 0;
+    }
+
+    int ret(gcs_core_send_vote(conn->core, gtid, my_vote, msg, msg_len));
+    if (ret < 0)
+    {
+        assert(ret != -EAGAIN); /* EAGAIN should be taken care of at core level*/
+        conn->vote_gtid_ = old_gtid; /* failed to send vote */
+        goto cleanup;
+    }
+
+    /* wait for voting results */
+    conn->vote_wait_ = true;
+    gu_cond_wait(&conn->vote_cond_, &conn->vote_lock_);
+    ret = conn->vote_err_; assert(ret <= 0);
+    if (0 == ret)
+    {
+        ret = my_vote != conn->vote_res_; // 0 for agreement, 1 for disagreement
+    }
+    conn->vote_wait_ = false;
+
+cleanup:
+    log_debug << "Error voting thread wating on " << gtid.seqno() << ','
+              << my_vote << ", got " << conn->vote_res_ << ", returning "
+              << ret;
+    conn->vote_res_  = 0;
+    gu_mutex_unlock(&conn->vote_lock_);
     return ret;
 }
 
@@ -2283,7 +2513,7 @@ _set_max_throttle (gcs_conn_t* conn, const char* value)
 
 bool gcs_register_params (gu_config_t* const conf)
 {
-    return (gcs_params_register (conf) | gcs_core_register (conf));
+    return (gcs_params_register (conf) || gcs_core_register (conf));
 }
 
 long gcs_param_set  (gcs_conn_t* conn, const char* key, const char *value)

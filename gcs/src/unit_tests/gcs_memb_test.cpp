@@ -444,17 +444,17 @@ START_TEST(gcs_memb_test_465)
     fail_if (verify_node_state_across_group (&group, 1, GCS_NODE_STATE_SYNCED));
     struct gcs_act_rcvd rcvd;
     int                 proto_ver = -1;
-    ret = gcs_group_act_conf(group.nodes[1]->group(), &rcvd.act, &proto_ver);
+    ret = gcs_group_act_conf(group.nodes[1]->group(), &rcvd, &proto_ver);
     struct gcs_act* const act(&rcvd.act);
     fail_if (ret <= 0, "gcs_group_act_cnf() retruned %zd (%s)",
              ret, strerror (-ret));
     fail_if (ret != act->buf_len);
     fail_if (proto_ver != 1 /* current version */, "proto_ver = %d", proto_ver);
-    const gcs_act_conf_t* conf = (const gcs_act_conf_t*)act->buf;
-    fail_if (NULL == conf);
-    fail_if (conf->my_idx != 1);
+    const gcs_act_cchange conf(act->buf, act->buf_len);
+    int const my_idx(rcvd.id);
+    fail_if (my_idx != 1);
     /* according to #465 this was GCS_NODE_STATE_PRIM */
-    fail_if (conf->my_state != GCS_NODE_STATE_SYNCED);
+    fail_if (conf.memb[my_idx].state_ != GCS_NODE_STATE_SYNCED);
 
     deliver_join_sync_msg (&group, 0, GCS_MSG_SYNC); // donor synced
     fail_if (verify_node_state_across_group (&group, 0, GCS_NODE_STATE_SYNCED));

@@ -64,9 +64,14 @@ namespace galera
                 T_HANDSHAKE_RESPONSE = 2,
                 T_CTRL      = 3,
                 T_TRX       = 4,
-                T_RES       = 5,
+                T_CCHANGE   = 5,
                 T_SKIP      = 6
             } Type;
+
+            typedef enum
+            {
+                F_PRELOAD = 0x1
+            } Flag;
 
             explicit
             Message(int       version,
@@ -447,7 +452,8 @@ namespace galera
             template <class ST>
 
             void send_ordered(ST&                           socket,
-                              const gcache::GCache::Buffer& buffer)
+                              const gcache::GCache::Buffer& buffer,
+                              bool const                    preload_flag)
             {
                 Message::Type type(ordered_type(buffer));
 
@@ -466,7 +472,7 @@ namespace galera
                     galera::WriteSetIn ws;
                     gu::Buf tmp = { buffer.ptr(), buffer.size() };
 
-                    if (keep_keys_)
+                    if (keep_keys_ || Message::T_CCHANGE == type)
                     {
                         payload_size = buffer.size();
                         const void* const ptr(buffer.ptr());
@@ -510,7 +516,8 @@ namespace galera
                 size_t const trx_meta_size (version_ >= 8 ? 0 :
                                             (8 /* seqno_g */ + 8 /* seqno_d */));
 
-                uint8_t const msg_flags(0);
+                uint8_t const msg_flags
+                    ((version_ >= 8 && preload_flag) ? Message::F_PRELOAD : 0);
 
                 Ordered to_msg(version_, type, msg_flags,
                                trx_meta_size + payload_size, buffer.seqno_g());
@@ -584,7 +591,7 @@ namespace galera
                 switch (msg.type())
                 {
                 case Message::T_TRX:
-                case Message::T_RES:
+                case Message::T_CCHANGE:
                 case Message::T_SKIP:
                 {
                     size_t  offset(0);
@@ -641,43 +648,70 @@ namespace galera
                      * but it should not change below. Saving const for later
                      * assert(). */
                     Message::Type const msg_type(msg.type());
-                    gcs_act_type  const gcs_type(GCS_ACT_TORDERED);
+                    gcs_act_type  const gcs_type
+                        (msg_type == Message::T_CCHANGE ?
+                         GCS_ACT_CCHANGE : GCS_ACT_WRITESET);
 
                     const void* wbuf;
                     ssize_t     wsize;
+                    bool        already_cached(false);
 
-                    if (gu_likely(msg_type != Message::T_SKIP))
+                    // Check if cert index preload trx is already in gcache.
+                    if ((msg.flags() & Message::F_PRELOAD))
                     {
-                        wsize = msg.len() - offset;
+                        ret.second = true;
 
-                        void*   const ptr(gcache_.malloc(wsize));
-                        ssize_t const r(asio::read(socket, asio::buffer(ptr, wsize)));
-
-                        if (gu_unlikely(r != wsize))
+                        try
                         {
-                            gu_throw_error(EPROTO) << "error reading write set data";
+                            wbuf = gcache_.seqno_get_ptr(seqno_g, wsize);
+
+                            skip_bytes(socket, msg.len() - offset);
+
+                            already_cached = true;
+                        }
+                        catch (gu::NotFound& nf)
+                        {
+                            // not found from gcache, continue as normal
+                        }
+                    }
+
+                    if (!already_cached)
+                    {
+                        if (gu_likely(msg_type != Message::T_SKIP))
+                        {
+                            wsize = msg.len() - offset;
+
+                            void*   const ptr(gcache_.malloc(wsize));
+                            ssize_t const r
+                                (asio::read(socket, asio::buffer(ptr, wsize)));
+
+                            if (gu_unlikely(r != wsize))
+                            {
+                                gu_throw_error(EPROTO)
+                                    << "error reading write set data";
+                            }
+
+                            wbuf = ptr;
+                        }
+                        else
+                        {
+                            wsize = GU_WORDSIZE/8; // 4/8 bytes
+                            wbuf  = gcache_.malloc(wsize);
                         }
 
-                        wbuf = ptr;
+                        gcache_.seqno_assign(wbuf, msg.seqno(), gcs_type,
+                                             msg_type == Message::T_SKIP);
                     }
-                    else
-                    {
-                        wsize = GU_WORDSIZE/8; // 4/8 bytes
-                        wbuf  = gcache_.malloc(wsize);
-                    }
-
-                    gcache_.seqno_assign(wbuf, msg.seqno(), gcs_type,
-                                         msg_type == Message::T_SKIP);
 
                     assert(msg.type() == msg_type);
 
                     switch(msg_type)
                     {
                     case Message::T_TRX:
+                    case Message::T_CCHANGE:
                         act.buf  = wbuf;           // not skip
                         act.size = wsize;
                         // fall through
-                    case Message::T_RES:
                     case Message::T_SKIP:
                         act.seqno_g = msg.seqno(); // not EOF
                         act.type    = gcs_type;
@@ -724,14 +758,18 @@ namespace galera
 
             Message::Type ordered_type(const gcache::GCache::Buffer& buf)
             {
-                assert(buf.type() == GCS_ACT_TORDERED);
+                assert(buf.type() == GCS_ACT_WRITESET ||
+                       buf.type() == GCS_ACT_CCHANGE);
 
                 if (gu_likely(!buf.skip()))
                 {
                     switch (buf.type())
                     {
-                    case GCS_ACT_TORDERED:
+                    case GCS_ACT_WRITESET:
                         return Message::T_TRX;
+                    case GCS_ACT_CCHANGE:
+                        return (version_ >= 8 ?
+                                Message::T_CCHANGE : Message::T_SKIP);
                     default:
                         log_error << "Unsupported message type from cache: "
                                   << buf.type()

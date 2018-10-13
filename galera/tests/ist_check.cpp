@@ -70,7 +70,7 @@ static gu_barrier_t start_barrier;
 class TestOrder
 {
 public:
-    TestOrder(galera::TrxHandle& trx) : trx_(trx) { }
+    TestOrder(galera::TrxHandleSlave& trx) : trx_(trx) { }
     void lock() { }
     void unlock() { }
     wsrep_seqno_t seqno() const { return trx_.global_seqno(); }
@@ -83,7 +83,7 @@ public:
     void debug_sync(gu::Mutex&) { }
 #endif // GU_DBUG_ON
 private:
-    galera::TrxHandle& trx_;
+    galera::TrxHandleSlave& trx_;
 };
 
 struct sender_args
@@ -112,13 +112,13 @@ struct receiver_args
     std::string   listen_addr_;
     wsrep_seqno_t first_;
     wsrep_seqno_t last_;
-    TrxHandle::SlavePool& trx_pool_;
+    TrxHandleSlave::Pool& trx_pool_;
     gcache::GCache& gcache_;
     int           version_;
 
     receiver_args(const std::string listen_addr,
                   wsrep_seqno_t first, wsrep_seqno_t last,
-                  TrxHandle::SlavePool& sp,
+                  TrxHandleSlave::Pool& sp,
                   gcache::GCache& gc, int version)
         :
         listen_addr_(listen_addr),
@@ -143,11 +143,10 @@ extern "C" void* sender_thd(void* arg)
     galera::ist::Sender sender(conf, sargs->gcache_, sargs->peer_,
                                sargs->version_);
     mark_point();
-    sender.send(sargs->first_, sargs->last_);
+    sender.send(sargs->first_, sargs->last_, sargs->first_);
     mark_point();
     return 0;
 }
-
 
 
 namespace
@@ -165,7 +164,7 @@ namespace
 
         ~ISTObserver() {}
 
-        void ist_trx(const TrxHandlePtr& ts, bool must_apply)
+        void ist_trx(const TrxHandleSlavePtr& ts, bool must_apply, bool preload)
         {
             assert(ts != 0);
             ts->verify_checksum();
@@ -180,8 +179,31 @@ namespace
                 ts->set_state(TrxHandle::S_CERTIFYING);
             }
 
-            assert(seqno_ + 1 == ts->global_seqno());
+            if (preload == false)
+            {
+                assert(seqno_ + 1 == ts->global_seqno());
+            }
+            else
+            {
+                assert(seqno_ < ts->global_seqno());
+            }
             seqno_ = ts->global_seqno();
+        }
+
+        void ist_cc(const gcs_action& act, bool must_apply, bool preload)
+        {
+            gcs_act_cchange const cc(act.buf, act.size);
+            assert(act.seqno_g == cc.seqno);
+
+            log_info << "ist_cc" << cc.seqno;
+            if (preload == false)
+            {
+                assert(seqno_ + 1 == cc.seqno);
+            }
+            else
+            {
+                assert(seqno_ < cc.seqno);
+            }
         }
 
         void ist_end(int error)
@@ -219,7 +241,8 @@ extern "C" void* receiver_thd(void* arg)
     receiver_args* rargs(reinterpret_cast<receiver_args*>(arg));
 
     gu::Config conf;
-    TrxHandle::SlavePool slave_pool(sizeof(TrxHandle), 1024, "TrxHandle");
+    TrxHandleSlave::Pool slave_pool(sizeof(TrxHandleSlave), 1024,
+                                    "TrxHandleSlave");
     galera::ReplicatorSMM::InitConfig(conf, NULL, NULL);
 
     mark_point();
@@ -271,13 +294,14 @@ static int select_trx_version(int protocol_version)
 }
 
 static void store_trx(gcache::GCache* const gcache,
-                      TrxHandle::LocalPool& lp,
-                      const TrxHandle::Params& trx_params,
+                      TrxHandleMaster::Pool& lp,
+                      const TrxHandleMaster::Params& trx_params,
                       const wsrep_uuid_t& uuid,
                       int const i)
 {
-    TrxHandlePtr trx(TrxHandle::New(lp, trx_params, uuid, 1234+i, 5678+i),
-                     TrxHandleDeleter());
+    TrxHandleMasterPtr trx(TrxHandleMaster::New(lp, trx_params, uuid, 1234+i,
+                                                5678+i),
+                           TrxHandleMasterDeleter());
 
     const wsrep_buf_t key[3] = {
         {"key1", 4},
@@ -288,7 +312,6 @@ static void store_trx(gcache::GCache* const gcache,
     trx->append_key(KeyData(trx_params.version_, key, 3, WSREP_KEY_EXCLUSIVE,
                             true));
     trx->append_data("bar", 3, WSREP_DATA_ORDERED, true);
-    trx->set_flags(TrxHandle::F_COMMIT);
     assert (i > 0);
     int last_seen(i - 1);
     int pa_range(i);
@@ -319,13 +342,37 @@ static void store_trx(gcache::GCache* const gcache,
         mark_point();
         galera::WriteSetIn wsi(ws_buf);
         assert (wsi.last_seen() == last_seen);
-        assert (wsi.pa_range()  == 0);
+        assert (wsi.pa_range()  == (wsi.version() < WriteSetNG::VER5 ?
+                                    0 : WriteSetNG::MAX_PA_RANGE));
         wsi.set_seqno(i, pa_range);
         assert (wsi.seqno()     == int64_t(i));
         assert (wsi.pa_range()  == pa_range);
     }
 
-    gcache->seqno_assign(ptr, i, GCS_ACT_TORDERED, (i - pa_range) <= 0);
+    gcache->seqno_assign(ptr, i, GCS_ACT_WRITESET, (i - pa_range) <= 0);
+}
+
+static void store_cc(gcache::GCache* const gcache,
+                      const wsrep_uuid_t& uuid,
+                     int const i)
+{
+    static int conf_id(0);
+
+    gcs_act_cchange cc;
+
+    ::memcpy(&cc.uuid, &uuid, sizeof(uuid));
+
+    cc.seqno = i;
+    cc.conf_id = conf_id++;
+
+    void* tmp;
+    int   const cc_size(cc.write(&tmp));
+    void* const cc_ptr(gcache->malloc(cc_size));
+
+    fail_if(NULL == cc_ptr);
+    memcpy(cc_ptr, tmp, cc_size);
+
+    gcache->seqno_assign(cc_ptr, i, GCS_ACT_CCHANGE, i > 0);
 }
 
 static void test_ist_common(int const version)
@@ -334,11 +381,12 @@ static void test_ist_common(int const version)
     using galera::TrxHandle;
     using galera::KeyOS;
 
-    TrxHandle::LocalPool lp(TrxHandle::LOCAL_STORAGE_SIZE(), 4, "ist_common");
-    TrxHandle::SlavePool sp(sizeof(TrxHandle), 4, "ist_common");
+    TrxHandleMaster::Pool lp(TrxHandleMaster::LOCAL_STORAGE_SIZE(), 4,
+                             "ist_common");
+    TrxHandleSlave::Pool sp(sizeof(TrxHandleSlave), 4, "ist_common");
 
     int const trx_version(select_trx_version(version));
-    TrxHandle::Params const trx_params("", trx_version,
+    TrxHandleMaster::Params const trx_params("", trx_version,
                                        galera::KeySet::MAX_VERSION);
     std::string const dir(".");
 
@@ -365,7 +413,14 @@ static void test_ist_common(int const version)
     // populate gcache
     for (size_t i(1); i <= 10; ++i)
     {
-        store_trx(gcache_sender, lp, trx_params, uuid, i);
+        if (i % 3)
+        {
+            store_trx(gcache_sender, lp, trx_params, uuid, i);
+        }
+        else
+        {
+            store_cc(gcache_sender, uuid, i);
+        }
     }
 
     mark_point();

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2013 Codership Oy <info@codership.com>
+// Copyright (C) 2013-2018 Codership Oy <info@codership.com>
 //
 
 #ifndef GALERA_KEY_ENTRY_NG_HPP
@@ -9,8 +9,6 @@
 
 namespace galera
 {
-    class TrxHandle;
-
     class KeyEntryNG
     {
     public:
@@ -18,24 +16,23 @@ namespace galera
             : refs_(), key_(key)
         {
             std::fill(&refs_[0],
-                      &refs_[KeySet::Key::P_LAST],
-                      static_cast<TrxHandle*>(NULL));
+                      &refs_[KeySet::Key::TYPE_MAX],
+                      static_cast<TrxHandleSlave*>(NULL));
         }
 
         KeyEntryNG(const KeyEntryNG& other)
         : refs_(), key_(other.key_)
         {
             std::copy(&other.refs_[0],
-                      &other.refs_[KeySet::Key::P_LAST],
+                      &other.refs_[KeySet::Key::TYPE_MAX],
                       &refs_[0]);
         }
 
         const KeySet::KeyPart& key() const { return key_; }
 
-        void ref(KeySet::Key::Prefix p, const KeySet::KeyPart& k,
-                 TrxHandle* trx)
+        void ref(wsrep_key_type_t p, const KeySet::KeyPart& k,
+                 TrxHandleSlave* trx)
         {
-            assert(trx);
             assert(0 == refs_[p] ||
                    refs_[p]->global_seqno() <= trx->global_seqno());
 
@@ -43,7 +40,7 @@ namespace galera
             key_ = k;
         }
 
-        void unref(KeySet::Key::Prefix p, TrxHandle* trx)
+        void unref(wsrep_key_type_t p, TrxHandleSlave* trx)
         {
             assert(refs_[p] != NULL);
 
@@ -62,7 +59,7 @@ namespace galera
         {
             bool ret(refs_[0] != NULL);
 
-            for (int i(1); false == ret && i <= KeySet::Key::P_LAST; ++i)
+            for (int i(1); false == ret && i <= KeySet::Key::TYPE_MAX; ++i)
             {
                 ret = (refs_[i] != NULL);
             }
@@ -70,7 +67,7 @@ namespace galera
             return ret;
         }
 
-        const TrxHandle* ref_trx(KeySet::Key::Prefix p) const
+        const TrxHandleSlave* ref_trx(wsrep_key_type_t const p) const
         {
             return refs_[p];
         }
@@ -95,37 +92,17 @@ namespace galera
 
         ~KeyEntryNG()
         {
-#ifndef NDEBUG
-            if (referenced()) print_refs();
-#endif /* NDEBUG */
             assert(!referenced());
         }
 
     private:
 
-        TrxHandle*      refs_[KeySet::Key::P_LAST + 1];
+        TrxHandleSlave* refs_[KeySet::Key::TYPE_MAX + 1];
         KeySet::KeyPart key_;
 
 #ifndef NDEBUG
-        void print_refs()
-        {
-            std::ostringstream os;
-
-            os << "Key: " << key_ << " referenced by: \n";
-            for (int i(0); i <= KeySet::Key::P_LAST; ++i)
-            {
-                os << i << ": ";
-
-                if (refs_[i])
-                    os << *refs_[i];
-                else
-                    os << "(null)";
-
-                os << "\n";
-            }
-
-            log_info << os.str();
-        }
+        void assert_ref(KeySet::Key::Prefix, TrxHandleSlave*) const;
+        void assert_unref(KeySet::Key::Prefix, TrxHandleSlave*) const;
 #endif /* NDEBUG */
     };
 

@@ -68,44 +68,43 @@ namespace galera
     ssize_t
     DummyGcs::generate_cc (bool primary)
     {
-        cc_size_ = sizeof(gcs_act_conf_t) +
-            primary *
-            (my_name_.length() + incoming_.length() + GU_UUID_STR_LEN + 3);
+        gcs_act_cchange cc;
 
-        cc_ = ::malloc(cc_size_);
+        gcs_node_state_t const my_state
+            (primary ? GCS_NODE_STATE_JOINED : GCS_NODE_STATE_NON_PRIM);
+
+        if (primary)
+        {
+            ++global_seqno_;
+
+            cc.seqno   = global_seqno_;
+            cc.conf_id = 1;
+            cc.uuid    = *uuid_.ptr();
+            cc.repl_proto_ver = repl_proto_ver_;
+            cc.appl_proto_ver = appl_proto_ver_;
+
+            /* we have single member here */
+            gcs_act_cchange::member m;
+
+            m.uuid_     = *uuid_.ptr();
+            m.name_     = my_name_;
+            m.incoming_ = incoming_;
+            m.state_    = my_state;
+
+            cc.memb.push_back(m);
+        }
+        else
+        {
+            cc.seqno    = GCS_SEQNO_ILL;
+            cc.conf_id  = -1;
+        }
+
+        cc_size_ = cc.write(&cc_);
 
         if (!cc_)
         {
             cc_size_ = 0;
             return -ENOMEM;
-        }
-
-        gcs_act_conf_t* const cc(reinterpret_cast<gcs_act_conf_t*>(cc_));
-
-        if (primary)
-        {
-            cc->seqno = global_seqno_;
-            cc->conf_id = 1;
-            memcpy (cc->uuid, &uuid_, sizeof(uuid_));
-            cc->memb_num = 1;
-            cc->my_idx = 0;
-            cc->my_state = GCS_NODE_STATE_JOINED;
-            cc->repl_proto_ver = repl_proto_ver_;
-            cc->appl_proto_ver = appl_proto_ver_;
-
-            char* const str(cc->data);
-            ssize_t offt(0);
-            offt += gu_uuid_print (uuid_.ptr(), str, GU_UUID_STR_LEN+1) + 1;
-            offt += sprintf (str + offt, "%s", my_name_.c_str()) + 1;
-            sprintf (str + offt, "%s", incoming_.c_str());
-        }
-        else
-        {
-            cc->seqno    = GCS_SEQNO_ILL;
-            cc->conf_id  = -1;
-            cc->memb_num = 0;
-            cc->my_idx   = -1;
-            cc->my_state = GCS_NODE_STATE_NON_PRIM;
         }
 
         return cc_size_;
@@ -193,22 +192,25 @@ namespace galera
                 act.buf     = cc_;
                 act.size    = cc_size_;
                 act.seqno_l = local_seqno_;
-                act.type    = GCS_ACT_CONF;
+                act.type    = GCS_ACT_CCHANGE;
 
                 cc_      = 0;
                 cc_size_ = 0;
 
-                const gcs_act_conf_t* const cc(
-                    reinterpret_cast<const gcs_act_conf_t*>(act.buf));
+                gcs_act_cchange const cc(act.buf, act.size);
 
-                if (cc->my_idx < 0)
+                act.seqno_g = (cc.conf_id >= 0 ? 0 : -1);
+
+                int const my_idx(act.seqno_g);
+
+                if (my_idx < 0)
                 {
-                    assert (0 == cc->memb_num);
+                    assert (0 == cc.memb.size());
                     state_ = S_CLOSED;
                 }
                 else
                 {
-                    assert (1 == cc->memb_num);
+                    assert (1 == cc.memb.size());
                     state_ = S_CONNECTED;
                 }
 

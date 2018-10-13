@@ -31,7 +31,7 @@ void galera::Wsdb::print(std::ostream& os) const
 
 galera::Wsdb::Wsdb()
     :
-    trx_pool_  (TrxHandle::LOCAL_STORAGE_SIZE(), 512, "LocalTrxHandle"),
+    trx_pool_  (TrxHandleMaster::LOCAL_STORAGE_SIZE(), 512, "LocalTrxHandle"),
     trx_map_   (),
     trx_mutex_ (),
     conn_map_  (),
@@ -52,25 +52,25 @@ galera::Wsdb::~Wsdb()
 #endif // !NDEBUG
 }
 
-inline galera::TrxHandlePtr
-galera::Wsdb::create_trx(const TrxHandle::Params& params,
-                         const wsrep_uuid_t&  source_id,
-                         wsrep_trx_id_t const trx_id)
+inline galera::TrxHandleMasterPtr
+galera::Wsdb::create_trx(const TrxHandleMaster::Params& params,
+                         const wsrep_uuid_t&            source_id,
+                         wsrep_trx_id_t const           trx_id)
 {
-    TrxHandlePtr trx(new_trx(params, source_id, trx_id));
+    TrxHandleMasterPtr trx(new_trx(params, source_id, trx_id));
 
-    std::pair<TrxMap::iterator, bool> i(trx_map_.insert(std::make_pair(trx_id, trx)));
+    std::pair<TrxMap::iterator, bool> i (trx_map_.insert(std::make_pair(trx_id, trx)));
     if (gu_unlikely(i.second == false)) gu_throw_fatal;
 
     return i.first->second;
 }
 
 
-galera::TrxHandlePtr
-galera::Wsdb::get_trx(const TrxHandle::Params& params,
-                      const wsrep_uuid_t&      source_id,
-                      wsrep_trx_id_t const     trx_id,
-                      bool const               create)
+galera::TrxHandleMasterPtr
+galera::Wsdb::get_trx(const TrxHandleMaster::Params& params,
+                      const wsrep_uuid_t&            source_id,
+                      wsrep_trx_id_t const           trx_id,
+                      bool const                     create)
 {
     gu::Lock lock(trx_mutex_);
     TrxMap::iterator const i(trx_map_.find(trx_id));
@@ -80,7 +80,7 @@ galera::Wsdb::get_trx(const TrxHandle::Params& params,
     }
     else if (i == trx_map_.end())
     {
-        return TrxHandlePtr();
+        return TrxHandleMasterPtr();
     }
 
     return i->second;
@@ -113,11 +113,11 @@ galera::Wsdb::get_conn(wsrep_conn_id_t const conn_id, bool const create)
 }
 
 
-galera::TrxHandlePtr
-galera::Wsdb::get_conn_query(const TrxHandle::Params& params,
-                             const wsrep_uuid_t&      source_id,
-                             wsrep_conn_id_t const    conn_id,
-                             bool const               create)
+galera::TrxHandleMasterPtr
+galera::Wsdb::get_conn_query(const TrxHandleMaster::Params& params,
+                             const wsrep_uuid_t&            source_id,
+                             wsrep_conn_id_t const          conn_id,
+                             bool const                     create)
 {
     Conn* const conn(get_conn(conn_id, create));
 
@@ -128,9 +128,9 @@ galera::Wsdb::get_conn_query(const TrxHandle::Params& params,
 
     if (conn->get_trx() == 0 && create == true)
     {
-        TrxHandlePtr trx
-            (TrxHandle::New(trx_pool_, params, source_id, conn_id, -1),
-             TrxHandleDeleter());
+        TrxHandleMasterPtr trx
+            (TrxHandleMaster::New(trx_pool_, params, source_id, conn_id, -1),
+             TrxHandleMasterDeleter());
         conn->assign_trx(trx);
     }
 

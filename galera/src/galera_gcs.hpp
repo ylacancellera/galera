@@ -42,7 +42,8 @@ namespace galera
         virtual ssize_t replv(const WriteSetVector&,
                               gcs_action& act, bool) = 0;
         virtual ssize_t repl (gcs_action& act, bool) = 0;
-        virtual long    caused(gu::GTID& gtid) = 0;
+        virtual void    caused(gu::GTID& gtid,
+                               gu::datetime::Date& wait_until) = 0;
         virtual ssize_t schedule() = 0;
         virtual ssize_t interrupt(ssize_t) = 0;
         virtual ssize_t resume_recv() = 0;
@@ -55,6 +56,10 @@ namespace galera
         virtual void    join(const gu::GTID&, int code) = 0;
         virtual gcs_seqno_t local_sequence() = 0;
         virtual ssize_t set_last_applied(const gu::GTID&) = 0;
+        virtual int     vote(const gu::GTID& gtid,
+                             uint64_t        code,
+                             const void*     data,
+                             size_t          data_len) = 0;
         virtual void    get_stats(gcs_stats*) const = 0;
         virtual void    flush_stats() = 0;
         virtual void    get_status(gu::Status&) const = 0;
@@ -138,7 +143,23 @@ namespace galera
             return gcs_repl(conn_, &act, scheduled);
         }
 
-        long caused(gu::GTID& gtid) { return gcs_caused(conn_, gtid); }
+        void caused(gu::GTID& gtid, gu::datetime::Date& wait_until)
+        {
+            long err;
+
+            while ((err = gcs_caused(conn_, gtid)) == -EAGAIN &&
+                   gu::datetime::Date::calendar() < wait_until)
+            {
+                usleep(1000);
+            }
+
+            if (err == -EAGAIN) err = -ETIMEDOUT;
+
+            if (err < 0)
+            {
+                gu_throw_error(-err);
+            }
+        }
 
         ssize_t schedule()   { return gcs_schedule(conn_); }
 
@@ -158,6 +179,15 @@ namespace galera
             assert(gtid.seqno() >= 0);
 
             return gcs_set_last_applied(conn_, gtid);
+        }
+
+        int vote(const gu::GTID& gtid, uint64_t const code,
+                 const void* const msg, size_t const msg_len)
+        {
+            assert(gtid.uuid()  != GU_UUID_NIL);
+            assert(gtid.seqno() >= 0);
+
+            return gcs_vote(conn_, gtid, code, msg, msg_len);
         }
 
         ssize_t request_state_transfer(int version,
@@ -310,10 +340,9 @@ namespace galera
             return ret;
         }
 
-        long caused(gu::GTID& gtid)
+        void caused(gu::GTID& gtid, gu::datetime::Date& wait_until)
         {
             gtid.set(uuid_, global_seqno_);
-            return 0;
         }
 
         ssize_t schedule()
@@ -338,6 +367,12 @@ namespace galera
         }
 
         gcs_seqno_t last_applied() const { return last_applied_; }
+
+        int vote(const gu::GTID& gtid, uint64_t const code,
+                 const void* const msg, size_t const msg_len)
+        {
+            return 0; // we always agree with ourselves
+        }
 
         ssize_t request_state_transfer(int version,
                                        const void* req, ssize_t req_len,

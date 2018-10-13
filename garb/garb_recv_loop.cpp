@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2015 Codership Oy <info@codership.com> */
+/* Copyright (C) 2011-2016 Codership Oy <info@codership.com> */
 
 #include "garb_recv_loop.hpp"
 
@@ -26,7 +26,8 @@ RecvLoop::RecvLoop (const Config& config)
     parse_ (gconf_, config_.options()),
     gcs_   (gconf_, config_.name(), config_.address(), config_.group()),
     uuid_  (GU_UUID_NIL),
-    seqno_ (GCS_SEQNO_ILL)
+    seqno_ (GCS_SEQNO_ILL),
+    proto_ (0)
 {
     /* set up signal handlers */
     global_gcs = &gcs_;
@@ -38,13 +39,13 @@ RecvLoop::RecvLoop (const Config& config)
 
     if (sigaction (SIGTERM, &sa, NULL))
     {
-        gu_throw_error(errno) << "Falied to install signal hadler for signal "
+        gu_throw_error(errno) << "Falied to install signal handler for signal "
                               << "SIGTERM";
     }
 
     if (sigaction (SIGINT, &sa, NULL))
     {
-        gu_throw_error(errno) << "Falied to install signal hadler for signal "
+        gu_throw_error(errno) << "Falied to install signal handler for signal "
                               << "SIGINT";
     }
 
@@ -62,10 +63,10 @@ RecvLoop::loop()
 
         switch (act.type)
         {
-        case GCS_ACT_TORDERED:
+        case GCS_ACT_WRITESET:
             seqno_ = act.seqno_g;
-            if (gu_unlikely(!(seqno_ & 127)))
-                /* == report_interval_ of 128 */
+            if (gu_unlikely(proto_ == 0 && !(seqno_ & 127)))
+                /* report_interval_ of 128 in old protocol */
             {
                 gcs_.set_last_applied (gu::GTID(uuid_, seqno_));
             }
@@ -76,26 +77,30 @@ RecvLoop::loop()
             /* we can't donate state */
             gcs_.join (gu::GTID(uuid_, seqno_),-ENOSYS);
             break;
-        case GCS_ACT_CONF:
+        case GCS_ACT_CCHANGE:
         {
-            const gcs_act_conf_t* const cc
-                (reinterpret_cast<const gcs_act_conf_t*>(act.buf));
+            gcs_act_cchange const cc(act.buf, act.size);
 
-            if (cc->conf_id > 0) /* PC */
+            if (cc.conf_id > 0) /* PC */
             {
-                if (GCS_NODE_STATE_PRIM == cc->my_state)
+                int const my_idx(act.seqno_g);
+                assert(my_idx >= 0);
+
+                gcs_node_state const my_state(cc.memb[my_idx].state_);
+
+                if (GCS_NODE_STATE_PRIM == my_state)
                 {
-                    gu_uuid_t uuid;
-                    ::memcpy(uuid.data, cc->uuid, sizeof(uuid.data));
-                    uuid_  = uuid;
-                    seqno_ = cc->seqno;
+                    uuid_  = cc.uuid;
+                    seqno_ = cc.seqno;
                     gcs_.request_state_transfer (config_.sst(),config_.donor());
-                    gcs_.join(gu::GTID(uuid_, seqno_), 0);
+                    gcs_.join(gu::GTID(cc.uuid, cc.seqno), 0);
                 }
+
+                proto_ = gcs_.proto_ver();
             }
             else
             {
-                if (cc->memb_num == 0) // SELF-LEAVE after closing connection
+                if (cc.memb.size() == 0) // SELF-LEAVE after closing connection
                 {
                     log_info << "Exiting main loop";
                     return;
@@ -115,6 +120,7 @@ RecvLoop::loop()
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
         case GCS_ACT_FLOW:
+        case GCS_ACT_VOTE:
         case GCS_ACT_SERVICE:
         case GCS_ACT_ERROR:
         case GCS_ACT_UNKNOWN:

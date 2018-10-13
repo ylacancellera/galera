@@ -15,8 +15,9 @@
 # Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston
 # MA  02110-1301  USA.
 
-%{!?name: %define name galera-3}
-%{!?version: %define version 25_3.x}
+%{!?name: %define name galera-4}
+%{!?wsrep_api: %define wsrep_api 26}
+%{!?version: %define version %{wsrep_api}_4.x}
 %{!?release: %define release 2}
 %define revision XXXX
 %define copyright Copyright 2007-2015 Codership Oy. All rights reserved. Use is subject to license terms under GPLv2 license.
@@ -28,7 +29,7 @@
 %global _enable_debug_package 0
 %global debug_package %{nil}
 %global __os_install_post /usr/lib/rpm/brp-compress %{nil}
-
+%define ssl_package_devel openssl-devel
 # Define dist tag if not given by platform
 
 # For suse versions see:
@@ -44,6 +45,10 @@
 %endif
 %if 0%{?suse_version} == 1320
 %define dist .suse13.2
+%endif
+%if 0%{?sle_version} == 150000 && 0%{?is_opensuse}
+%define dist .lp151
+%define ssl_package_devel libopenssl-devel
 %endif
 
 
@@ -63,7 +68,7 @@ BuildRoot:     %{_tmppath}/%{name}_%{version}-build
 BuildRequires: boost-devel >= 1.41
 BuildRequires: check-devel
 BuildRequires: glibc-devel
-BuildRequires: openssl-devel
+BuildRequires: %{ssl_package_devel}
 BuildRequires: scons
 %if 0%{?suse_version} == 1110
 # On SLES11 SPx use the linked gcc47 to build instead of default gcc43
@@ -119,7 +124,7 @@ Requires(preun): initscripts
 Requires:      openssl
 
 Provides:      wsrep, %{name} = %{version}-%{release}
-Provides:      galera, galera3, Percona-XtraDB-Cluster-galera-25
+Provides:      galera, galera4, Percona-XtraDB-Cluster-galera-%{wsrep_api}
 
 %description
 Galera is a fast synchronous multimaster wsrep provider (replication engine)
@@ -159,8 +164,8 @@ NUM_JOBS=${NUM_JOBS:-$(ncpu=$(cat /proc/cpuinfo | grep processor | wc -l) && ech
 scons -j$(echo $NUM_JOBS) revno=%{revision} deterministic_tests=1
 
 %install
-RBR=$RPM_BUILD_ROOT # eg. rpmbuild/BUILDROOT/galera-3-3.x-33.1.x86_64
-RBD=$RPM_BUILD_DIR/%{name}-%{version} # eg. rpmbuild/BUILD/galera-3.x
+RBR=$RPM_BUILD_ROOT # eg. rpmbuild/BUILDROOT/galera-4-4.x-44.1.x86_64
+RBD=$RPM_BUILD_DIR/%{name}-%{version} # eg. rpmbuild/BUILD/galera-4.x
 # When downloading from GitHub the contents is in a folder
 # that is named by the branch it was exported from.
 

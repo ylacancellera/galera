@@ -37,11 +37,13 @@ namespace galera
 
         enum Version
         {
-            VER3 = 3
+            VER3 = 3,
+            VER4,
+            VER5
         };
 
         /* Max header version that we can understand */
-        static Version const MAX_VERSION = VER3;
+        static Version const MAX_VERSION = VER5;
 
         /* Parses beginning of the header to detect writeset version and
          * returns it as raw integer for backward compatibility
@@ -87,6 +89,8 @@ namespace galera
             switch (v)
             {
             case VER3: return VER3;
+            case VER4: return VER4;
+            case VER5: return VER5;
             }
 
             gu_throw_error (EPROTO) << "Unrecognized writeset version: " << v;
@@ -102,7 +106,15 @@ namespace galera
             F_TOI         = 1 << 2,
             F_PA_UNSAFE   = 1 << 3,
             F_COMMUTATIVE = 1 << 4,
-            F_NATIVE      = 1 << 5
+            F_NATIVE      = 1 << 5,
+            F_BEGIN       = 1 << 6,
+            F_PREPARE     = 1 << 7,
+            /*
+             * reserved for provider extension
+             */
+            F_CERTIFIED   = 1 << 14, // needed to correctly interprete pa_range
+                                     // field (VER5 and up)
+            F_PREORDERED  = 1 << 15  // (VER5 and up)
         };
 
         static bool const FLAGS_MATCH_API_FLAGS =
@@ -111,7 +123,9 @@ namespace galera
                             WSREP_FLAG_ISOLATION   == F_TOI          &&
                             WSREP_FLAG_PA_UNSAFE   == F_PA_UNSAFE    &&
                             WSREP_FLAG_COMMUTATIVE == F_COMMUTATIVE  &&
-                            WSREP_FLAG_NATIVE      == F_NATIVE);
+                            WSREP_FLAG_NATIVE      == F_NATIVE       &&
+                            WSREP_FLAG_TRX_START   == F_BEGIN        &&
+                            WSREP_FLAG_TRX_PREPARE == F_PREPARE);
 
         static uint32_t wsrep_flags_to_ws_flags (uint32_t flags);
 
@@ -137,6 +151,10 @@ namespace galera
                 switch (ver)
                 {
                 case VER3:
+                // fall through
+                case VER4:
+                // fall through
+                case VER5:
                 {
                     GU_COMPILE_ASSERT(0 == (V3_SIZE % GU_MIN_ALIGNMENT),
                                       unaligned_header_size);
@@ -258,13 +276,12 @@ namespace galera
 
             wsrep_seqno_t    last_seen() const
             {
-                assert (pa_range() == 0);
+                assert (pa_range() == 0 || version() >= VER5);
                 return seqno_priv();
             }
 
             wsrep_seqno_t    seqno() const
             {
-                assert (pa_range() > 0);
                 return seqno_priv();
             }
 
@@ -454,6 +471,8 @@ namespace galera
             if (flags & WSREP_FLAG_PA_UNSAFE)   ret |= F_PA_UNSAFE;
             if (flags & WSREP_FLAG_COMMUTATIVE) ret |= F_COMMUTATIVE;
             if (flags & WSREP_FLAG_NATIVE)      ret |= F_NATIVE;
+            if (flags & WSREP_FLAG_TRX_START)   ret |= F_BEGIN;
+            if (flags & WSREP_FLAG_TRX_PREPARE) ret |= F_PREPARE;
 
             return ret;
         }
@@ -492,7 +511,7 @@ namespace galera
             kbn_   (base_name_),
             keys_  (reserved,
                     (reserved_size >>= 6, reserved_size <<= 3, reserved_size),
-                    kbn_, kver, rsv),
+                    kbn_, kver, rsv, ver),
             /* 5/8 of reserved goes to data set  */
             dbn_   (base_name_),
             data_  (reserved + reserved_size, reserved_size*5, dbn_, dver, rsv),
@@ -558,7 +577,6 @@ namespace galera
                       const wsrep_trx_id_t&     trx,
                       WriteSetNG::GatherVector& out)
         {
-            assert(flags_ != 0);
             gu_trace(check_size());
 
             out->reserve (out->size() + keys_.page_count() + data_.page_count()
@@ -571,7 +589,6 @@ namespace galera
                                              NULL != annt_,
                                              flags_, source, conn, trx,
                                              out));
-            assert(header_.flags() == flags_);
 
             out_size += keys_.gather(out);
             out_size += data_.gather(out);
@@ -763,7 +780,13 @@ namespace galera
         bool          pa_unsafe() const
         { return flags() & WriteSetNG::F_PA_UNSAFE; }
         int           pa_range()  const { return header_.pa_range();  }
-        bool          certified() const { return header_.pa_range();  }
+        bool          certified() const
+        {
+            if (gu_likely(version() >= WriteSetNG::VER5))
+                return (flags() & WriteSetNG::F_CERTIFIED);
+            else
+                return (pa_range()); // VER3
+        }
         wsrep_seqno_t last_seen() const { return header_.last_seen(); }
         wsrep_seqno_t seqno()     const { return header_.seqno();     }
         long long     timestamp() const { return header_.timestamp(); }

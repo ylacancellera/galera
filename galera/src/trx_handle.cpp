@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2010-2017 Codership Oy <info@codership.com>
+// Copyright (C) 2010-2018 Codership Oy <info@codership.com>
 //
 
 #include "trx_handle.hpp"
@@ -8,8 +8,9 @@
 #include <gu_serialize.hpp>
 #include <gu_uuid.hpp>
 
-const galera::TrxHandle::Params
-galera::TrxHandle::Defaults(".", -1, KeySet::MAX_VERSION, gu::RecordSet::VER2);
+const galera::TrxHandleMaster::Params
+galera::TrxHandleMaster::Defaults(".", -1, KeySet::MAX_VERSION,
+                                  gu::RecordSet::VER2, false);
 
 void galera::TrxHandle::print_state(std::ostream& os, TrxHandle::State s)
 {
@@ -25,12 +26,6 @@ void galera::TrxHandle::print_state(std::ostream& os, TrxHandle::State s)
         os << "REPLICATING"; return;
     case TrxHandle::S_CERTIFYING:
         os << "CERTIFYING"; return;
-    case TrxHandle::S_MUST_CERT_AND_REPLAY:
-        os << "MUST_CERT_AND_REPLAY"; return;
-    case TrxHandle::S_MUST_REPLAY_AM:
-        os << "MUST_REPLAY_AM"; return;
-    case TrxHandle::S_MUST_REPLAY_CM:
-        os << "MUST_REPLAY_CM"; return;
     case TrxHandle::S_MUST_REPLAY:
         os << "MUST_REPLAY"; return;
     case TrxHandle::S_REPLAYING:
@@ -39,10 +34,10 @@ void galera::TrxHandle::print_state(std::ostream& os, TrxHandle::State s)
         os << "APPLYING"; return;
     case TrxHandle::S_COMMITTING:
         os << "COMMITTING"; return;
-    case TrxHandle::S_COMMITTED:
-        os << "COMMITTED"; return;
     case TrxHandle::S_ROLLING_BACK:
         os << "ROLLING_BACK"; return;
+    case TrxHandle::S_COMMITTED:
+        os << "COMMITTED"; return;
     case TrxHandle::S_ROLLED_BACK:
         os << "ROLLED_BACK"; return;
     // don't use default to make compiler warn if something is missed
@@ -58,44 +53,63 @@ std::ostream& galera::operator<<(std::ostream& os, TrxHandle::State const s)
     return os;
 }
 
+void galera::TrxHandle::print_set_state(State state) const
+{
+    log_info << "Trx: " << this << " shifting to " << state;
+}
+
 void galera::TrxHandle::print_state_history(std::ostream& os) const
 {
-    const std::vector<TrxHandle::State>& hist(state_.history());
+    const std::vector<TrxHandle::Fsm::StateEntry>& hist(state_.history());
     for (size_t i(0); i < hist.size(); ++i)
     {
-        os << hist[i] << "->";
+        os << hist[i].first << ':' << hist[i].second << "->";
     }
+
+    const TrxHandle::Fsm::StateEntry current_state(state_.get_state_entry());
+    os << current_state.first << ':' << current_state.second;
+}
+
+inline
+void galera::TrxHandle::print(std::ostream& os) const
+{
+    os << "source: "   << source_id()
+       << " version: " << version()
+       << " local: "   << local()
+       << " flags: "   << flags()
+       << " conn_id: " << int64_t(conn_id())
+       << " trx_id: "  << int64_t(trx_id())  // for readability
+       << " tstamp: "  << timestamp()
+       << "; state: ";
+    print_state_history(os);
+}
+
+std::ostream&
+galera::operator<<(std::ostream& os, const TrxHandle& th)
+{
+    th.print(os); return os;
 }
 
 void
-galera::TrxHandle::print(std::ostream& os) const
+galera::TrxHandleSlave::print(std::ostream& os) const
 {
-    os << "source: "     << source_id_
-       << " version: "   << version_
-       << " local: "     << local_
-       << " state: "     << state_()
-       << " flags: "     << write_set_flags_
-       << " conn_id: "   << int64_t(conn_id_)
-       << " trx_id: "    << int64_t(trx_id_) // for readability
-       << " seqnos (l: " << local_seqno_
+    TrxHandle::print(os);
+
+    os << " seqnos (l: " << local_seqno_
        << ", g: "        << global_seqno_
        << ", s: "        << last_seen_seqno_
        << ", d: "        << depends_seqno_
-       << ", ts: "       << timestamp_
        << ")";
 
     if (!skip_event())
     {
-        if (write_set_in().size() > 0)
-        {
-            os << " WS pa_range: " << write_set_in().pa_range();
+        os << " WS pa_range: " << write_set().pa_range();
 
-            if (write_set_in().annotated())
-            {
-                os << "\nAnnotation:\n";
-                write_set_in().write_annotation(os);
-                os << std::endl;
-            }
+        if (write_set().annotated())
+        {
+            os << "\nAnnotation:\n";
+            write_set().write_annotation(os);
+            os << std::endl;
         }
     }
     else
@@ -108,145 +122,286 @@ galera::TrxHandle::print(std::ostream& os) const
 }
 
 std::ostream&
-galera::operator<<(std::ostream& os, const TrxHandle& th)
+galera::operator<<(std::ostream& os, const TrxHandleSlave& th)
 {
     th.print(os); return os;
 }
 
 
-galera::TrxHandle::Fsm::TransMap galera::TrxHandle::trans_map_;
+galera::TrxHandleMaster::Fsm::TransMap galera::TrxHandleMaster::trans_map_;
+galera::TrxHandleSlave::Fsm::TransMap galera::TrxHandleSlave::trans_map_;
 
-static class TransMapBuilder
+
+namespace galera {
+
+//
+// About transaction states:
+//
+// The TrxHandleMaster stats are used to track the state of the
+// transaction, while TrxHandleSlave states are used to track
+// which critical sections have been accessed during write set
+// applying. As a convention, TrxHandleMaster states are changed
+// before entering the critical section, TrxHandleSlave states
+// after critical section has been succesfully entered.
+//
+// TrxHandleMaster states during normal execution:
+//
+// EXECUTING   - Transaction handle has been created by appending key
+//               or write set data
+// REPLICATING - Transaction write set has been send to group
+//               communication layer for ordering
+// CERTIFYING  - Transaction write set has been received from group
+//               communication layer, has entered local monitor and
+//               is certifying
+// APPLYING    - Transaction has entered applying critical section
+// COMMITTING  - Transaction has entered committing critical section
+// COMMITTED   - Transaction has released commit time critical section
+// ROLLED_BACK - Application performed a voluntary rollback
+//
+// Note that streaming replication rollback happens by replicating
+// special rollback writeset which will go through regular write set
+// critical sections.
+//
+// Note/Fixme: CERTIFYING, APPLYING and COMMITTING states seem to be
+//             redundant as these states can be tracked via
+//             associated TrxHandleSlave states.
+//
+//
+// TrxHandleMaster states after effective BF abort:
+//
+// MUST_ABORT   - Transaction enter this state after succesful BF abort.
+//                BF abort is allowed if:
+//                * Transaction does not have associated TrxHandleSlave
+//                * Transaction has associated TrxHandleSlave but it does
+//                  not have commit flag set
+//                * Transaction has associated TrxHandleSlave, commit flag
+//                  is set and the TrxHandleSlave global sequence number is
+//                  higher than BF aborter global sequence number
+//
+// 1) If the certification after BF abort results a failure:
+// ABORTING     - BF abort was effective and certification
+//                resulted a failure
+// ROLLING_BACK - Commit order critical section has been grabbed for
+//                rollback
+// ROLLED_BACK  - Commit order critical section has been released after
+//                succesful rollback
+//
+// 2) The case where BF abort happens after succesful certification or
+//    if out-of-order certification results a success:
+// MUST_REPLAY  - The transaction must roll back and replay in applier
+//                context.
+//                * If the BF abort happened before certification,
+//                  certification must be performed in applier context
+//                  and the transaction replay must be aborted if
+//                  the certification fails.
+//                * TrxHandleSlave state can be used to determine
+//                  which critical sections must be entered before the
+//                  replay. For example, if the TrxHandleSlave state is
+//                  REPLICATING, write set must be certified under local
+//                  monitor and both apply and commit monitors must be
+//                  entered before applying. On the other hand, if
+//                  TrxHandleSlave state is APPLYING, only commit monitor
+//                  must be grabbed before replay.
+//
+// TrxHandleMaster states after replication failure:
+//
+// ABORTING     - Replicaition resulted a failure
+// ROLLING_BACK - Error has been returned to application
+// ROLLED_BACK  - Application has finished rollback
+//
+//
+// TrxHandleMaster states after certification failure:
+//
+// ABORTING - Certification resulted a failure
+// ROLLING_BACK - Commit order critical section has been grabbed for
+//                rollback
+// ROLLED_BACK  - Commit order critical section has been released
+//                after succesful rollback
+//
+//
+//
+// TrxHandleSlave:
+// REPLICATING - this is the first state for TrxHandleSlave after it
+//               has been received from group
+// CERTIFYING  - local monitor has been entered succesfully
+// APPLYING    - apply monitor has been entered succesfully
+// COMMITTING  - commit monitor has been entered succesfully
+// ABORTING    - certification has failed
+// ROLLING_BACK - certification has failed and commit monitor has been
+//                entered
+// COMMITTED   - commit has been finished, commit order critical section
+//               has been released
+// ROLLED_BACK - transaction has rolled back, commit order critical section
+//               has been released
+//
+//
+// State machine diagrams can be found below.
+
+template<>
+TransMapBuilder<TrxHandleMaster>::TransMapBuilder()
+    :
+    trans_map_(TrxHandleMaster::trans_map_)
 {
-public:
-    void add(galera::TrxHandle::State from, galera::TrxHandle::State to)
-    {
-        using galera::TrxHandle;
-        using std::make_pair;
-        typedef TrxHandle::Transition Transition;
-        typedef TrxHandle::Fsm::TransAttr TransAttr;
-        TrxHandle::Fsm::TransMap& trans_map(TrxHandle::trans_map_);
-        trans_map.insert_unique(make_pair(Transition(from, to), TransAttr()));
-    }
+    //
+    //  0                                                   COMMITTED <-|
+    //  |                                                         ^     |
+    //  |                             SR                          |     |
+    //  |  |------------------------------------------------------|     |
+    //  v  v                                                      |     |
+    // EXECUTING -> REPLICATING -> CERTIFYING -> APPLYING -> COMMITTING |
+    //  |^ |            |               |            |            |     |
+    //  || |-------------------------------------------------------     |
+    //  || | BF Abort   ----------------|                               |
+    //  || v            |   Cert Fail                                   |
+    //  ||MUST_ABORT -----------------------------------------          |
+    //  ||              |           |                         |         |
+    //  ||     Pre Repl |           v                         |    REPLAYING
+    //  ||              |  MUST_CERT_AND_REPLAY --------------|          ^
+    //  || SR Rollback  v           |               ----------| Cert OK  |
+    //  | --------- ABORTING <-------               |         v          |
+    //  |               |        Cert Fail          |   MUST_REPLAY_AM   |
+    //  |               v                           |         |          |
+    //  |          ROLLING_BACK                     |         v          |
+    //  |               |                           |-> MUST_REPLAY_CM   |
+    //  |               v                           |         |          |
+    //  ----------> ROLLED_BACK                     |         v          |
+    //                                              |-> MUST_REPLAY      |
+    //                                                        |          |
+    //                                                        ------------
+    //
 
-    TransMapBuilder()
-    {
-        using galera::TrxHandle;
+    // Executing
+    add(TrxHandle::S_EXECUTING,  TrxHandle::S_REPLICATING);
+    add(TrxHandle::S_EXECUTING,  TrxHandle::S_ROLLED_BACK);
+    add(TrxHandle::S_EXECUTING,  TrxHandle::S_MUST_ABORT);
 
-        add(TrxHandle::S_EXECUTING, TrxHandle::S_REPLICATING);
-        add(TrxHandle::S_EXECUTING, TrxHandle::S_ROLLED_BACK);
-        add(TrxHandle::S_EXECUTING, TrxHandle::S_MUST_ABORT);
+    // Replicating
+    add(TrxHandle::S_REPLICATING, TrxHandle::S_CERTIFYING);
+    add(TrxHandle::S_REPLICATING, TrxHandle::S_MUST_ABORT);
 
-        add(TrxHandle::S_MUST_ABORT, TrxHandle::S_MUST_CERT_AND_REPLAY);
-        add(TrxHandle::S_MUST_ABORT, TrxHandle::S_MUST_REPLAY_AM);
-        add(TrxHandle::S_MUST_ABORT, TrxHandle::S_MUST_REPLAY_CM);
-        add(TrxHandle::S_MUST_ABORT, TrxHandle::S_MUST_REPLAY);
-        add(TrxHandle::S_MUST_ABORT, TrxHandle::S_ABORTING);
+    // Certifying
+    add(TrxHandle::S_CERTIFYING, TrxHandle::S_APPLYING);
+    add(TrxHandle::S_CERTIFYING, TrxHandle::S_ABORTING);
+    add(TrxHandle::S_CERTIFYING, TrxHandle::S_MUST_ABORT);
 
-        add(TrxHandle::S_ABORTING, TrxHandle::S_ROLLING_BACK);// BF in apply mon
-        add(TrxHandle::S_ABORTING, TrxHandle::S_ROLLED_BACK); // BF in repl
+    // Applying
+    add(TrxHandle::S_APPLYING, TrxHandle::S_COMMITTING);
+    add(TrxHandle::S_APPLYING, TrxHandle::S_MUST_ABORT);
 
-        add(TrxHandle::S_ROLLING_BACK, TrxHandle::S_ROLLED_BACK);
+    // Committing
+    add(TrxHandle::S_COMMITTING, TrxHandle::S_COMMITTED);
+    add(TrxHandle::S_COMMITTING, TrxHandle::S_MUST_ABORT);
+    add(TrxHandle::S_COMMITTED, TrxHandle::S_EXECUTING); // SR
 
-        add(TrxHandle::S_REPLICATING, TrxHandle::S_CERTIFYING);
-        add(TrxHandle::S_REPLICATING, TrxHandle::S_MUST_ABORT);
+    // BF aborted
+    add(TrxHandle::S_MUST_ABORT, TrxHandle::S_MUST_REPLAY);
+    add(TrxHandle::S_MUST_ABORT, TrxHandle::S_ABORTING);
 
-        add(TrxHandle::S_CERTIFYING, TrxHandle::S_APPLYING);
-        add(TrxHandle::S_CERTIFYING, TrxHandle::S_ABORTING);
-        add(TrxHandle::S_CERTIFYING, TrxHandle::S_MUST_ABORT);
+    // Replay, BF abort happens on application side after
+    // commit monitor has been grabbed
+    add(TrxHandle::S_MUST_REPLAY, TrxHandle::S_REPLAYING);
+    // In-order certification failed for BF'ed action
+    add(TrxHandle::S_MUST_REPLAY, TrxHandle::S_ABORTING);
 
-        add(TrxHandle::S_APPLYING, TrxHandle::S_MUST_ABORT);
-        add(TrxHandle::S_APPLYING, TrxHandle::S_COMMITTING);
+    // Replay stage
+    add(TrxHandle::S_REPLAYING, TrxHandle::S_COMMITTED);
 
-        add(TrxHandle::S_COMMITTING, TrxHandle::S_MUST_ABORT);
-        add(TrxHandle::S_COMMITTING, TrxHandle::S_COMMITTED);
-        add(TrxHandle::S_COMMITTING, TrxHandle::S_ROLLED_BACK); // apply error
+    // BF aborted
+    add(TrxHandle::S_ABORTING,     TrxHandle::S_ROLLED_BACK);
 
-        add(TrxHandle::S_MUST_CERT_AND_REPLAY, TrxHandle::S_ABORTING);
-        add(TrxHandle::S_MUST_CERT_AND_REPLAY, TrxHandle::S_MUST_REPLAY_AM);
+    // cert failed or BF in apply monitor
+    add(TrxHandle::S_ABORTING,  TrxHandle::S_ROLLING_BACK);
+    add(TrxHandle::S_ROLLING_BACK, TrxHandle::S_ROLLED_BACK);
 
-        add(TrxHandle::S_MUST_REPLAY_AM, TrxHandle::S_MUST_REPLAY_CM);
-        add(TrxHandle::S_MUST_REPLAY_CM, TrxHandle::S_MUST_REPLAY);
-        add(TrxHandle::S_MUST_REPLAY, TrxHandle::S_REPLAYING);
-        add(TrxHandle::S_REPLAYING, TrxHandle::S_COMMITTED);
-    }
-} trans_map_builder_;
-
-
-size_t
-galera::TrxHandle::unserialize(const gu::byte_t* const buf, size_t const buflen,
-                               size_t offset)
-{
-    try
-    {
-        version_ = WriteSetNG::version(buf, buflen);
-
-        switch (version_)
-        {
-        case 3:
-            write_set_in_.read_buf (buf, buflen);
-            assert(write_set_in_.flags() != 0);
-            write_set_flags_ = ws_flags_to_trx_flags(write_set_in_.flags());
-            source_id_       = write_set_in_.source_id();
-            conn_id_         = write_set_in_.conn_id();
-            trx_id_          = write_set_in_.trx_id();
-
-#ifndef NDEBUG
-            write_set_in_.verify_checksum();
-            if (local_)
-                assert(write_set_in_.last_seen() == last_seen_seqno_);
-            else
-                assert(WSREP_SEQNO_UNDEFINED == last_seen_seqno_);
-#endif
-            if (write_set_in_.certified())
-            {
-                assert(!local_);
-                assert(WSREP_SEQNO_UNDEFINED == last_seen_seqno_);
-                write_set_flags_ |= F_PREORDERED;
-            }
-            else
-            {
-                last_seen_seqno_ = write_set_in_.last_seen();
-                assert(last_seen_seqno_ >= 0);
-            }
-
-            timestamp_       = write_set_in_.timestamp();
-            break;
-        default:
-            gu_throw_error(EPROTONOSUPPORT) <<"Unsupported WS version: "
-                                            << version_;
-        }
-
-        return buflen;
-    }
-    catch (gu::Exception& e)
-    {
-        GU_TRACE(e);
-
-        log_fatal << "Writeset deserialization failed: " << e.what()
-                  << std::endl << "WS flags:      " << write_set_flags_
-                  << std::endl << "Trx proto:     " << version_
-                  << std::endl << "Trx source:    " << source_id_
-                  << std::endl << "Trx conn_id:   " << conn_id_
-                  << std::endl << "Trx trx_id:    " << trx_id_
-                  << std::endl << "Trx last_seen: " << last_seen_seqno_;
-        throw;
-    }
+    // SR rollback
+    add(TrxHandle::S_ABORTING, TrxHandle::S_EXECUTING);
 }
 
 
-void
-galera::TrxHandle::apply (void*                   recv_ctx,
-                          wsrep_apply_cb_t        apply_cb,
-                          const wsrep_trx_meta_t& meta,
-                          wsrep_bool_t&           exit_loop)
+template<>
+TransMapBuilder<TrxHandleSlave>::TransMapBuilder()
+    :
+    trans_map_(TrxHandleSlave::trans_map_)
 {
-    uint32_t const wsrep_flags
-        (trx_flags_to_wsrep_flags(flags()) | WSREP_FLAG_TRX_START);
+    //                                 Cert OK
+    // 0 --> REPLICATING -> CERTIFYING ------> APPLYING --> COMMITTING
+    //            |             |                               |
+    //            |             |Cert failed                    |
+    //            |             |                               |
+    //            |             v                               v
+    //            +-------> ABORTING                  COMMITTED / ROLLED_BACK
+    //                          |
+    //                          v
+    //                    ROLLING_BACK
+    //                          |
+    //                          v
+    //                     ROLLED_BACK
+
+    // Enter in-order cert after replication
+    add(TrxHandle::S_REPLICATING, TrxHandle::S_CERTIFYING);
+    // BF'ed and IST-skipped
+    add(TrxHandle::S_REPLICATING, TrxHandle::S_ABORTING);
+    // Applying after certification
+    add(TrxHandle::S_CERTIFYING,  TrxHandle::S_APPLYING);
+    // Roll back due to cert failure
+    add(TrxHandle::S_CERTIFYING,  TrxHandle::S_ABORTING);
+    // Entering commit monitor after rollback
+    add(TrxHandle::S_ABORTING,    TrxHandle::S_ROLLING_BACK);
+    // Entering commit monitor after applying
+    add(TrxHandle::S_APPLYING,    TrxHandle::S_COMMITTING);
+    // Replay after BF
+    add(TrxHandle::S_APPLYING,    TrxHandle::S_REPLAYING);
+    add(TrxHandle::S_COMMITTING,  TrxHandle::S_REPLAYING);
+    // Commit finished
+    add(TrxHandle::S_COMMITTING,  TrxHandle::S_COMMITTED);
+    // Error reported in leave_commit_order() call
+    add(TrxHandle::S_COMMITTING,  TrxHandle::S_ROLLED_BACK);
+    // Rollback finished
+    add(TrxHandle::S_ROLLING_BACK,  TrxHandle::S_ROLLED_BACK);
+}
+
+
+static TransMapBuilder<TrxHandleMaster> master;
+static TransMapBuilder<TrxHandleSlave> slave;
+
+} /* namespace galera */
+
+void
+galera::TrxHandleSlave::sanity_checks() const
+{
+    if (gu_unlikely((flags() & (F_ROLLBACK | F_BEGIN)) ==
+                    (F_ROLLBACK | F_BEGIN)))
+    {
+        log_warn << "Both F_BEGIN and F_ROLLBACK are set on trx. "
+                 << "This trx should not have been replicated at all: "
+                 << *this;
+        assert(0);
+    }
+}
+
+void
+galera::TrxHandleSlave::deserialize_error_log(const gu::Exception& e) const
+{
+    log_fatal << "Writeset deserialization failed: " << e.what()
+              << std::endl << "WS flags:      " << write_set_flags_
+              << std::endl << "Trx proto:     " << version_
+              << std::endl << "Trx source:    " << source_id_
+              << std::endl << "Trx conn_id:   " << conn_id_
+              << std::endl << "Trx trx_id:    " << trx_id_
+              << std::endl << "Trx last_seen: " << last_seen_seqno_;
+}
+
+void
+galera::TrxHandleSlave::apply (void*                   recv_ctx,
+                               wsrep_apply_cb_t        apply_cb,
+                               const wsrep_trx_meta_t& meta,
+                               wsrep_bool_t&           exit_loop)
+{
+    uint32_t const wsrep_flags(trx_flags_to_wsrep_flags(flags()));
 
     int err(0);
 
-    const DataSetIn& ws(write_set_in_.dataset());
+    const DataSetIn& ws(write_set_.dataset());
     void*  err_msg(NULL);
     size_t err_len(0);
 
@@ -258,7 +413,7 @@ galera::TrxHandle::apply (void*                   recv_ctx,
     {
         for (ssize_t i = 0; WSREP_CB_SUCCESS == err && i < ws.count(); ++i)
         {
-            gu::Buf buf(ws.next());
+            const gu::Buf& buf(ws.next());
             wsrep_buf_t const wb = { buf.ptr, size_t(buf.size) };
             err = apply_cb(recv_ctx, &wh, wsrep_flags, &wb, &meta, &exit_loop);
         }
@@ -290,14 +445,15 @@ galera::TrxHandle::apply (void*                   recv_ctx,
     return;
 }
 
+
 /* we don't care about any failures in applying unordered events */
 void
-galera::TrxHandle::unordered(void*                recv_ctx,
-                             wsrep_unordered_cb_t cb) const
+galera::TrxHandleSlave::unordered(void*                recv_ctx,
+                                  wsrep_unordered_cb_t cb) const
 {
-    if (NULL != cb && write_set_in_.unrdset().count() > 0)
+    if (NULL != cb && write_set_.unrdset().count() > 0)
     {
-        const DataSetIn& unrd(write_set_in_.unrdset());
+        const DataSetIn& unrd(write_set_.unrdset());
         for (int i(0); i < unrd.count(); ++i)
         {
             const gu::Buf& data(unrd.next());
@@ -305,5 +461,13 @@ galera::TrxHandle::unordered(void*                recv_ctx,
             cb(recv_ctx, &wb);
         }
     }
+}
+
+
+void
+galera::TrxHandleSlave::destroy_local(void*  ptr)
+{
+    assert(ptr);
+    (static_cast<TrxHandleMaster*>(ptr))->~TrxHandleMaster();
 }
 

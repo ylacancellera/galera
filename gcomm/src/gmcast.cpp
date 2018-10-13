@@ -257,13 +257,17 @@ void gcomm::GMCast::set_initial_addr(const gu::URI& uri)
         {
             port = i->port();
         }
-        catch (gu::NotSet& )
+        catch (gu::NotSet&)
         {
             try
             {
                 port = conf_.get(BASE_PORT_KEY);
             }
             catch (gu::NotFound&)
+            {
+                port = Defaults::GMCastTcpPort;
+            }
+            catch (gu::NotSet&)
             {
                 port = Defaults::GMCastTcpPort;
             }
@@ -1709,7 +1713,8 @@ void gcomm::GMCast::add_or_del_addr(const std::string& val)
 }
 
 
-bool gcomm::GMCast::set_param(const std::string& key, const std::string& val)
+bool gcomm::GMCast::set_param(const std::string& key, const std::string& val,
+                              Protolay::sync_param_cb_t& sync_param_cb)
 {
     try
     {

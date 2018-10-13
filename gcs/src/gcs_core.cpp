@@ -22,7 +22,7 @@
 #include <gu_throw.hpp>
 #include <gu_logger.hpp>
 #include <gu_serialize.hpp>
-#include "gu_debug_sync.hpp"
+#include <gu_debug_sync.hpp>
 
 #include <string.h> // for mempcpy
 #include <errno.h>
@@ -102,8 +102,9 @@ core_act_t;
 
 typedef struct causal_act
 {
-    gcs_seqno_t*  act_id;
-    gu_uuid_t*    act_uuid;
+    gcs_seqno_t* act_id;
+    gu_uuid_t*   act_uuid;
+    long*        error;
     gu_mutex_t*  mtx;
     gu_cond_t*   cond;
 } causal_act_t;
@@ -573,7 +574,7 @@ core_handle_act_msg (gcs_core_t*          core,
 
             if (gu_likely(!my_msg)) {
                 /* foreign action, must be passed from gcs_group */
-                assert (GCS_ACT_TORDERED != act->act.type || act->id > 0);
+                assert (GCS_ACT_WRITESET != act->act.type || act->id > 0);
             }
             else {
                 /* local action, get from FIFO, should be there already */
@@ -724,6 +725,46 @@ core_handle_last_msg (gcs_core_t*          core,
 }
 
 /*!
+ * Helper for gcs_core_recv(). Handles GCS_MSG_LAST.
+ *
+ * @return action size, negative error code or 0 to continue.
+ */
+static int
+core_handle_vote_msg (gcs_core_t*          core,
+                      struct gcs_recv_msg* msg,
+                      struct gcs_act*      act)
+{
+    assert (GCS_MSG_VOTE == msg->type);
+    assert (CodeMsg::serial_size() <= msg->size);
+
+    VoteResult const res(gcs_group_handle_vote_msg(&core->group, msg));
+
+    if (res.seqno != GCS_SEQNO_ILL)
+    {
+        assert(res.seqno > 0);
+        /* voting complete or vote request */
+        int   const buf_len(2 * sizeof(uint64_t));
+        void* const buf(malloc(buf_len));
+
+        if (gu_likely(NULL != (buf))) {
+            gu::serialize8(res.seqno, buf, buf_len, 0);
+            gu::serialize8(res.res,   buf, buf_len, 8);
+            assert(NULL == act->buf);
+            act->buf     = buf;
+            act->buf_len = buf_len;
+            act->type    = GCS_ACT_VOTE;
+            return act->buf_len;
+        }
+        else {
+            gu_fatal ("Out of memory for GCS_ACT_VOTE");
+            return -ENOMEM;
+        }
+    }
+
+    return 0;
+}
+
+/*!
  * Helper for gcs_core_recv(). Handles GCS_MSG_COMPONENT.
  *
  * @return action size, negative error code or 0 to continue.
@@ -757,7 +798,7 @@ core_handle_comp_msg (gcs_core_t*          const core,
         assert (CORE_EXCHANGE != core->state);
         if (CORE_NON_PRIMARY == core->state) core->state = CORE_PRIMARY;
 
-        ret = gcs_group_act_conf (group, act, &core->proto_ver);
+        ret = gcs_group_act_conf (group, rcvd, &core->proto_ver);
         if (ret < 0) {
             gu_fatal ("Failed create PRIM CONF action: %d (%s)",
                       ret, strerror (-ret));
@@ -819,7 +860,7 @@ core_handle_comp_msg (gcs_core_t*          const core,
             }
 
             if (GCS_GROUP_NON_PRIMARY == ret) { // no error in comp msg
-                ret = gcs_group_act_conf (group, act, &core->proto_ver);
+                ret = gcs_group_act_conf (group, rcvd, &core->proto_ver);
                 if (ret < 0) {
                     gu_fatal ("Failed create NON-PRIM CONF action: %d (%s)",
                               ret, strerror (-ret));
@@ -954,7 +995,7 @@ core_handle_state_msg (gcs_core_t*          core,
                 }
             }
 
-            ret = gcs_group_act_conf (group, &rcvd->act, &core->proto_ver);
+            ret = gcs_group_act_conf (group, rcvd, &core->proto_ver);
             if (ret < 0) {
                 gu_fatal ("Failed create CONF action: %d (%s)",
                           ret, strerror (-ret));
@@ -1081,23 +1122,34 @@ core_msg_to_action (gcs_core_t*          core,
 static long core_msg_causal(gcs_core_t* conn,
                             struct gcs_recv_msg* msg)
 {
-    causal_act_t* act;
-    if (gu_unlikely(msg->size != sizeof(*act)))
+    if (gu_unlikely(msg->size != sizeof(causal_act_t)))
     {
         gu_error("invalid causal act len %ld, expected %ld",
-                 msg->size, sizeof(*act));
+                 msg->size, sizeof(causal_act_t));
         return -EPROTO;
     }
 
-    act = (causal_act_t*)msg->buf;
+    causal_act_t* act = (causal_act_t*)msg->buf;
     gu_mutex_lock(act->mtx);
-    if (conn->group.state == GCS_GROUP_PRIMARY)
     {
-        *act->act_id = conn->group.act_id_;
-        *act->act_uuid = conn->group.group_uuid;
+        switch (conn->group.state)
+        {
+        case GCS_GROUP_PRIMARY:
+            *act->act_id = conn->group.act_id_;
+            *act->act_uuid = conn->group.group_uuid;
+            break;
+        case GCS_GROUP_WAIT_STATE_UUID:
+        case GCS_GROUP_WAIT_STATE_MSG:
+            *act->error = -EAGAIN;
+            break;
+        default:
+            *act->error = -EPERM;
+        }
+
+        gu_cond_signal(act->cond);
     }
-    gu_cond_signal(act->cond);
     gu_mutex_unlock(act->mtx);
+
     return msg->size;
 }
 
@@ -1168,6 +1220,11 @@ ssize_t gcs_core_recv (gcs_core_t*          conn,
             ret = core_msg_to_action (conn, recv_msg, recv_act);
             assert (ret == recv_act->act.buf_len || ret <= 0);
             break;
+        case GCS_MSG_VOTE:
+            ret = core_handle_vote_msg(conn, recv_msg, &recv_act->act);
+            assert (ret >= 0); // hang on error in debug mode
+            assert (ret == recv_act->act.buf_len);
+            break;
         case GCS_MSG_CAUSAL:
             ret = core_msg_causal(conn, recv_msg);
             assert(recv_msg->sender_idx == gcs_group_my_idx(&conn->group));
@@ -1188,18 +1245,20 @@ out:
 
     assert (ret || GCS_ACT_ERROR == recv_act->act.type);
     assert (ret == recv_act->act.buf_len || ret < 0);
-    assert (recv_act->id       <= 0 ||
-            recv_act->act.type == GCS_ACT_TORDERED ||
+    assert (recv_act->id       <= 0                ||
+            recv_act->act.type == GCS_ACT_WRITESET ||
+            recv_act->act.type == GCS_ACT_CCHANGE  ||
             recv_act->act.type == GCS_ACT_STATE_REQ); // <- dirty hack
     assert (recv_act->sender_idx >= 0 ||
-            recv_act->act.type   != GCS_ACT_TORDERED);
+            recv_act->act.type   != GCS_ACT_WRITESET);
 
 //    gu_debug ("Returning %d", ret);
 
     if (gu_unlikely(ret < 0)) {
         assert (recv_act->id < 0);
+        assert (GCS_ACT_CCHANGE != recv_act->act.type);
 
-        if (GCS_ACT_TORDERED == recv_act->act.type && recv_act->act.buf) {
+        if (GCS_ACT_WRITESET == recv_act->act.type && recv_act->act.buf) {
             gcs_gcache_free (conn->cache, recv_act->act.buf);
             recv_act->act.buf = NULL;
         }
@@ -1342,7 +1401,7 @@ gcs_core_set_pkt_size (gcs_core_t* core, int const pkt_size)
     return ret;
 }
 
-static inline long
+static inline ssize_t
 core_send_seqno (gcs_core_t* core, gcs_seqno_t seqno, gcs_msg_type_t msg_type)
 {
     gcs_seqno_t const htogs = gcs_seqno_htog (seqno);
@@ -1373,25 +1432,57 @@ core_send_code (gcs_core_t* const core, const gu::GTID& gtid, int64_t code,
     return ret;
 }
 
-long
+int
 gcs_core_set_last_applied (gcs_core_t* const core, const gu::GTID& gtid)
 {
     return core_send_code (core, gtid, 0, GCS_MSG_LAST);
 }
 
-long
+int
 gcs_core_send_join (gcs_core_t* const core, const gu::GTID& gtid, int code)
 {
     return core_send_code (core, gtid, code, GCS_MSG_JOIN);
 }
 
-long
+int
 gcs_core_send_sync (gcs_core_t* const core, const gu::GTID& gtid)
 {
     return core_send_code (core, gtid, 0, GCS_MSG_SYNC);
 }
 
-long
+int
+gcs_core_send_vote (gcs_core_t* const core, const gu::GTID& gtid, int64_t code,
+                    const void* data, size_t const data_len)
+{
+#if 0 // simple code message
+    return core_send_code (core, gtid, code, GCS_MSG_VOTE);
+#else
+    CodeMsg const cmsg(gtid, code);
+    assert(cmsg.uuid() != GU_UUID_NIL);
+    int const cmsg_size(cmsg.serial_size());
+
+    char vmsg[1024] = { 0, }; // try to fit in one ethernet frame
+    assert(cmsg_size < int(sizeof(vmsg)));
+
+    ::memcpy(&vmsg[0], cmsg(), cmsg_size);
+
+    int copy_size(int(sizeof(vmsg)) - cmsg_size - 1); // allow for trailing 0
+    assert(copy_size >= 0);
+    if (size_t(copy_size) > data_len) copy_size = data_len;
+
+    ::memcpy(&vmsg[cmsg_size], data, copy_size);
+
+    int const vmsg_size(cmsg_size + copy_size + 1);
+
+    int ret(core_msg_send_retry(core, &vmsg[0], vmsg_size, GCS_MSG_VOTE));
+
+    if (ret > 0) { assert(ret >= cmsg_size); }
+
+    return ret;
+#endif
+}
+
+ssize_t
 gcs_core_send_fc (gcs_core_t* core, const void* const fc, size_t const fc_size)
 {
     ssize_t ret;
@@ -1405,38 +1496,44 @@ gcs_core_send_fc (gcs_core_t* core, const void* const fc, size_t const fc_size)
 long
 gcs_core_caused (gcs_core_t* core, gu::GTID& gtid)
 {
-    long         ret;
+    long         error = 0;
     gcs_seqno_t  act_id = GCS_SEQNO_ILL;
     gu_uuid_t    act_uuid = GU_UUID_NIL;
     gu_mutex_t   mtx;
     gu_cond_t    cond;
-    causal_act_t act = {&act_id, &act_uuid, &mtx, &cond};
+    causal_act_t act = {&act_id, &act_uuid, &error, &mtx, &cond};
 
     gu_mutex_init (&mtx, NULL);
     gu_cond_init  (&cond, NULL);
     gu_mutex_lock (&mtx);
     {
-        ret = core_msg_send_retry (core, &act, sizeof(act), GCS_MSG_CAUSAL);
+        long ret = core_msg_send_retry (core,
+                                        &act,
+                                        sizeof(act),
+                                        GCS_MSG_CAUSAL);
 
         if (ret == sizeof(act))
         {
             gu_cond_wait (&cond, &mtx);
-            gtid.set (act_uuid, act_id);
+            if (error == 0)
+            {
+              gtid.set (act_uuid, act_id);
+            }
         }
         else
         {
             assert (ret < 0);
-            gtid.set (GU_UUID_NIL, GCS_SEQNO_ILL);
+            error = ret;
         }
     }
     gu_mutex_unlock  (&mtx);
     gu_mutex_destroy (&mtx);
     gu_cond_destroy  (&cond);
 
-    return ret;
+    return error;
 }
 
-long
+int
 gcs_core_param_set (gcs_core_t* core, const char* key, const char* value)
 {
     if (core->backend.conn) {

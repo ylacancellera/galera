@@ -62,27 +62,29 @@ namespace galera
         virtual int trx_proto_ver() const = 0;
         virtual int repl_proto_ver() const = 0;
 
-        virtual TrxHandlePtr get_local_trx(wsrep_trx_id_t, bool) = 0;
-        virtual void discard_local_trx(TrxHandle* trx_id) = 0;
+        virtual TrxHandleMasterPtr get_local_trx(wsrep_trx_id_t, bool) = 0;
+        virtual void discard_local_trx(TrxHandleMaster* trx_id) = 0;
 
-        virtual TrxHandlePtr local_conn_trx(wsrep_conn_id_t conn_id,
-                                            bool            create) = 0;
+        virtual TrxHandleMasterPtr local_conn_trx(wsrep_conn_id_t conn_id,
+                                                  bool            create) = 0;
         virtual void discard_local_conn_trx(wsrep_conn_id_t conn_id) = 0;
 
-        virtual wsrep_status_t replicate(TrxHandlePtr& trx,
-                                         wsrep_trx_meta_t* meta) = 0;
-        virtual wsrep_status_t certify(TrxHandlePtr& trx, wsrep_trx_meta_t*) = 0;
-        virtual wsrep_status_t replay_trx(TrxHandlePtr& trx,
-                                          void*         replay_ctx) = 0;
-        virtual wsrep_status_t abort_trx(TrxHandle* trx,
-                                         wsrep_seqno_t, wsrep_seqno_t*) = 0;
+        virtual wsrep_status_t replicate(TrxHandleMaster&   trx,
+                                         wsrep_trx_meta_t*  meta) = 0;
+        virtual wsrep_status_t certify(TrxHandleMaster&     trx,
+                                       wsrep_trx_meta_t*    meta) = 0;
+        virtual wsrep_status_t replay_trx(TrxHandleMaster&  trx,
+                                          void*             replay_ctx) = 0;
+        virtual wsrep_status_t abort_trx(TrxHandleMaster& trx,
+                                         wsrep_seqno_t bf_seqno,
+                                         wsrep_seqno_t* victim_seqno) = 0;
         virtual wsrep_status_t sync_wait(wsrep_gtid_t* upto,
                                          int           tout,
                                          wsrep_gtid_t* gtid) = 0;
         virtual wsrep_status_t last_committed_id(wsrep_gtid_t* gtid) = 0;
-        virtual wsrep_status_t to_isolation_begin(TrxHandlePtr& trx,
-                                                  wsrep_trx_meta_t*) = 0;
-        virtual wsrep_status_t to_isolation_end(TrxHandlePtr& trx,
+        virtual wsrep_status_t to_isolation_begin(TrxHandleMaster&  trx,
+                                                  wsrep_trx_meta_t* meta) = 0;
+        virtual wsrep_status_t to_isolation_end(TrxHandleMaster&   trx,
                                                 const wsrep_buf_t* err) = 0;
         virtual wsrep_status_t preordered_collect(wsrep_po_handle_t& handle,
                                                   const struct wsrep_buf* data,
@@ -101,7 +103,7 @@ namespace galera
 
         // action source interface
         virtual void process_trx(void* recv_ctx,
-                                 const TrxHandlePtr& trx) = 0;
+                                 const TrxHandleSlavePtr& trx) = 0;
         virtual void process_commit_cut(wsrep_seqno_t seq,
                                         wsrep_seqno_t seqno_l) = 0;
         virtual void process_conf_change(void*                    recv_ctx,
@@ -112,6 +114,10 @@ namespace galera
                                        wsrep_seqno_t donor_seq) = 0;
         virtual void process_join(wsrep_seqno_t seqno, wsrep_seqno_t seqno_l) =0;
         virtual void process_sync(wsrep_seqno_t seqno_l) = 0;
+
+        virtual void process_vote(wsrep_seqno_t seq,
+                                  int64_t       code,
+                                  wsrep_seqno_t seqno_l) = 0;
 
         virtual const struct wsrep_stats_var* stats_get() const = 0;
         virtual void                          stats_reset() = 0;
@@ -135,6 +141,8 @@ namespace galera
 
         virtual const wsrep_uuid_t& source_id() const = 0;
 
+        virtual void cancel_seqnos(wsrep_seqno_t seqno_l,
+                                   wsrep_seqno_t seqno_g) = 0;
         virtual bool corrupt() const = 0;
 
     protected:
