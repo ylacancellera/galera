@@ -5,7 +5,7 @@ set -eu
 # $Id$
 
 # Galera library version
-VERSION="25.3.22"
+VERSION="26.4.0"
 
 get_cores()
 {
