@@ -15,7 +15,7 @@
 # Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston
 # MA  02110-1301  USA.
 
-%define name galera
+%define name galera-4
 # use "rpmbuild --define 'version xxxx'" to define version
 %{!?version: %define version 3.x}
 %{!?release: %define release 1}
