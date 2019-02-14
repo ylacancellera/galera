@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2015 Codership Oy <info@codership.com>
+// Copyright (C) 2015-2019 Codership Oy <info@codership.com>
 //
 
 #include "replicator_smm.hpp" // ReplicatorSMM::InitConfig
@@ -119,7 +119,7 @@ void run_wsinfo(const WSInfo* const wsi, size_t const nws, int const version)
 
         // serialize write set into gcache buffer
         gu::byte_t* buf(static_cast<gu::byte_t*>(env.gcache().malloc(size)));
-        fail_unless(gu::serialize(out, buf, size, 0) == size);
+        fail_unless(out.serialize(buf, size) == size);
 
 
         gcs_action act = {wsi[i].global_seqno,
