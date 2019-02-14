@@ -474,6 +474,8 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandle* trx)
     assert(trx->global_seqno() > STATE_SEQNO());
     assert(trx->is_local() == false);
 
+    GU_DBUG_SYNC_WAIT("sync.apply_trx.start_of_apply_trx");
+
     ApplyOrder ao(*trx);
     CommitOrder co(*trx, co_mode_);
 
@@ -1403,7 +1405,7 @@ void galera::ReplicatorSMM::process_trx(void* recv_ctx, TrxHandle* trx)
     // incoming transactions, as the node should be shutting down
     if (sst_state_ == SST_CANCELED)
     {
-        log_info << "Ignorng trx(" << trx->global_seqno() << ") due to SST failure";
+        log_info << "Ignoring trx(" << trx->global_seqno() << ") due to SST failure";
         return;
     }
 
