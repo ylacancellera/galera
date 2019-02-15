@@ -239,6 +239,15 @@ namespace galera
             gu::Lock lock(mutex_);
             return last_left_;
         }
+
+        void stats(std::vector<wsrep_seqno_t>& vc)   const
+        {
+            gu::Lock lock(mutex_);
+            vc.push_back(entered_);
+            vc.push_back(last_entered_);
+            vc.push_back(last_left_);
+        }
+
         ssize_t       size()        const { return process_size_; }
 
         bool would_block (wsrep_seqno_t seqno) const

@@ -674,6 +674,7 @@ namespace galera
         // Storage space for dynamic status strings
         char                  interval_string_[64];
         char                  ist_status_string_[128];
+        char                  monitor_status_string_[1024];
     };
 
     std::ostream& operator<<(std::ostream& os, ReplicatorSMM::State state);

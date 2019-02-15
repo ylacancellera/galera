@@ -78,6 +78,7 @@ typedef enum status_vars
     STATS_PROTOCOL_VERSION,
     STATS_LAST_APPLIED,
     STATS_LAST_COMMITTED,
+    STATS_MONITOR_STATUS,
     STATS_REPLICATED,
     STATS_REPLICATED_BYTES,
     STATS_KEYS_COUNT,
@@ -137,6 +138,7 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
     { "protocol_version",         WSREP_VAR_INT64,  { 0 }  },
     { "last_applied",             WSREP_VAR_INT64,  { -1 } },
     { "last_committed",           WSREP_VAR_INT64,  { -1 } },
+    { "monitor_status (L/A/C)",   WSREP_VAR_STRING, { 0 }  },
     { "replicated",               WSREP_VAR_INT64,  { 0 }  },
     { "replicated_bytes",         WSREP_VAR_INT64,  { 0 }  },
     { "repl_keys",                WSREP_VAR_INT64,  { 0 }  },
@@ -215,6 +217,31 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_PROTOCOL_VERSION   ].value._int64  = protocol_version_;
     sv[STATS_LAST_APPLIED       ].value._int64  = apply_monitor_.last_left();
     sv[STATS_LAST_COMMITTED     ].value._int64  = commit_monitor_.last_left();
+
+    std::vector<wsrep_seqno_t> local_monitor_stats;
+    local_monitor_.stats(local_monitor_stats);
+    std::vector<wsrep_seqno_t> apply_monitor_stats;
+    apply_monitor_.stats(apply_monitor_stats);
+    std::vector<wsrep_seqno_t> commit_monitor_stats;
+    commit_monitor_.stats(commit_monitor_stats);
+
+    std::ostringstream stats_string;
+    stats_string << "[ ( "
+               << local_monitor_stats[0] << ", "
+               << local_monitor_stats[1] << ", "
+               << local_monitor_stats[2] << "), ("
+               << apply_monitor_stats[0] << ", "
+               << apply_monitor_stats[1] << ", "
+               << apply_monitor_stats[2] << "), ( "
+               << commit_monitor_stats[0] << ", "
+               << commit_monitor_stats[1] << ", "
+               << commit_monitor_stats[2] << ") ]";
+
+    strncpy(monitor_status_string_, stats_string.str().c_str(),
+            sizeof(monitor_status_string_));
+
+    sv[STATS_MONITOR_STATUS].value._string = monitor_status_string_;
+
     sv[STATS_REPLICATED         ].value._int64  = replicated_();
     sv[STATS_REPLICATED_BYTES   ].value._int64  = replicated_bytes_();
     sv[STATS_KEYS_COUNT         ].value._int64  = keys_count_();
