@@ -155,7 +155,7 @@ deterministic_tests = int(ARGUMENTS.get('deterministic_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 
 
-GALERA_VER = ARGUMENTS.get('version', '4.0dev')
+GALERA_VER = ARGUMENTS.get('version', '4.1')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -227,6 +227,11 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(CPPPATH = ['/usr/local/include'])
 if sysname == 'sunos':
     env.Replace(SHLINKFLAGS = '-shared ')
+
+# Build shared objects with dynamic symbol dispatching disabled.
+# This enables predictable behavior upon dynamic loading with programs
+# that have own versions of commonly used libraries linked in (boost, asio, etc.)
+env.Append(SHLINKFLAGS = ' -Wl,-Bsymbolic -Wl,-Bsymbolic-functions')
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
