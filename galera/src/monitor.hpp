@@ -243,7 +243,6 @@ namespace galera
         void stats(std::vector<wsrep_seqno_t>& vc)   const
         {
             gu::Lock lock(mutex_);
-            vc.push_back(entered_);
             vc.push_back(last_entered_);
             vc.push_back(last_left_);
         }

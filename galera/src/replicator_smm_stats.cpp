@@ -226,16 +226,13 @@ galera::ReplicatorSMM::stats_get()
     commit_monitor_.stats(commit_monitor_stats);
 
     std::ostringstream stats_string;
-    stats_string << "[ ( "
+    stats_string << "[ ("
                << local_monitor_stats[0] << ", "
-               << local_monitor_stats[1] << ", "
-               << local_monitor_stats[2] << "), ("
+               << local_monitor_stats[1] << "), ("
                << apply_monitor_stats[0] << ", "
-               << apply_monitor_stats[1] << ", "
-               << apply_monitor_stats[2] << "), ( "
+               << apply_monitor_stats[1] << "), ("
                << commit_monitor_stats[0] << ", "
-               << commit_monitor_stats[1] << ", "
-               << commit_monitor_stats[2] << ") ]";
+               << commit_monitor_stats[1] << ") ]";
 
     strncpy(monitor_status_string_, stats_string.str().c_str(),
             sizeof(monitor_status_string_));
