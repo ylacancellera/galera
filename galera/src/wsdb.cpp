@@ -47,6 +47,32 @@ galera::Wsdb::~Wsdb()
              << " conn query map usage " << conn_map_.size();
     log_info << trx_pool_;
 
+    /* There is potential race when a user triggers update of wsrep_provider
+    that leads to deinit/unload of the provider. deinit/unload action of
+    provider waits for replication to end. stop_replication routine waits
+    for any active monitors for get released. But once monitors are
+    released before the connection or transaction handle is discarded
+    if deinit/unload sequence try to free up/destruct the provider user may
+    hit the below mentioned assert. (that too in release mode only).
+
+    In normal flow, case shouldn't arise but if the case shows-up then
+    waiting for few seconds should help schedule release of connection and
+    transaction handle.
+    Even if wait doesn't help then it suggest some other serious issue
+    that is blocking release of connection/transaction handle.
+    In such case let the server assert as per the original flow.
+    assert at this level should be generally safe given provider
+    is unloading. */
+
+    uint count = 5;
+    while((trx_map_.size() != 0 || conn_map_.size() != 0) && count != 0)
+    {
+        log_info << "giving timeslice for connection/transaction handle"
+                 << " to get released";
+        sleep(1);
+        --count;
+    }
+
     // With debug builds just print trx and query maps to stderr
     // and don't clean up to let valgrind etc to detect leaks.
 #ifndef NDEBUG
