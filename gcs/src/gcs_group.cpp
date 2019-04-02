@@ -10,6 +10,8 @@
 #include "gu_debug_sync.hpp"
 
 #include <errno.h>
+#include <arpa/inet.h>
+#include <string>
 
 const char* gcs_group_state_str[GCS_GROUP_STATE_MAX] =
 {
@@ -1247,6 +1249,42 @@ gcs_group_find_donor(const gcs_group_t* group,
 }
 
 
+static bool ip_address_present(const char* const string)
+{
+    const char* begin = string;
+    const char* end;
+    int const str_len = strlen(string);
+    bool valid = false;
+
+    do {
+        end = strchr(begin, ',');
+
+        int len;
+
+        if (NULL == end) {
+            len = str_len - (begin - string);
+        }
+        else {
+            len = end - begin;
+        }
+
+        if (len != 0) {
+            struct sockaddr_in sa1;
+            struct sockaddr_in6 sa2;
+            std::string ip(begin, len);
+
+            valid = (inet_pton(AF_INET, ip.c_str(), &(sa1.sin_addr)) != 0)
+                    || (inet_pton(AF_INET6, ip.c_str(), &(sa2.sin6_addr)) != 0);
+        }
+
+        if (end) {
+            begin = end + 1; /* skip comma */
+        }
+    }  while (end != NULL && !valid);
+
+   return(valid);
+}
+
 /*!
  * Selects and returns the index of state transfer donor, if available.
  * Updates donor and joiner status if state transfer is possible
@@ -1328,11 +1366,19 @@ group_select_donor (gcs_group_t* group,
         }
     }
     else {
+        const char* donor_ip_addr_err_msg = "";
+        if (donor_string && ip_address_present(donor_string)) {
+           donor_ip_addr_err_msg = " (Check for use of IP address in"
+                                   " wsrep_sst_donor. wsrep_sst_donor"
+                                   " expects node name only.)";
+        }
         gu_warn ("Member %d.%d (%s) requested state transfer from '%s', "
-                 "but it is impossible to select State Transfer donor: %s",
+                 "but it is impossible to select State Transfer donor: %s"
+                 "%s",
                  joiner_idx, group->nodes[joiner_idx].segment,
                  group->nodes[joiner_idx].name,
-                 required_donor ? donor_string : "*any*", strerror (-donor_idx));
+                 required_donor ? donor_string : "*any*", strerror (-donor_idx),
+                 donor_ip_addr_err_msg);
     }
 
     return donor_idx;
