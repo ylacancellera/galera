@@ -101,6 +101,7 @@ private:
 
 public:
 
+#ifdef PXC
     RecvBuf()
         :
 #ifdef HAVE_PSI_INTERFACE
@@ -111,6 +112,9 @@ public:
         cond_(),
 #endif /* HAVE_PSI_INTERFACE */
         queue_(), waiting_(false) { }
+#else
+    RecvBuf() : mutex_(), cond_(), queue_(), waiting_(false) { }
+#endif /* PXC */
 
     void push_back(const RecvBufData& p)
     {
@@ -151,6 +155,7 @@ public:
 
 private:
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::MutexWithPFS mutex_;
     gu::CondWithPFS cond_;
@@ -158,6 +163,10 @@ private:
     gu::Mutex mutex_;
     gu::Cond cond_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Mutex mutex_;
+    gu::Cond cond_;
+#endif /* PXC */
     RecvBufQueue queue_;
     bool waiting_;
 };
@@ -200,11 +209,15 @@ public:
         uri_(u),
         net_(Protonet::create(conf_)),
         tp_(0),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         mutex_(WSREP_PFS_INSTR_TAG_GCOMMCONN_MUTEX),
 #else
-        mutex_(),
+         mutex_(),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        mutex_(),
+#endif /* PXC */
         refcnt_(0),
         terminated_(false),
         error_(0),
@@ -212,7 +225,7 @@ public:
         current_view_(),
         prof_("gcs_gcomm")
     {
-        log_debug << "backend: " << net_->type();
+        log_info << "backend: " << net_->type();
     }
 
     ~GCommConn()
@@ -224,22 +237,25 @@ public:
 
     static void* run_fn(void* arg)
     {
-
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                            WSREP_PFS_INSTR_OPS_INIT,
                            WSREP_PFS_INSTR_TAG_GCOMMCONN_THREAD,
                            NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
         static_cast<GCommConn*>(arg)->run();
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                            WSREP_PFS_INSTR_OPS_DESTROY,
                            WSREP_PFS_INSTR_TAG_GCOMMCONN_THREAD,
                            NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
         return 0;
     }
@@ -257,7 +273,11 @@ public:
 
         error_ = ENOTCONN;
         int err;
+#ifdef PXC
         if ((err = gu_thread_create(&thd_, 0, &run_fn, this)) != 0)
+#else
+        if ((err = pthread_create(&thd_, 0, &run_fn, this)) != 0)
+#endif /* PXC */
         {
             gu_throw_error(err) << "Failed to create thread";
         }
@@ -332,20 +352,22 @@ public:
             terminate();
         }
         log_info << "gcomm: joining thread";
-        pthread_join(thd_, 0);
+        gu_thread_join(thd_, 0);
         {
             gcomm::Critical<Protonet> crit(*net_);
+#ifdef PXC
             if (tp_ == 0)
             {
                 log_info << "gcomm: backend closed already";
             }
             else
+#endif /* PXC */
             {
-                log_info << "gcomm: closing backend";
-                tp_->close(error_ != 0 || force == true);
-                gcomm::disconnect(tp_, this);
-                delete tp_;
-                tp_ = 0;
+            log_info << "gcomm: closing backend";
+            tp_->close(error_ != 0 || force == true);
+            gcomm::disconnect(tp_, this);
+            delete tp_;
+            tp_ = 0;
             }
         }
         const Message* msg;
@@ -446,17 +468,21 @@ private:
 
     gu::Config&       conf_;
     gcomm::UUID       uuid_;
-    pthread_t         thd_;
+    gu_thread_t       thd_;
     ThreadSchedparam  schedparam_;
     Barrier           barrier_;
     URI               uri_;
     Protonet*         net_;
     Transport*        tp_;
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::MutexWithPFS  mutex_;
 #else
     gu::Mutex         mutex_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Mutex         mutex_;
+#endif /* PXC */
     size_t            refcnt_;
     bool              terminated_;
     int               error_;
@@ -525,7 +551,7 @@ void GCommConn::queue_and_wait(const Message& msg, Message* ack)
 void GCommConn::run()
 {
     barrier_.wait();
-    if (error_ != 0) pthread_exit(0);
+    if (error_ != 0) gu_thread_exit(0);
 
     while (true)
     {
@@ -630,8 +656,8 @@ static GCS_BACKEND_SEND_FN(gcomm_send)
     {
         try
         {
-            orig_sp = gu::thread_get_schedparam(pthread_self());
-            gu::thread_set_schedparam(pthread_self(), conn.schedparam());
+            orig_sp = gu::thread_get_schedparam(gu_thread_self());
+            gu::thread_set_schedparam(gu_thread_self(), conn.schedparam());
         }
         catch (gu::Exception& e)
         {
@@ -659,7 +685,7 @@ static GCS_BACKEND_SEND_FN(gcomm_send)
     {
         try
         {
-            gu::thread_set_schedparam(pthread_self(), orig_sp);
+            gu::thread_set_schedparam(gu_thread_self(), orig_sp);
         }
         catch (gu::Exception& e)
         {

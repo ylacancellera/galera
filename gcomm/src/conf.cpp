@@ -122,7 +122,9 @@ gcomm::Conf::register_params(gu::Config& cnf)
 
     GCOMM_CONF_ADD (COMMON_BASE_HOST_KEY);
     GCOMM_CONF_ADD (COMMON_BASE_PORT_KEY);
+#ifdef PXC
     GCOMM_CONF_ADD (COMMON_BASE_DIR_KEY);
+#endif /* PXC */
 
     GCOMM_CONF_ADD_DEFAULT(ProtonetBackend);
     GCOMM_CONF_ADD_DEFAULT(ProtonetVersion);

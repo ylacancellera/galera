@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Codership Oy <info@codership.com>
+ * Copyright (C) 2012-2018 Codership Oy <info@codership.com>
  */
 
 #include <cstdlib>
@@ -15,22 +15,25 @@ typedef Suite* (*suite_creator_t) (void);
 extern Suite* data_set_suite();
 extern Suite* key_set_suite();
 extern Suite* write_set_ng_suite();
-extern Suite* write_set_suite();
+extern Suite* certification_suite();
+//extern Suite* write_set_suite();
 extern Suite* trx_handle_suite();
 extern Suite* service_thd_suite();
 extern Suite* ist_suite();
 extern Suite* saved_state_suite();
+extern Suite* defaults_suite();
 
 static suite_creator_t suites[] =
 {
     data_set_suite,
     key_set_suite,
     write_set_ng_suite,
-    write_set_suite,
+    certification_suite,
     trx_handle_suite,
     service_thd_suite,
     ist_suite,
     saved_state_suite,
+    defaults_suite,
     0
 };
 

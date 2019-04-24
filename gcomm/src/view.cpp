@@ -2,9 +2,11 @@
  * Copyright (C) 2009-2018 Codership Oy <info@codership.com>
  */
 
+#ifdef PXC
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif /* PXC */
 
 #include "common/common.h"
 
@@ -194,8 +196,7 @@ std::ostream& gcomm::View::write_stream(std::ostream& os) const
         const UUID& uuid(it -> first);
         const Node& node(it -> second);
         os << "member: ";
-        uuid.write_stream(os);
-        os << " ";
+        uuid.print(os) << " ";
         node.write_stream(os) << std::endl;
     }
     os << "#vwend" << std::endl;
@@ -219,11 +220,13 @@ std::istream& gcomm::View::read_stream(std::istream& is)
         } else if (param == "member:") {
             UUID uuid;
             Node node(0);
-            uuid.read_stream(istr);
+            uuid.scan(istr);
             node.read_stream(istr);
             add_member(uuid, node.segment());
+#ifdef PXC
         } else {
             throw gcomm::ViewParseError();
+#endif /* PXC */
         }
     }
     return is;
@@ -232,8 +235,7 @@ std::istream& gcomm::View::read_stream(std::istream& is)
 std::ostream& gcomm::ViewState::write_stream(std::ostream& os) const
 {
     os << "my_uuid: ";
-    my_uuid_.write_stream(os);
-    os << std::endl;
+    my_uuid_.print(os) << std::endl;
     view_.write_stream(os);
     return os;
 }
@@ -247,12 +249,14 @@ std::istream& gcomm::ViewState::read_stream(std::istream& is)
         std::istringstream istr(line);
         istr >> param;
         if (param == "my_uuid:") {
-            my_uuid_.read_stream(istr);
+            my_uuid_.scan(istr);
         } else if (param == "#vwbeg") {
             // read from next line.
             view_.read_stream(is);
+#ifdef PXC
         } else {
             throw gcomm::ViewParseError();
+#endif /* PXC */
         }
     }
     return is;
@@ -261,11 +265,13 @@ std::istream& gcomm::ViewState::read_stream(std::istream& is)
 std::string gcomm::ViewState::get_viewstate_file_name(gu::Config& conf)
 {
     std::string dir_name = COMMON_BASE_DIR_DEFAULT;
+
     try {
         // If base_dir is set in the configuration we should use
         // it instead of current directory default.
         dir_name = conf.get(COMMON_BASE_DIR_KEY, dir_name);
     } catch (const gu::NotFound &) {
+#ifdef PXC
         std::string tmp;
         FILE* probe = NULL;
 #if defined(_GNU_SOURCE)
@@ -338,8 +344,12 @@ std::string gcomm::ViewState::get_viewstate_file_name(gu::Config& conf)
            fclose(probe);
            unlink(tmp.c_str());
        }
+#else
+        // In case it is not known we do not have to do
+        // anything and use default.
+#endif /* PXC */
     }
-    return dir_name + '/' + COMMON_VIEW_STAT_FILE;
+    return dir_name + '/' +  COMMON_VIEW_STAT_FILE;
 }
 
 void gcomm::ViewState::write_file() const
@@ -411,10 +421,12 @@ bool gcomm::ViewState::read_file()
         read_stream(ifs);
         ifs.close();
         return true;
+#ifdef PXC
     } catch (gcomm::ViewParseError& e) {
         log_warn << "error parsing file(" << file_name_ << ") "
                  << "can't restore pc from said file";
         return false;
+#endif /* PXC */
     } catch (const std::exception& e) {
         log_warn << "read file(" << file_name_ << ") failed("
                  << e.what() << ")";

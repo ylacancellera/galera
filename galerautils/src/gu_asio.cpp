@@ -161,7 +161,10 @@ void gu::ssl_prepare_context(const gu::Config& conf, asio::ssl::context& ctx,
             }
             if (!SSL_CTX_set_tmp_ecdh(ctx.impl(),ecdh))
             {
+#ifdef PXC
+                /* memory-leak fix. ensure object is release in case of error*/
                 EC_KEY_free(ecdh);
+#endif /* PXC */
                 throw_last_SSL_error("SSL_CTX_set_tmp_ecdh() failed");
             }
             EC_KEY_free(ecdh);

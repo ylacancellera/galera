@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 #include "gcache_rb_store.hpp"
@@ -47,13 +47,18 @@ namespace gcache
                             size_t             size,
                             seqno2ptr_t&       seqno2ptr,
                             gu::UUID&          gid,
+                            int const          dbg,
                             bool const         recover)
     :
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         fd_        (name, WSREP_PFS_INSTR_TAG_RINGBUFFER_FILE, check_size(size)),
 #else
-        fd_        (name, check_size(size)),
+         fd_        (name, check_size(size)),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        fd_        (name, check_size(size)),
+#endif /* PXC */
         mmap_      (fd_),
         preamble_  (static_cast<char*>(mmap_.ptr)),
         header_    (reinterpret_cast<int64_t*>(preamble_ + PREAMBLE_LEN)),
@@ -61,17 +66,20 @@ namespace gcache
         end_       (reinterpret_cast<uint8_t*>(preamble_ + mmap_.size)),
         first_     (start_),
         next_      (first_),
-        max_used_  (first_ - static_cast<uint8_t*>(mmap_.ptr) +
-                    sizeof(BufferHeader)),
         seqno2ptr_ (seqno2ptr),
         gid_       (gid),
+#ifdef PXC
+        max_used_  (first_ - static_cast<uint8_t*>(mmap_.ptr) +
+                    sizeof(BufferHeader)),
         freeze_purge_at_seqno_(SEQNO_ILL),
+#endif /* PXC */
         size_cache_(end_ - start_ - sizeof(BufferHeader)),
         size_free_ (size_cache_),
         size_used_ (0),
         size_trail_(0),
 //        mallocs_   (0),
 //        reallocs_  (0),
+        debug_     (dbg & DEBUG),
         open_      (true)
     {
         assert((uintptr_t(start_) % MemOps::ALIGNMENT) == 0);
@@ -106,9 +114,11 @@ namespace gcache
     {
         for (seqno2ptr_t::iterator i(i_begin); i != i_end;)
         {
+#ifdef PXC
             /* Skip purge from this seqno onwards. */
             if (skip_purge(i->first))
                 return false;
+#endif /* PXC */
 
             seqno2ptr_t::iterator j(i); ++i;
             BufferHeader* const bh (ptr2BH (j->second));
@@ -116,20 +126,21 @@ namespace gcache
             if (gu_likely (BH_is_released(bh)))
             {
                 seqno2ptr_.erase (j);
-                empty_buffer(bh);
 
                 switch (bh->store)
                 {
-                case BUFFER_IN_RB:  discard(bh); break;
+                case BUFFER_IN_RB:
+                    discard(bh);
+                    break;
                 case BUFFER_IN_MEM:
                 {
-                    MemStore* const ms(static_cast<MemStore*>(bh->ctx));
+                    MemStore* const ms(static_cast<MemStore*>(BH_ctx(bh)));
                     ms->discard(bh);
                     break;
                 }
                 case BUFFER_IN_PAGE:
                 {
-                    Page*      const page (static_cast<Page*>(bh->ctx));
+                    Page*      const page (static_cast<Page*>(BH_ctx(bh)));
                     PageStore* const ps   (PageStore::page_store(page));
                     ps->discard(bh);
                     break;
@@ -181,14 +192,9 @@ namespace gcache
 
         assert (ret <= first_);
 
-        /* Compare with difference to avoid integer overflow: */
-        if (static_cast<size_t>(first_ - ret) >= size_next)
-        {
-            assert(size_free_ >= size);
-        }
+        if (size_t(first_ - ret) >= size_next) { assert(size_free_ >= size); }
 
-        while (static_cast<size_t>(first_ - ret) < size_next)
-        {
+        while (size_t(first_ - ret) < size_next) {
             // try to discard first buffer to get more space
             BufferHeader* bh = BH_cast(first_);
 
@@ -218,8 +224,7 @@ namespace gcache
                 first_ = start_;
                 assert_size_free();
 
-                /* Compare with difference to avoid integer overflow: */
-                if (static_cast<size_t>(end_ - ret) >= size_next)
+                if (size_t(end_ - ret) >= size_next)
                 {
                     assert(size_free_ >= size);
                     size_trail_ = 0;
@@ -238,9 +243,7 @@ namespace gcache
         assert (ret <= first_);
 
 #ifndef NDEBUG
-        /* Compare with difference to avoid integer overflow: */
-        if (static_cast<size_t>(first_ - ret) < size_next)
-        {
+        if (size_t(first_ - ret) < size_next) {
             log_fatal << "Assertion ((first - ret) >= size_next) failed: "
                       << std::endl
                       << "first offt = " << (first_ - start_) << std::endl
@@ -262,13 +265,12 @@ namespace gcache
         BufferHeader* const bh(BH_cast(ret));
         bh->size    = size;
         bh->seqno_g = SEQNO_NONE;
-        bh->seqno_d = SEQNO_ILL;
         bh->flags   = 0;
         bh->store   = BUFFER_IN_RB;
-        bh->ctx     = this;
-
+        bh->ctx     = reinterpret_cast<BH_ctx_t>(this);
         next_ = ret + size;
 
+#ifdef PXC
         size_t max_used=
             next_ - static_cast<uint8_t*>(mmap_.ptr) + sizeof(BufferHeader);
 
@@ -276,6 +278,7 @@ namespace gcache
         {
             max_used_ = max_used;
         }
+#endif /* PXC */
 
         assert((uintptr_t(next_) % MemOps::ALIGNMENT) == 0);
         assert (next_ + sizeof(BufferHeader) <= end_);
@@ -437,8 +440,8 @@ namespace gcache
                 {
                     log_fatal << "Buffer "
                               << reinterpret_cast<const void*>(r->second)
-                              << ", seqno_g " << b->seqno_g << ", seqno_d "
-                              << b->seqno_d << " is not released.";
+                              << ", seqno_g " << b->seqno_g
+                              << " is not released.";
                     assert(0);
                 }
 #endif
@@ -545,10 +548,12 @@ namespace gcache
         /* this is needed to avoid rescanning from start_ on recovery */
     }
 
+#ifdef PXC
     size_t RingBuffer::allocated_pool_size ()
     {
        return max_used_;
     }
+#endif /* PXC */
 
     void
     RingBuffer::print (std::ostream& os) const
@@ -661,6 +666,13 @@ namespace gcache
            offset = -1;
         }
 
+        log_info << "GCache DEBUG: opened preamble:"
+                 << "\nVersion: " << version
+                 << "\nUUID: " << gid_
+                 << "\nSeqno: " << seqno_min << " - " << seqno_max
+                 << "\nOffset: " << offset
+                 << "\nSynced: " << synced;
+
         if (do_recover)
         {
             if (gid_ != gu::UUID())
@@ -740,7 +752,7 @@ namespace gcache
                 assert((uintptr_t(bh) % scan_step) == 0);
 
                 bh->flags |= BUFFER_RELEASED;
-                bh->ctx    = this;
+                bh->ctx    = uint64_t(this);
 
                 int64_t const seqno_g(bh->seqno_g);
 
@@ -1006,7 +1018,6 @@ namespace gcache
             {
                 if (gu_likely(bh->size) > 0)
                 {
-                    assert(bh->seqno_d >= SEQNO_ILL);
                     assert(bh->size > sizeof(BufferHeader));
 
                     if (bh->seqno_g > 0) last_bh = bh;
@@ -1044,10 +1055,12 @@ namespace gcache
             else assert(size_trail_ >= sizeof(BufferHeader));
 
             estimate_space();
+#ifdef PXC
             /* On graceful shutdown all the active buffers are released
             so on recovery size_used_ = 0.
             size_cache_ = size_free_ + size_used_ + releasebutnotdiscarded */
             size_used_ = 0;
+#endif /* PXC */
 
             /* now discard all the locked-in buffers (see seqno_reset()) */
             gu::Progress<size_t> progress(

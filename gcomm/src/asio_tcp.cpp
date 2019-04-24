@@ -176,13 +176,12 @@ void gcomm::AsioTcpSocket::connect(const gu::URI& uri)
         }
         else
         {
-            const std::string bind_ip = uri.get_option(gcomm::Socket::OptIfAddr, "");
-            if (!bind_ip.empty()) {
+            const std::string bind_ip(uri.get_option(
+                                          gcomm::Socket::OptIfAddr, ""));
+            if (!bind_ip.empty())
+            {
                 socket_.open(i->endpoint().protocol());
-                asio::ip::tcp::endpoint ep(
-                    asio::ip::address::from_string(bind_ip),
-                    // connect from any port.
-                    0);
+                asio::ip::tcp::endpoint ep(gu::make_address(bind_ip), 0);
                 socket_.bind(ep);
             }
             socket_.async_connect(*i, boost::bind(&AsioTcpSocket::connect_handler,
@@ -238,14 +237,12 @@ void gcomm::AsioTcpSocket::write_handler(const asio::error_code& ec,
     {
         log_debug << "write handler for " << id()
                   << " state " << state();
-#ifdef HAVE_ASIO_SSL_HPP
         if (ec.category() == asio::error::get_ssl_category() &&
             gu::exclude_ssl_error(ec) == false)
         {
             log_warn << "write_handler(): " << ec.message()
                      << " (" << gu::extra_error_info(ec) << ")";
         }
-#endif
         return;
     }
 
@@ -416,14 +413,12 @@ void gcomm::AsioTcpSocket::read_handler(const asio::error_code& ec,
 
     if (ec)
     {
-#ifdef HAVE_ASIO_SSL_HPP
         if (ec.category() == asio::error::get_ssl_category() &&
             gu::exclude_ssl_error(ec) == false)
         {
             log_warn << "read_handler(): " << ec.message() << " ("
                      << gu::extra_error_info(ec) << ")";
         }
-#endif
         FAILED_HANDLER(ec);
         return;
     }
@@ -509,14 +504,12 @@ size_t gcomm::AsioTcpSocket::read_completion_condition(
     Critical<AsioProtonet> crit(net_);
     if (ec)
     {
-#ifdef HAVE_ASIO_SSL_HPP
         if (ec.category() == asio::error::get_ssl_category() &&
             gu::exclude_ssl_error(ec) == false)
         {
             log_warn << "read_completion_condition(): " << ec.message() << " ("
                      << gu::extra_error_info(ec) << ")";
         }
-#endif
         FAILED_HANDLER(ec);
         return 0;
     }

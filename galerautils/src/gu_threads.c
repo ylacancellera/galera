@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <string.h> // strerror()
 
+#ifdef PXC
 /* register callback for PFS instrumentation */
 gu_pfs_instr_cb_t pfs_instr_callback = NULL;
 int gu_conf_set_pfs_instr_callback (gu_pfs_instr_cb_t callback)
@@ -21,6 +22,7 @@ int gu_conf_set_pfs_instr_callback (gu_pfs_instr_cb_t callback)
   pfs_instr_callback = callback;
   return 0;
 }
+#endif /* PXC */
 
 #ifdef GU_DEBUG_MUTEX
 

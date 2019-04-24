@@ -22,16 +22,20 @@ public:
 
     /* open existing file */
     FileDescriptor (const std::string& fname,
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                     wsrep_pfs_instr_tag_t tag,
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                     bool               sync  = true);
 
     /* (re)create file */
     FileDescriptor (const std::string& fname,
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                     wsrep_pfs_instr_tag_t tag,
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                     size_t             length,
                     bool               allocate = true,
                     bool               sync     = true);
@@ -43,8 +47,12 @@ public:
     off_t              size()  const { return size_; }
 
     void               flush() const;
-    void               unlink() const;
     void               sync()  const;
+#ifdef PXC
+    void               unlink() const;
+#else
+    void               unlink() const { ::unlink (name_.c_str()); }
+#endif /* PXC */
 
 private:
 
@@ -53,9 +61,11 @@ private:
     off_t       const size_;
     bool        const sync_; // sync on close
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     wsrep_pfs_instr_tag_t tag_;
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
     bool write_byte (off_t offset);
     void write_file (off_t start = 0);

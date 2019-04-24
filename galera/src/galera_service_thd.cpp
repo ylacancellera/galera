@@ -20,12 +20,15 @@ galera::ServiceThd::thd_func (void* arg)
     galera::ServiceThd* st = reinterpret_cast<galera::ServiceThd*>(arg);
     bool exit = false;
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
+    /* Register service thread to PFS */
     pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                        WSREP_PFS_INSTR_OPS_INIT,
                        WSREP_PFS_INSTR_TAG_SERVICE_THD_THREAD,
                        NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
     while (!exit)
     {
@@ -91,12 +94,14 @@ galera::ServiceThd::thd_func (void* arg)
         }
     }
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                        WSREP_PFS_INSTR_OPS_DESTROY,
                        WSREP_PFS_INSTR_TAG_SERVICE_THD_THREAD,
                        NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
     return 0;
 }
@@ -105,15 +110,21 @@ galera::ServiceThd::ServiceThd (GcsI& gcs, gcache::GCache& gcache) :
     gcache_ (gcache),
     gcs_    (gcs),
     thd_    (),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     mtx_    (WSREP_PFS_INSTR_TAG_SERVICE_THD_MUTEX),
     cond_   (WSREP_PFS_INSTR_TAG_SERVICE_THD_CONDVAR),
     flush_  (WSREP_PFS_INSTR_TAG_SERVICE_THD_FLUSH_CONDVAR),
 #else
+     mtx_    (),
+     cond_   (),
+     flush_  (),
+#endif /* HAVE_PSI_INTERFACE */
+#else
     mtx_    (),
     cond_   (),
     flush_  (),
-#endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
     data_   ()
 {
     gu_thread_create (&thd_, NULL, thd_func, this);
@@ -132,7 +143,7 @@ galera::ServiceThd::~ServiceThd ()
 }
 
 void
-galera::ServiceThd::flush()
+galera::ServiceThd::flush(const gu::UUID& uuid)
 {
     gu::Lock lock(mtx_);
 
@@ -142,6 +153,8 @@ galera::ServiceThd::flush()
         data_.act_ |= A_FLUSH;
         do { lock.wait(flush_); } while (data_.act_ & A_FLUSH);
     }
+
+    data_.last_committed_.set(uuid);
 }
 
 void
@@ -149,21 +162,25 @@ galera::ServiceThd::reset()
 {
     gu::Lock lock(mtx_);
     data_.act_ = A_NONE;
-    data_.last_committed_ = 0;
+    data_.last_committed_ = gu::GTID();
 }
 
 void
-galera::ServiceThd::report_last_committed(gcs_seqno_t seqno)
+galera::ServiceThd::report_last_committed(gcs_seqno_t const seqno,
+                                          bool        const report)
 {
     gu::Lock lock(mtx_);
 
-    if (data_.last_committed_ < seqno)
+    if (gu_likely(data_.last_committed_.seqno() < seqno))
     {
-        data_.last_committed_ = seqno;
+        data_.last_committed_.set(seqno);
 
-        if (data_.act_ == A_NONE) cond_.signal();
+        if (gu_likely(report))
+        {
+            if (data_.act_ == A_NONE) cond_.signal();
 
-        data_.act_ |= A_LAST_COMMITTED;
+            data_.act_ |= A_LAST_COMMITTED;
+        }
     }
 }
 

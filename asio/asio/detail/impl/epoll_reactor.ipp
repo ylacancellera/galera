@@ -417,6 +417,7 @@ void epoll_reactor::run(bool block, op_queue<operation>& ops)
 #if defined(ASIO_HAS_TIMERFD)
     else if (ptr == &timer_fd_)
     {
+// --- PXC
       // We should read an 8-byte timeout expiration counter (using
       // the "timerfd" descriptor) every time when the EPOLLIN event
       // occurs. Otherwise, the timer stops to notifying the application
@@ -435,6 +436,7 @@ void epoll_reactor::run(bool block, op_queue<operation>& ops)
           // without compiler warning...
         }
       }
+// --- PXC
       check_timers = true;
     }
 #endif // defined(ASIO_HAS_TIMERFD)

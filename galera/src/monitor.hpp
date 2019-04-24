@@ -20,7 +20,11 @@ namespace galera
 
         struct Process
         {
-            Process() : obj_(0), cond_(), wait_cond_(), state_(S_IDLE) { }
+            Process() : obj_(0), cond_(), wait_cond_(), state_(S_IDLE)
+#ifndef NDEBUG
+                      ,dobj_()
+#endif /* NDEBUG */
+            { }
 
             const C* obj_;
             gu::Cond cond_;
@@ -33,6 +37,9 @@ namespace galera
                 S_APPLYING, // Applying
                 S_FINISHED  // Finished
             } state_;
+#ifndef NDEBUG
+            C dobj_;
+#endif /* NDEBUG */
 
         private:
 
@@ -46,6 +53,7 @@ namespace galera
 
     public:
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         Monitor(wsrep_pfs_instr_tag mtag, wsrep_pfs_instr_tag ctag)
             :
@@ -57,6 +65,13 @@ namespace galera
             mutex_(),
             cond_(),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        Monitor()
+            :
+            mutex_(),
+            cond_(),
+#endif /* PXC */
+            uuid_(WSREP_UUID_UNDEFINED),
             last_entered_(-1),
             last_left_(-1),
             drain_seqno_(GU_LLONG_MAX),
@@ -72,31 +87,52 @@ namespace galera
             delete[] process_;
             if (entered_ > 0)
             {
-                log_debug << "mon: entered " << entered_
+                log_info << "mon: entered " << entered_
                          << " oooe fraction " << double(oooe_)/entered_
                          << " oool fraction " << double(oool_)/entered_;
             }
             else
             {
-                log_debug << "apply mon: entered 0";
+                log_info << "apply mon: entered 0";
             }
         }
 
-        void set_initial_position(wsrep_seqno_t seqno)
+        /*
+         * For ordered CC events this had to be changed:
+         * - it either resets position to -1 or
+         * - merely advances it to seqno if current position is behind.
+         * Assumes that monitor has been drained.
+         */
+        void set_initial_position(const wsrep_uuid_t& uuid,
+                                  wsrep_seqno_t const seqno)
         {
             gu::Lock lock(mutex_);
+
+            state_debug_print("set_initial_position", seqno);
+
+            uuid_ = uuid;
             if (last_entered_ == -1 || seqno == -1)
             {
                 // first call or reset
                 last_entered_ = last_left_ = seqno;
             }
             else
+#if 1 // now
+            {
+                if (last_left_    < seqno)      last_left_    = seqno;
+                if (last_entered_ < last_left_) last_entered_ = last_left_;
+            }
+
+            // some drainers may wait for us here
+            cond_.broadcast();
+#else // before
             {
                 // drain monitor up to seqno but don't reset last_entered_
                 // or last_left_
                 drain_common(seqno, lock);
                 drain_seqno_ = GU_LLONG_MAX;
             }
+#endif
             if (seqno != -1)
             {
                 const size_t idx(indexof(seqno));
@@ -110,6 +146,7 @@ namespace galera
             const size_t        idx(indexof(obj_seqno));
             gu::Lock            lock(mutex_);
 
+            state_debug_print("enter", obj);
             assert(obj_seqno > last_left_);
 
             pre_enter(obj, lock);
@@ -120,16 +157,17 @@ namespace galera
 
                 process_[idx].state_ = Process::S_WAITING;
                 process_[idx].obj_   = &obj;
-
+#ifndef NDEBUG
+                process_[idx].dobj_.~C();
+                new (&process_[idx].dobj_) C(obj);
+#endif /* NDEBUG */
 #ifdef GU_DBUG_ON
                 obj.debug_sync(mutex_);
 #endif // GU_DBUG_ON
                 while (may_enter(obj) == false &&
                        process_[idx].state_ == Process::S_WAITING)
                 {
-                    obj.unlock();
                     lock.wait(process_[idx].cond_);
-                    obj.lock();
                 }
 
                 if (process_[idx].state_ != Process::S_CANCELED)
@@ -149,7 +187,23 @@ namespace galera
             assert(process_[idx].state_ == Process::S_CANCELED);
             process_[idx].state_ = Process::S_IDLE;
 
+            state_debug_print("enter canceled", obj);
             gu_throw_error(EINTR);
+        }
+
+        bool entered(const C& obj) const
+        {
+            return state(obj) == Process::S_APPLYING;
+        }
+
+        bool finished(const C& obj) const
+        {
+            return state(obj) == Process::S_FINISHED;
+        }
+
+        bool canceled(const C& obj) const
+        {
+            return state(obj) == Process::S_CANCELED;
         }
 
         void leave(const C& obj)
@@ -158,13 +212,14 @@ namespace galera
             size_t   idx(indexof(obj.seqno()));
 #endif /* NDEBUG */
             gu::Lock lock(mutex_);
+            state_debug_print("leave", obj);
 
             assert(process_[idx].state_ == Process::S_APPLYING ||
                    process_[idx].state_ == Process::S_CANCELED);
 
             assert(process_[indexof(last_left_)].state_ == Process::S_IDLE);
 
-            post_leave(obj, lock);
+            post_leave(obj.seqno(), lock);
         }
 
         void self_cancel(C& obj)
@@ -172,6 +227,8 @@ namespace galera
             wsrep_seqno_t const obj_seqno(obj.seqno());
             size_t   idx(indexof(obj_seqno));
             gu::Lock lock(mutex_);
+
+            state_debug_print("self_cancel", obj);
 
             assert(obj_seqno > last_left_);
 
@@ -184,19 +241,23 @@ namespace galera
                          << (obj_seqno - last_left_)
                          << ", process_size_: "  << process_size_
                          << ". Deadlock is very likely.";
-                obj.unlock();
+
                 lock.wait(cond_);
-                obj.lock();
             }
 
             assert(process_[idx].state_ == Process::S_IDLE ||
                    process_[idx].state_ == Process::S_CANCELED);
 
+#ifndef NDEBUG
+            process_[idx].dobj_.~C();
+            new (&process_[idx].dobj_) C(obj);
+#endif /* NDEBUG */
+
             if (obj_seqno > last_entered_) last_entered_ = obj_seqno;
 
             if (obj_seqno <= drain_seqno_)
             {
-                post_leave(obj, lock);
+                post_leave(obj.seqno(), lock);
             }
             else
             {
@@ -204,9 +265,8 @@ namespace galera
             }
         }
 
-        void interrupt(const C& obj)
+        bool interrupt(const C& obj)
         {
-
             size_t   idx (indexof(obj.seqno()));
             gu::Lock lock(mutex_);
 
@@ -216,6 +276,8 @@ namespace galera
                 lock.wait(cond_);
             }
 
+            state_debug_print("interrupt", obj);
+
             if ((process_[idx].state_ == Process::S_IDLE &&
                  obj.seqno()          >  last_left_ ) ||
                 process_[idx].state_ == Process::S_WAITING )
@@ -224,6 +286,7 @@ namespace galera
                 process_[idx].cond_.signal();
                 // since last_left + 1 cannot be <= S_WAITING we're not
                 // modifying a window here. No broadcasting.
+                return true;
             }
             else
             {
@@ -232,20 +295,38 @@ namespace galera
                           << " le " << last_entered_
                           << " ll " << last_left_;
             }
+
+            return false;
         }
 
-        wsrep_seqno_t last_left()   const
+        wsrep_seqno_t last_left() const
         {
             gu::Lock lock(mutex_);
             return last_left_;
         }
 
+        wsrep_seqno_t last_entered() const
+        {
+            gu::Lock lock(mutex_);
+            return last_entered_;
+        }
+
+        void last_left_gtid(wsrep_gtid_t& gtid) const
+        {
+            gu::Lock lock(mutex_);
+            gtid.uuid = uuid_;
+            gtid.seqno = last_left_;
+        }
+
+#ifdef PXC
         void stats(std::vector<wsrep_seqno_t>& vc)   const
         {
             gu::Lock lock(mutex_);
             vc.push_back(last_entered_);
             vc.push_back(last_left_);
         }
+#endif /* PXC */
+
 
         ssize_t       size()        const { return process_size_; }
 
@@ -258,6 +339,8 @@ namespace galera
         void drain(wsrep_seqno_t seqno)
         {
             gu::Lock lock(mutex_);
+
+            state_debug_print("drain", seqno);
 
             while (drain_seqno_ != GU_LLONG_MAX)
             {
@@ -276,25 +359,28 @@ namespace galera
         void wait(wsrep_seqno_t seqno)
         {
             gu::Lock lock(mutex_);
-            if (last_left_ < seqno)
+            while (last_left_ < seqno)
             {
                 size_t idx(indexof(seqno));
                 lock.wait(process_[idx].wait_cond_);
             }
         }
 
-        void wait(wsrep_seqno_t seqno, const gu::datetime::Date& wait_until)
+        void wait(gu::GTID& gtid, const gu::datetime::Date& wait_until)
         {
             gu::Lock lock(mutex_);
-            if (last_left_ < seqno)
+            if (gtid.uuid() != uuid_)
             {
-                size_t idx(indexof(seqno));
+                throw gu::NotFound();
+            }
+            while (last_left_ < gtid.seqno())
+            {
+                size_t idx(indexof(gtid.seqno()));
                 lock.wait(process_[idx].wait_cond_, wait_until);
             }
         }
 
-
-        void get_stats(double* oooe, double* oool, double* win_size)
+        void get_stats(double* oooe, double* oool, double* win_size) const
         {
             gu::Lock lock(mutex_);
 
@@ -318,7 +404,17 @@ namespace galera
 
     private:
 
-        size_t indexof(wsrep_seqno_t seqno)
+        template <typename T>
+        void state_debug_print(const std::string& method, const T& x)
+        {
+// #define GALERA_MONITOR_DEBUG_PRINT
+#ifdef GALERA_MONITOR_DEBUG_PRINT
+            log_info << typeid(C).name() << ": " << method << "(" << x
+                     << "): le " << last_entered_ << ", ll " << last_left_;
+#endif /* GALERA_MONITOR_DEBUG_PRINT */
+        }
+
+        size_t indexof(wsrep_seqno_t seqno) const
         {
             return (seqno & process_mask_);
         }
@@ -338,9 +434,7 @@ namespace galera
 
             while (would_block (obj_seqno)) // TODO: exit on error
             {
-                obj.unlock();
                 lock.wait(cond_);
-                obj.lock();
             }
 
             if (last_entered_ < obj_seqno) last_entered_ = obj_seqno;
@@ -385,9 +479,8 @@ namespace galera
             }
         }
 
-        void post_leave(const C& obj, gu::Lock& lock)
+        void post_leave(wsrep_seqno_t const obj_seqno, gu::Lock& lock)
         {
-            const wsrep_seqno_t obj_seqno(obj.seqno());
             const size_t idx(indexof(obj_seqno));
 
             if (last_left_ + 1 == obj_seqno) // we're shrinking window
@@ -443,16 +536,37 @@ namespace galera
             while (last_left_ < drain_seqno_) lock.wait(cond_);
         }
 
+        typename Process::State state(const C& obj) const
+        {
+            const wsrep_seqno_t obj_seqno(obj.seqno());
+            const size_t        idx(indexof(obj_seqno));
+            gu::Lock lock(mutex_);
+            while (would_block (obj_seqno))
+            {
+                lock.wait(cond_);
+            }
+            return process_[idx].state_;
+        }
+
         Monitor(const Monitor&);
         void operator=(const Monitor&);
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
+        mutable
         gu::MutexWithPFS mutex_;
         gu::CondWithPFS  cond_;
 #else
+         mutable
+         gu::Mutex mutex_;
+         gu::Cond  cond_;
+#endif /* HAVE_PSI_INTERFACE */
+#else
+        mutable
         gu::Mutex mutex_;
         gu::Cond  cond_;
-#endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
+        wsrep_uuid_t  uuid_;
         wsrep_seqno_t last_entered_;
         wsrep_seqno_t last_left_;
         wsrep_seqno_t drain_seqno_;

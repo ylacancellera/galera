@@ -254,6 +254,8 @@ gcomm::PC::PC(Protonet& net, const gu::URI& uri) :
     if (pc_recovery_) {
         if (vst.read_file()) {
             log_info << "Restoring primary-component from disk successful";
+            rst_uuid_.increment_incarnation();
+            vst.write_file();
             restored = true;
         } else {
             log_info << "Restoring primary-component from disk failed."

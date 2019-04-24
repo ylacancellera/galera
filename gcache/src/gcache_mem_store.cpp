@@ -14,7 +14,7 @@ namespace gcache
 bool
 MemStore::have_free_space (size_type size)
 {
-    while ((size_ > max_size_ - size) && !seqno2ptr_.empty())
+    while ((size_ + size > max_size_) && !seqno2ptr_.empty())
     {
         /* try to free some released bufs */
         seqno2ptr_iter_t const i  (seqno2ptr_.begin());
@@ -31,11 +31,11 @@ MemStore::have_free_space (size_type size)
                 discard(bh);
                 break;
             case BUFFER_IN_RB:
-                bh->ctx->discard(bh);
+                BH_ctx(bh)->discard(bh);
                 break;
             case BUFFER_IN_PAGE:
             {
-                Page*      const page (static_cast<Page*>(bh->ctx));
+                Page*      const page (static_cast<Page*>(BH_ctx(bh)));
                 PageStore* const ps   (PageStore::page_store(page));
                 ps->discard(bh);
                 break;
@@ -51,7 +51,7 @@ MemStore::have_free_space (size_type size)
         }
     }
 
-    return (size_ <= max_size_ - size);
+    return (size_ + size <= max_size_);
 }
 
 void
@@ -61,7 +61,11 @@ MemStore::seqno_reset()
     {
         std::set<void*>::iterator tmp(buf); ++buf;
 
+#ifdef PXC
         BufferHeader* const bh(BH_cast(*tmp));
+#else
+        BufferHeader* const bh(ptr2BH(*tmp));
+#endif /* PXC */
 
         if (bh->seqno_g != SEQNO_NONE)
         {
@@ -75,9 +79,11 @@ MemStore::seqno_reset()
     }
 }
 
+#ifdef PXC
 size_t MemStore::allocated_pool_size ()
 {
   return size_;
 }
+#endif /* PXC */
 
 } /* namespace gcache */

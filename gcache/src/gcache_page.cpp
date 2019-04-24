@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2015 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 /*! @file page file class implementation */
@@ -29,7 +29,9 @@ gcache::Page::reset ()
     space_ = mmap_.size;
     next_  = static_cast<uint8_t*>(mmap_.ptr);
 
+#ifdef PXC
     BH_clear (reinterpret_cast<BufferHeader*>(next_));
+#endif /* PXC */
 }
 
 void
@@ -38,8 +40,13 @@ gcache::Page::drop_fs_cache() const
     mmap_.dont_need();
 
 #if !defined(__APPLE__)
+#ifdef PXC
     int const err (posix_fadvise (fd_.get(), 0, size_,
                                   POSIX_FADV_DONTNEED));
+#else
+    int const err (posix_fadvise (fd_.get(), 0, fd_.size(),
+                                  POSIX_FADV_DONTNEED));
+#endif /* PXC */
     if (err != 0)
     {
         log_warn << "Failed to set POSIX_FADV_DONTNEED on " << fd_.name()
@@ -48,20 +55,27 @@ gcache::Page::drop_fs_cache() const
 #endif
 }
 
-gcache::Page::Page (void* ps, const std::string& name, size_t size)
+gcache::Page::Page (void* ps, const std::string& name, size_t size, int dbg)
     :
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     fd_   (name, WSREP_PFS_INSTR_TAG_GCACHE_PAGE_FILE, size, false, false),
 #else
-    fd_   (name, size, false, false),
+     fd_   (name, size, false, false),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    fd_   (name, size, false, false),
+#endif /* PXC */
     mmap_ (fd_),
     ps_   (ps),
     next_ (static_cast<uint8_t*>(mmap_.ptr)),
-    size_ (mmap_.size),
-    space_(size_),
+    space_(mmap_.size),
     used_ (0),
-    min_space_ (space_)
+#ifdef PXC
+    size_ (mmap_.size),
+    min_space_ (space_),
+#endif /* PXC */
+    debug_(dbg)
 {
     log_info << "Created page " << name << " of size " << space_
              << " bytes";
@@ -79,8 +93,7 @@ gcache::Page::malloc (size_type size)
 
         bh->size    = size;
         bh->seqno_g = SEQNO_NONE;
-        bh->seqno_d = SEQNO_ILL;
-        bh->ctx     = this;
+        bh->ctx     = reinterpret_cast<BH_ctx_t>(this);
         bh->flags   = 0;
         bh->store   = BUFFER_IN_PAGE;
 
@@ -89,10 +102,12 @@ gcache::Page::malloc (size_type size)
         next_  += size;
         used_++;
 
+#ifdef PXC
         if (min_space_ > space_)
         {
             min_space_ = space_;
         }
+#endif /* PXC */
 
 #ifndef NDEBUG
         if (space_ >= sizeof(BufferHeader))
@@ -102,7 +117,10 @@ gcache::Page::malloc (size_type size)
         }
 
         assert (next_ <= static_cast<uint8_t*>(mmap_.ptr) + mmap_.size);
+
+        if (debug_) { log_info << name() << " allocd " << bh; }
 #endif
+
         return (bh + 1);
     }
     else
@@ -131,6 +149,7 @@ gcache::Page::realloc (void* ptr, size_type size)
             space_   -= diff_size;
             next_    += diff_size;
 
+#ifdef PXC
             if (min_space_ > space_)
             {
                 min_space_ = space_;
@@ -145,6 +164,9 @@ gcache::Page::realloc (void* ptr, size_type size)
 
             assert (next_ <= static_cast<uint8_t*>(mmap_.ptr) + mmap_.size);
 #endif
+#else
+            BH_clear (BH_cast(next_));
+#endif /* PXC */
 
             return ptr;
         }
@@ -152,7 +174,7 @@ gcache::Page::realloc (void* ptr, size_type size)
     }
     else
     {
-        if (gu_likely(size > bh->size))
+        if (gu_likely(size > 0 && uint32_t(size) > bh->size))
         {
             void* const ret (malloc (size));
 
@@ -173,7 +195,42 @@ gcache::Page::realloc (void* ptr, size_type size)
     }
 }
 
+#ifdef PXC
 size_t gcache::Page::allocated_pool_size ()
 {
     return mmap_.size - min_space_;
+}
+#endif /* PXC */
+
+void gcache::Page::print(std::ostream& os) const
+{
+    os << "page file: " << name() << ", size: " << size() << ", used: "
+       << used_;
+
+    if (used_ > 0 && debug_ > 0)
+    {
+        bool was_released(true);
+        const uint8_t* const start(static_cast<uint8_t*>(mmap_.ptr));
+        const uint8_t* p(start);
+        assert(p != next_);
+        while (p != next_)
+        {
+            ptrdiff_t const offset(p - start);
+            const BufferHeader* const bh(BH_const_cast(p));
+            p += bh->size;
+            if (!BH_is_released(bh))
+            {
+                os << "\noff: " << offset << ", " << bh;
+                was_released = false;
+            }
+            else
+            {
+                if (!was_released && p != next_)
+                {
+                    os << "\n..."; /* indicate gap */
+                }
+                was_released = true;
+            }
+        }
+    }
 }

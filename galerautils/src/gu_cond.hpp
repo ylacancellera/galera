@@ -68,6 +68,7 @@ namespace gu
 
     };
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     // TODO: Check for return value
     class CondWithPFS
@@ -133,6 +134,7 @@ namespace gu
 
     };
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 }
 
 #endif // __GU_COND__

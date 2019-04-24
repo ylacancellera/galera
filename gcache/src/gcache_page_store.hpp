@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2015 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 /*! @file page store class */
@@ -23,6 +23,7 @@ namespace gcache
         PageStore (const std::string& dir_name,
                    size_t             keep_size,
                    size_t             page_size,
+                   int                dbg,
                    size_t             keep_page);
 
         ~PageStore ();
@@ -34,20 +35,22 @@ namespace gcache
 
         void* malloc  (size_type size);
 
+        void* realloc (void* ptr, size_type size);
+
         void  free    (BufferHeader* bh) { assert(0); }
 
-        void* realloc (void* ptr, size_type size);
+        void  repossess(BufferHeader* bh) { assert(0); }
 
         void  discard (BufferHeader* bh)
         {
             assert(BH_is_released(bh));
             assert(SEQNO_ILL == bh->seqno_g);
-            free_page_ptr(static_cast<Page*>(bh->ctx), bh);
+            free_page_ptr(static_cast<Page*>(BH_ctx(bh)), bh);
         }
 
         void  reset();
 
-
+#ifdef PXC
         void  set_page_size (size_t size) { page_size_ = size; cleanup();}
 
         void  set_keep_size (size_t size) { keep_size_ = size; cleanup();}
@@ -55,6 +58,14 @@ namespace gcache
         void  set_keep_count (size_t count) { keep_page_ = count; cleanup();}
 
         size_t allocated_pool_size ();
+#else
+        void  set_page_size (size_t size) { page_size_ = size; }
+
+        void  set_keep_size (size_t size) { keep_size_ = size; }
+#endif /* PXC */
+
+
+        void  set_debug(int dbg);
 
         /* for unit tests */
         size_t count()       const { return count_;        }
@@ -63,15 +74,19 @@ namespace gcache
 
     private:
 
+        static int  const DEBUG = 4; // debug flag
+
         std::string const base_name_; /* /.../.../gcache.page. */
         size_t            keep_size_; /* how much pages to keep after freeing*/
         size_t            page_size_; /* min size of the individual page */
         size_t            keep_page_; /* whether to keep the last page(s) */
         size_t            count_;
-        std::deque<Page*> pages_;
+        typedef std::deque<Page*> PageQueue;
+        PageQueue         pages_;
         Page*             current_;
         size_t            total_size_;
         pthread_attr_t    delete_page_attr_;
+        int               debug_;
 #ifndef GCACHE_DETACH_THREAD
         pthread_t         delete_thr_;
 #endif /* GCACHE_DETACH_THREAD */

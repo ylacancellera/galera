@@ -21,9 +21,11 @@ namespace gu
     {
         const Mutex* mtx_;
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         MutexWithPFS* pfs_mtx_;
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
         Lock (const Lock&);
         Lock& operator=(const Lock&);
@@ -31,21 +33,18 @@ namespace gu
     public:
 
         Lock (const Mutex& mtx) : mtx_(&mtx)
+#ifdef PXC
 #if HAVE_PSI_INTERFACE
             , pfs_mtx_()
 #endif
+#endif /* PXC */
         {
-            int const err(mtx_->lock());
-            if (gu_unlikely(err))
-            {
-                std::string msg = "Mutex lock failed: ";
-                msg = msg + strerror(err);
-                throw Exception(msg.c_str(), err);
-            }
+            mtx_->lock();
         }
 
         virtual ~Lock ()
         {
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
             if (pfs_mtx_ != NULL)
             {
@@ -53,50 +52,72 @@ namespace gu
                 return;
             }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
-#ifdef GU_DEBUG_MUTEX
-            assert(mtx_->owned());
-#endif
-            int const err(mtx_->unlock());
-            if (gu_unlikely(err))
-            {
-                log_fatal << "Mutex unlock failed: " << err << " ("
-                          << strerror(err) << "), Aborting.";
-                ::abort();
-            }
-            // log_debug << "Unlocked mutex " << value;
+            mtx_->unlock();
         }
 
         inline void wait (const Cond& cond)
         {
-            cond.ref_count++;
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
             if (pfs_mtx_)
+            {
+                cond.ref_count++;
                 gu_cond_wait (&(cond.cond), pfs_mtx_->value);
-            else
+                cond.ref_count--;
+                return;
+            }
 #endif /* HAVE_PSI_INTERFACE */
-                gu_cond_wait (&(cond.cond), &(mtx_->impl()));
+#endif /* PXC */
+
+#ifdef GU_MUTEX_DEBUG
+            mtx_->locked_ = false;
+#endif /* GU_MUTEX_DEBUG */
+            cond.ref_count++;
+            gu_cond_wait (&(cond.cond), &mtx_->impl()); // never returns error
             cond.ref_count--;
+#ifdef GU_MUTEX_DEBUG
+            mtx_->locked_ = true;
+            mtx_->owned_  = gu_thread_self();
+#endif /* GU_MUTEX_DEBUG */
         }
 
         inline void wait (const Cond& cond, const datetime::Date& date)
         {
+#ifdef PXC
+#ifdef HAVE_PSI_INTERFACE
+            if (pfs_mtx_)
+            {
+                timespec ts;
+                date._timespec(ts);
+                cond.ref_count++;
+                int ret = gu_cond_timedwait (&(cond.cond), pfs_mtx_->value, &ts);
+                cond.ref_count--;
+                if (gu_unlikely(ret)) gu_throw_error(ret);
+            }
+#endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
+
             timespec ts;
 
             date._timespec(ts);
+#ifdef GU_MUTEX_DEBUG
+            mtx_->locked_ = false;
+#endif /* GU_MUTEX_DEBUG */
             cond.ref_count++;
-            int ret;
-#ifdef HAVE_PSI_INTERFACE
-            if (pfs_mtx_)
-                ret = gu_cond_timedwait (&(cond.cond), pfs_mtx_->value, &ts);
-            else
-#endif /* HAVE_PSI_INTERFACE */
-                ret = gu_cond_timedwait (&(cond.cond), &(mtx_->impl()), &ts);
+            int const ret(gu_cond_timedwait (&(cond.cond), &mtx_->impl(), &ts));
             cond.ref_count--;
+#ifdef GU_MUTEX_DEBUG
+            mtx_->locked_ = true;
+            mtx_->owned_  = gu_thread_self();
+#endif /* GU_MUTEX_DEBUG */
 
             if (gu_unlikely(ret)) gu_throw_error(ret);
         }
 
+
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         Lock (const MutexWithPFS& pfs_mtx)
             :
@@ -137,6 +158,7 @@ namespace gu
             cond.ref_count--;
         }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
     };
 }
 

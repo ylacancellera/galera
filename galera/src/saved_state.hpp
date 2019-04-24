@@ -30,6 +30,9 @@ public:
     void mark_unsafe();
     void mark_safe();
     void mark_corrupt();
+    void mark_uncorrupt(const wsrep_uuid_t& u, wsrep_seqno_t s);
+
+    bool corrupt() const { return corrupt_; }
 
     void stats(long& marks, long& locks, long& writes)
     {
@@ -50,11 +53,15 @@ private:
 
     /* this mutex is needed because mark_safe() and mark_corrupt() will be
      * called outside local monitor, so race is possible */
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::MutexWithPFS    mtx_;
 #else
-    gu::Mutex           mtx_;
+     gu::Mutex           mtx_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Mutex           mtx_;
+#endif /* PXC */
     wsrep_uuid_t        written_uuid_;
     ssize_t             current_len_;
     gu::Atomic<long>    total_marks_;

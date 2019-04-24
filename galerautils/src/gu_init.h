@@ -15,10 +15,17 @@ extern "C" {
 #endif
 
 #include "gu_log.h"
+#ifdef PXC
 #include "gu_threads.h"
+#endif /* PXC */
 
+#ifdef PXC
 extern void
 gu_init (gu_log_cb_t log_cb, gu_pfs_instr_cb_t pfs_instr_cb);
+#else
+extern void
+gu_init (gu_log_cb_t log_cb);
+#endif /* PXC */
 
 #if defined(__cplusplus)
 }

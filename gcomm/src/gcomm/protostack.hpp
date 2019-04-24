@@ -25,11 +25,15 @@ namespace gcomm
 class gcomm::Protostack
 {
 public:
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     Protostack() : protos_(), mutex_(WSREP_PFS_INSTR_TAG_PROTSTACK_MUTEX) { }
 #else
-    Protostack() : protos_(), mutex_() { }
+     Protostack() : protos_(), mutex_() { }
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    Protostack() : protos_(), mutex_() { }
+#endif /* PXC */
     void push_proto(Protolay* p);
     void pop_proto(Protolay* p);
     gu::datetime::Date handle_timers();
@@ -42,11 +46,15 @@ public:
 private:
     friend class Protonet;
     std::deque<Protolay*> protos_;
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::MutexWithPFS mutex_;
 #else
-    gu::Mutex mutex_;
+     gu::Mutex mutex_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Mutex mutex_;
+#endif /* PXC */
 };
 
 

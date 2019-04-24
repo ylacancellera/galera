@@ -9,7 +9,6 @@
 #include "gu_lock.hpp"
 #include "gu_throw.hpp"
 
-
 void galera::Wsdb::print(std::ostream& os) const
 {
     os << "trx map:\n";
@@ -32,36 +31,45 @@ void galera::Wsdb::print(std::ostream& os) const
 
 galera::Wsdb::Wsdb()
     :
-    trx_pool_  (TrxHandle::LOCAL_STORAGE_SIZE(), 512, "LocalTrxHandle"),
-    trx_map_     (),
-    conn_trx_map_(),
+    trx_pool_  (TrxHandleMaster::LOCAL_STORAGE_SIZE(), 512, "LocalTrxHandle"),
+    trx_map_   (),
+#ifdef PXC
+    conn_trx_map_   (),
 #ifdef HAVE_PSI_INTERFACE
-    trx_mutex_   (WSREP_PFS_INSTR_TAG_WSDB_TRX_MUTEX),
+    trx_mutex_ (WSREP_PFS_INSTR_TAG_WSDB_TRX_MUTEX),
 #else
-    trx_mutex_   (),
+     trx_mutex_ (),
 #endif /* HAVE_PSI_INTERFACE */
-    conn_map_    (),
+#else
+    trx_mutex_ (),
+#endif /* PXC */
+    conn_map_  (),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
-    conn_mutex_  (WSREP_PFS_INSTR_TAG_WSDB_CONN_MUTEX)
+    conn_mutex_(WSREP_PFS_INSTR_TAG_WSDB_CONN_MUTEX)
 #else
-    conn_mutex_  ()
+     conn_mutex_()
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    conn_mutex_()
+#endif /* PXC */
 {}
 
 
 galera::Wsdb::~Wsdb()
 {
-    log_debug << "wsdb trx map usage " << trx_map_.size()
+    log_info << "wsdb trx map usage " << trx_map_.size()
              << " conn query map usage " << conn_map_.size();
-    log_debug << trx_pool_;
+    log_info << trx_pool_;
 
+#ifdef PXC
     /* There is potential race when a user triggers update of wsrep_provider
     that leads to deinit/unload of the provider. deinit/unload action of
     provider waits for replication to end. stop_replication routine waits
     for any active monitors for get released. But once monitors are
     released before the connection or transaction handle is discarded
     if deinit/unload sequence try to free up/destruct the provider user may
-    hit the below mentioned assert. (that too in release mode only).
+    hit the below mentioned assert.
 
     In normal flow, case shouldn't arise but if the case shows-up then
     waiting for few seconds should help schedule release of connection and
@@ -73,108 +81,110 @@ galera::Wsdb::~Wsdb()
     is unloading. */
 
     uint count = 5;
-    while((trx_map_.size() != 0 || conn_map_.size() != 0) && count != 0)
+    while((trx_map_.size() != 0 || conn_trx_map_.size() != 0 ||
+           conn_map_.size() != 0)
+          && count != 0)
     {
         log_info << "giving timeslice for connection/transaction handle"
                  << " to get released";
         sleep(1);
         --count;
     }
+#endif /* PXC */
 
-    // With debug builds just print trx and query maps to stderr
-    // and don't clean up to let valgrind etc to detect leaks.
 #ifndef NDEBUG
-    std::cerr << *this;
+    log_info << *this;
     assert(trx_map_.size() == 0);
     assert(conn_map_.size() == 0);
-#else
-    for_each(trx_map_.begin(), trx_map_.end(), Unref2nd<TrxMap::value_type>());
-    for_each(conn_trx_map_.begin(),
-             conn_trx_map_.end(),
-             Unref2nd<ConnTrxMap::value_type>());
 #endif // !NDEBUG
 }
 
-
-inline galera::TrxHandle*
-galera::Wsdb::find_trx(wsrep_trx_id_t const trx_id)
+inline galera::TrxHandleMasterPtr
+galera::Wsdb::create_trx(const TrxHandleMaster::Params& params,
+                         const wsrep_uuid_t&            source_id,
+                         wsrep_trx_id_t const           trx_id)
 {
-    gu::Lock lock(trx_mutex_);
+#ifdef PXC
+    TrxHandleMasterPtr trx(new_trx(params, source_id, trx_id));
 
-    galera::TrxHandle* trx;
-    /* trx-id = 0 is safe-guard condition.
-    trx-id is generally assigned from thd->query-id
-    and query-id default is 0. If background thread
-    try to assign set wsrep_next_trx_id before setting
-    query-id we will hit the said assert. */
-    assert(trx_id != 0);
-
-    if (trx_id != wsrep_trx_id_t(-1))
-    {
-        /* trx_id is valid and valid ids are unique.
-        Search for valid trx_id in trx_id -> trx map. */
-        TrxMap::iterator const i(trx_map_.find(trx_id));
-        trx = (trx_map_.end() == i ? NULL : i->second);
-    }
-    else
-    {
-        /* trx_id is default so search for repsective connection id
-        in connection-transaction map. */
-        pthread_t const id = pthread_self();
-        ConnTrxMap::iterator const i(conn_trx_map_.find(id));
-        trx = (conn_trx_map_.end() == i ? NULL : i->second);
-    }
-
-    return (trx);
-}
-
-
-inline galera::TrxHandle*
-galera::Wsdb::create_trx(const TrxHandle::Params& params,
-                         const wsrep_uuid_t&  source_id,
-                         wsrep_trx_id_t const trx_id)
-{
-    TrxHandle* trx(TrxHandle::New(trx_pool_, params, source_id, -1, trx_id));
-
-    gu::Lock lock(trx_mutex_);
-
-    galera::TrxHandle* trx_ref;
-    if (trx_id != wsrep_trx_id_t(-1))
-    {
-        /* trx_id is valid add it to trx-map as valid trx_id is unique
-        accross connections. */
-        std::pair<TrxMap::iterator, bool> i
-            (trx_map_.insert(std::make_pair(trx_id, trx)));
-        if (gu_unlikely(i.second == false)) gu_throw_fatal;
-        trx_ref = i.first->second;
-    }
-    else
+    if (trx_id == wsrep_trx_id_t(-1))
     {
         /* trx_id is default so add trx object to connection map
         that is maintained based on pthread_id (alias for connection_id). */
-         std::pair<ConnTrxMap::iterator, bool> i
+        std::pair<ConnTrxMap::iterator, bool> i
              (conn_trx_map_.insert(std::make_pair(pthread_self(), trx)));
         if (gu_unlikely(i.second == false)) gu_throw_fatal;
-        trx_ref = i.first->second;
+
+        return i.first->second;
     }
 
-    return (trx_ref);
+    std::pair<TrxMap::iterator, bool> i (trx_map_.insert(std::make_pair(trx_id, trx)));
+    if (gu_unlikely(i.second == false)) gu_throw_fatal;
+
+    return i.first->second;
+#else
+    TrxHandleMasterPtr trx(new_trx(params, source_id, trx_id));
+
+    std::pair<TrxMap::iterator, bool> i (trx_map_.insert(std::make_pair(trx_id, trx)));
+    if (gu_unlikely(i.second == false)) gu_throw_fatal;
+
+    return i.first->second;
+#endif /* PXC */
+
 }
 
 
-galera::TrxHandle*
-galera::Wsdb::get_trx(const TrxHandle::Params& params,
-                      const wsrep_uuid_t&  source_id,
-                      wsrep_trx_id_t const trx_id,
-                      bool const           create)
+galera::TrxHandleMasterPtr
+galera::Wsdb::get_trx(const TrxHandleMaster::Params& params,
+                      const wsrep_uuid_t&            source_id,
+                      wsrep_trx_id_t const           trx_id,
+                      bool const                     create)
 {
-    TrxHandle* retval(find_trx(trx_id));
+#ifdef PXC
+    gu::Lock lock(trx_mutex_);
 
-    if (0 == retval && create) retval = create_trx(params, source_id, trx_id);
+    if (trx_id == wsrep_trx_id_t(-1))
+    {
+        /* trx_id is default (-1) search in conn_trx_map using pthread-id */
+        pthread_t const id = pthread_self();
+        TrxMap::iterator const i(conn_trx_map_.find(id));
+        if (i == conn_trx_map_.end() && create)
+        {
+            return create_trx(params, source_id, trx_id);
+        }
+        else if (i == conn_trx_map_.end())
+        {
+            return TrxHandleMasterPtr();
+        }
 
-    if (retval != 0) retval->ref();
+        return i->second;
+    }
 
-    return retval;
+    TrxMap::iterator const i(trx_map_.find(trx_id));
+    if (i == trx_map_.end() && create)
+    {
+        return create_trx(params, source_id, trx_id);
+    }
+     else if (i == trx_map_.end())
+    {
+        return TrxHandleMasterPtr();
+    }
+
+    return i->second;
+#else
+    gu::Lock lock(trx_mutex_);
+    TrxMap::iterator const i(trx_map_.find(trx_id));
+    if (i == trx_map_.end() && create)
+    {
+        return create_trx(params, source_id, trx_id);
+    }
+    else if (i == trx_map_.end())
+    {
+        return TrxHandleMasterPtr();
+    }
+
+    return i->second;
+#endif /* PXC */
 }
 
 
@@ -204,20 +214,24 @@ galera::Wsdb::get_conn(wsrep_conn_id_t const conn_id, bool const create)
 }
 
 
-galera::TrxHandle*
-galera::Wsdb::get_conn_query(const TrxHandle::Params& params,
-                             const wsrep_uuid_t&  source_id,
-                             wsrep_trx_id_t const conn_id,
-                             bool const           create)
+galera::TrxHandleMasterPtr
+galera::Wsdb::get_conn_query(const TrxHandleMaster::Params& params,
+                             const wsrep_uuid_t&            source_id,
+                             wsrep_conn_id_t const          conn_id,
+                             bool const                     create)
 {
     Conn* const conn(get_conn(conn_id, create));
 
-    if (0 == conn) return 0;
+    if (0 == conn)
+    {
+        throw gu::NotFound();
+    }
 
     if (conn->get_trx() == 0 && create == true)
     {
-        TrxHandle* trx
-            (TrxHandle::New(trx_pool_, params, source_id, conn_id, -1));
+        TrxHandleMasterPtr trx
+            (TrxHandleMaster::New(trx_pool_, params, source_id, conn_id, -1),
+             TrxHandleMasterDeleter());
         conn->assign_trx(trx);
     }
 
@@ -227,26 +241,30 @@ galera::Wsdb::get_conn_query(const TrxHandle::Params& params,
 
 void galera::Wsdb::discard_trx(wsrep_trx_id_t trx_id)
 {
+#ifdef PXC
     gu::Lock lock(trx_mutex_);
-    if (trx_id != wsrep_trx_id_t(-1))
-    {
-        TrxMap::iterator i;
-        if ((i = trx_map_.find(trx_id)) != trx_map_.end())
-        {
-            i->second->unref();
-            trx_map_.erase(i);
-        }
-    }
-    else
+    if (trx_id == wsrep_trx_id_t(-1))
     {
         ConnTrxMap::iterator i;
-        pthread_t id = pthread_self();
-        if ((i = conn_trx_map_.find(id)) != conn_trx_map_.end())
+        if ((i = conn_trx_map_.find(pthread_self())) != conn_trx_map_.end())
         {
-            i->second->unref();
             conn_trx_map_.erase(i);
         }
     }
+
+    TrxMap::iterator i;
+    if ((i = trx_map_.find(trx_id)) != trx_map_.end())
+    {
+        trx_map_.erase(i);
+    }
+#else
+    gu::Lock lock(trx_mutex_);
+    TrxMap::iterator i;
+    if ((i = trx_map_.find(trx_id)) != trx_map_.end())
+    {
+        trx_map_.erase(i);
+    }
+#endif /* PXC */
 }
 
 
@@ -256,7 +274,7 @@ void galera::Wsdb::discard_conn_query(wsrep_conn_id_t conn_id)
     ConnMap::iterator i;
     if ((i = conn_map_.find(conn_id)) != conn_map_.end())
     {
-        i->second.assign_trx(0);
+        i->second.reset_trx();
         conn_map_.erase(i);
     }
 }

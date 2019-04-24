@@ -42,7 +42,7 @@ namespace gu
               buf_size_ (buf_size),
               reserve_  (reserve)
         {
-            assert(buf_size_ >  0);
+            assert(buf_size >  0);
             assert(reserve   >= 0);
             pool_.reserve(reserve_);
         }
@@ -177,14 +177,15 @@ namespace gu
 
         explicit
         MemPool(int buf_size, int reserve = 0, const char* name = "")
-            :
-            base_(buf_size, reserve, name),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
-            mtx_ (WSREP_PFS_INSTR_TAG_MEMPOOL_MUTEX)
+            : base_(buf_size, reserve, name), mtx_ (WSREP_PFS_INSTR_TAG_MEMPOOL_MUTEX) {}
 #else
-            mtx_ ()
+            : base_(buf_size, reserve, name), mtx_ () {}
 #endif /* HAVE_PSI_INTERFACE */
-        {}
+#else
+            : base_(buf_size, reserve, name), mtx_ () {}
+#endif /* PXC */
 
         ~MemPool() {}
 
@@ -225,11 +226,15 @@ namespace gu
     private:
 
         MemPool<false> base_;
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS mtx_;
 #else
         gu::Mutex      mtx_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        gu::Mutex      mtx_;
+#endif /* PXC */
 
     }; /* class MemPool<true>: thread-safe */
 

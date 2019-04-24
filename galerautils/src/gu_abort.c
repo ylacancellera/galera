@@ -19,7 +19,9 @@
 #include <sys/prctl.h>    /* for prctl() */
 #endif /* __linux__ */
 
+#ifdef PXC
 static void (* app_callback) (void) = NULL;
+#endif /* PXC */
 
 void
 gu_abort (void)
@@ -43,14 +45,17 @@ gu_abort (void)
     gu_info ("Program terminated.");
 #endif
 
+#ifdef PXC
     if (app_callback)
     {
         app_callback();
     }
+#endif /* PXC */
 
     abort();
 }
 
+#ifdef PXC
 /* Register the application callback that be called before exiting: */
 
 void
@@ -58,3 +63,4 @@ gu_abort_register_cb (void (* callback) (void))
 {
     app_callback = callback;
 }
+#endif /* PXC */

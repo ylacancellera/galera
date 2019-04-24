@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 /*! @file ring buffer storage class */
@@ -27,22 +27,38 @@ namespace gcache
                     size_t             size,
                     seqno2ptr_t&       seqno2ptr,
                     gu::UUID&          gid,
+                    int                dbg,
                     bool               recover);
 
         ~RingBuffer ();
 
         void* malloc  (size_type size);
 
+        void* realloc (void* ptr, size_type size);
+
         void  free    (BufferHeader* bh);
 
-        void* realloc (void* ptr, size_type size);
+        void repossess(BufferHeader* bh)
+        {
+            assert(bh->size > 0);
+            assert(bh->seqno_g != SEQNO_NONE);
+            assert(bh->store == BUFFER_IN_RB);
+            assert(bh->ctx == reinterpret_cast<BH_ctx_t>(this));
+            assert(BH_is_released(bh)); // will be marked unreleased by caller
+
+            size_used_ += bh->size;
+            assert(size_used_ <= size_cache_);
+        }
 
         void  discard (BufferHeader* const bh)
         {
             assert (BH_is_released(bh));
-            assert (SEQNO_ILL == bh->seqno_g);
+            assert (BUFFER_IN_RB == bh->store);
+
             size_free_ += bh->size;
             assert (size_free_ <= size_cache_);
+
+            bh->seqno_g = SEQNO_ILL;
         }
 
         size_t size      () const { return size_cache_; }
@@ -111,6 +127,7 @@ namespace gcache
             assert_size_free();
         }
 
+#ifdef PXC
         size_t allocated_pool_size ();
 
         void set_freeze_purge_at_seqno(seqno_t seqno)
@@ -123,6 +140,9 @@ namespace gcache
             return ((freeze_purge_at_seqno_ == SEQNO_ILL)
                     ? (false) : (seqno >= freeze_purge_at_seqno_));
         }
+#endif /* PXC */
+
+        void set_debug(int const dbg) { debug_ = dbg & DEBUG; }
 
     private:
 
@@ -134,6 +154,8 @@ namespace gcache
         // 2 - buffer alignemnt to GU_WORD_BYTES
         static int    const VERSION = 2;
 
+        static int    const DEBUG = 2; // debug flag
+
         gu::FileDescriptor fd_;
         gu::MMap           mmap_;
         char*        const preamble_; // ASCII text preamble
@@ -143,16 +165,20 @@ namespace gcache
         uint8_t*           first_;    // pointer to the first (oldest) buffer
         uint8_t*           next_;     // pointer to the next free space
 
-        size_t            max_used_; // maximal memory usage (in bytes)
         seqno2ptr_t&       seqno2ptr_;
         gu::UUID&          gid_;
 
+#ifdef PXC
+        size_t             max_used_; // maximal memory usage (in bytes)
         seqno_t            freeze_purge_at_seqno_;
+#endif /* PXC */
 
         size_t       const size_cache_;
         size_t             size_free_;
         size_t             size_used_;
         size_t             size_trail_;
+
+        int                debug_;
 
         bool               open_;
 

@@ -33,7 +33,9 @@ START_TEST (gu_fifo_test)
     fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for an empty FIFO",
              gu_fifo_length(fifo));
 
+#ifdef PXC
     fail_if (gu_fifo_max_length(fifo) < FIFO_LENGTH);
+#endif /* PXC */
 
     // fill FIFO
     for (i = 0; i < FIFO_LENGTH; i++) {
@@ -210,6 +212,7 @@ START_TEST(gu_fifo_cancel_test)
 }
 END_TEST
 
+#ifdef PXC
 /* Test the functionality when a row gets deleted if the head
    reaches the end of a row (we have to ensure that the tail is
    in the same row).
@@ -280,6 +283,7 @@ START_TEST(gu_fifo_wrap_around_test)
 
 }
 END_TEST
+#endif /* PXC */
 
 Suite *gu_fifo_suite(void)
 {
@@ -289,7 +293,9 @@ Suite *gu_fifo_suite(void)
     suite_add_tcase (s, tc);
     tcase_add_test  (tc, gu_fifo_test);
     tcase_add_test  (tc, gu_fifo_cancel_test);
+#ifdef PXC
     tcase_add_test  (tc, gu_fifo_wrap_around_test);
+#endif /* PXC */
     return s;
 }
 

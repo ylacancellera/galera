@@ -18,8 +18,10 @@ extern "C" {
 /* This function is for clean aborts, when we can't gracefully exit otherwise */
 extern void gu_abort() GU_NORETURN;
 
+#ifdef PXC
 /* Register the application callback that be called before exiting: */
 extern void gu_abort_register_cb (void (* callback) (void));
+#endif /* PXC */
 
 #ifdef __cplusplus
 }

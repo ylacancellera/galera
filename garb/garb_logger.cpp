@@ -6,6 +6,7 @@
 #include <gu_conf.h>
 
 #include <cstdio>
+
 #include <errno.h>
 #include <syslog.h>
 
@@ -17,8 +18,13 @@ namespace garb
 
         if (!log_file)
         {
+#ifdef PXC
             gu_throw_error (errno) << "Failed to open '" << fname
                                    << "' for appending";
+#else
+            gu_throw_error (ENOENT) << "Failed to open '" << fname
+                                    << "' for appending";
+#endif /* PXC */
         }
 
         gu_conf_set_log_file (log_file);

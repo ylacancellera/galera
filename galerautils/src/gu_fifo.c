@@ -342,11 +342,15 @@ void* gu_fifo_get_head (gu_fifo_t* q, int* err)
 /*! Advances FIFO head and unlocks FIFO. */
 void gu_fifo_pop_head (gu_fifo_t* q)
 {
+#ifdef PXC
     if ((FIFO_COL(q, q->head) == q->col_mask) &&
-        (FIFO_ROW(q, q->head) != FIFO_ROW(q, q->tail)))
-     {
+        (FIFO_ROW(q, q->head) != FIFO_ROW(q, q->tail))) {
         /* free the row if we are removing the last unit from the row and
          * if the tail is not in the same row as the head */
+#else
+    if (FIFO_COL(q, q->head) == q->col_mask) {
+        /* removing last unit from the row */
+#endif /* PXC */
         ulong row = FIFO_ROW (q, q->head);
         assert (q->rows[row] != NULL);
         gu_free (q->rows[row]);
@@ -429,6 +433,7 @@ long gu_fifo_length (gu_fifo_t* q)
     return q->used;
 }
 
+#ifdef PXC
 /*! Returns the maximum number of items allowed in the queue */
 long gu_fifo_max_length (gu_fifo_t* q)
 {
@@ -437,6 +442,7 @@ long gu_fifo_max_length (gu_fifo_t* q)
     */
     return q->length-1;
 }
+#endif /* PXC */
 
 /*! returns how many items were in the queue per push_tail() */
 void gu_fifo_stats_get (gu_fifo_t* q, int* q_len, int* q_len_max,
@@ -514,6 +520,9 @@ void gu_fifo_destroy   (gu_fifo_t *queue)
     {
         ulong row = FIFO_ROW(queue, queue->tail);
         if (queue->rows[row]) {
+#ifndef PXC
+            assert (FIFO_COL(queue, queue->tail) != 0);
+#endif /* !PXC */
             gu_free (queue->rows[row]);
             queue->alloc -= queue->row_size;
         }

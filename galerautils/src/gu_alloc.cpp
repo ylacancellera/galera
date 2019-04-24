@@ -51,11 +51,15 @@ gu::Allocator::FilePage::FilePage (const std::string& name,
                                    page_size_type const size)
     :
     Page (0, 0),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     fd_  (name, WSREP_PFS_INSTR_TAG_RECORDSET_FILE, size, false, false),
 #else
-    fd_  (name, size, false, false),
+     fd_  (name, size, false, false),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    fd_  (name, size, false, false),
+#endif /* PXC */
     mmap_(fd_, true)
 {
     base_ptr_ = static_cast<byte_t*>(mmap_.ptr);
@@ -174,7 +178,7 @@ gu::Allocator::alloc (page_size_type const size, bool& new_page)
 gu::Allocator::BaseNameDefault const gu::Allocator::BASE_NAME_DEFAULT;
 
 gu::Allocator::Allocator (const BaseName&         base_name,
-                          byte_t*                 reserved,
+                          void*                   reserved,
                           page_size_type          reserved_size,
                           heap_size_type          max_ram,
                           page_size_type          disk_page_size)

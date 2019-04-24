@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2015 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 /*! @file page store implementation */
@@ -52,12 +52,14 @@ remove_file (void* __restrict__ arg)
 {
     char* const file_name (static_cast<char*>(arg));
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                        WSREP_PFS_INSTR_OPS_INIT,
                        WSREP_PFS_INSTR_TAG_GCACHE_REMOVEFILE_THREAD,
                        NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
     if (NULL != file_name)
     {
@@ -80,12 +82,14 @@ remove_file (void* __restrict__ arg)
         log_error << "Null file name in " << __FUNCTION__;
     }
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     pfs_instr_callback(WSREP_PFS_INSTR_TYPE_THREAD,
                        WSREP_PFS_INSTR_OPS_DESTROY,
                        WSREP_PFS_INSTR_TAG_GCACHE_REMOVEFILE_THREAD,
                        NULL, NULL, NULL);
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
     pthread_exit(NULL);
 }
@@ -98,7 +102,9 @@ remove_file (void* __restrict__ arg)
 bool
 gcache::PageStore::delete_page ()
 {
+#ifdef PXC
     if (pages_.empty()) return false;
+#endif /* PXC */
 
     Page* const page = pages_.front();
 
@@ -120,8 +126,13 @@ gcache::PageStore::delete_page ()
     if (delete_thr_ != pthread_t(-1)) pthread_join (delete_thr_, NULL);
 #endif /* GCACHE_DETACH_THERAD */
 
+#ifdef PXC
     int err = gu_thread_create (&delete_thr_, &delete_page_attr_, remove_file,
                                 file_name);
+#else
+    int err = pthread_create (&delete_thr_, &delete_page_attr_, remove_file,
+                              file_name);
+#endif /* PXC */
     if (0 != err)
     {
         delete_thr_ = pthread_t(-1);
@@ -137,6 +148,8 @@ gcache::PageStore::delete_page ()
 void
 gcache::PageStore::cleanup ()
 {
+
+#ifdef PXC
 #ifndef NDEBUG
     size_t counter = 0;
 #endif
@@ -165,6 +178,12 @@ gcache::PageStore::cleanup ()
         log_info << "gcache: " << counter << " page(s) deallocated...";
     }
 #endif
+#else
+    while (total_size_   > keep_size_ &&
+           pages_.size() > keep_page_ &&
+           delete_page())
+    {}
+#endif /* PXC */
 }
 
 void
@@ -176,7 +195,8 @@ gcache::PageStore::reset ()
 inline void
 gcache::PageStore::new_page (size_type size)
 {
-    Page* const page(new Page(this, make_page_name (base_name_, count_), size));
+    Page* const page(new Page
+                     (this, make_page_name (base_name_, count_), size, debug_));
 
     pages_.push_back (page);
     total_size_ += page->size();
@@ -187,6 +207,7 @@ gcache::PageStore::new_page (size_type size)
 gcache::PageStore::PageStore (const std::string& dir_name,
                               size_t             keep_size,
                               size_t             page_size,
+                              int                dbg,
                               size_t             keep_page)
     :
     base_name_ (make_base_name(dir_name)),
@@ -197,7 +218,8 @@ gcache::PageStore::PageStore (const std::string& dir_name,
     pages_     (),
     current_   (0),
     total_size_(0),
-    delete_page_attr_()
+    delete_page_attr_(),
+    debug_     (dbg & DEBUG)
 #ifndef GCACHE_DETACH_THREAD
     , delete_thr_(pthread_t(-1))
 #endif /* GCACHE_DETACH_THREAD */
@@ -240,6 +262,11 @@ gcache::PageStore::~PageStore ()
     {
         log_error << "Could not delete " << pages_.size()
                   << " page files: some buffers are still \"mmapped\".";
+        if (debug_)
+            for (PageQueue::iterator i(pages_.begin()); i != pages_.end(); ++i)
+            {
+                log_error << *(*i);;
+            }
     }
 
     pthread_attr_destroy (&delete_page_attr_);
@@ -293,7 +320,7 @@ gcache::PageStore::realloc (void* ptr, size_type const size)
     assert(ptr != NULL);
 
     BufferHeader* const bh(ptr2BH(ptr));
-    Page* const page(static_cast<Page*>(bh->ctx));
+    Page* const page(static_cast<Page*>(BH_ctx(bh)));
 
     void* ret(page->realloc(ptr, size));
 
@@ -313,6 +340,7 @@ gcache::PageStore::realloc (void* ptr, size_type const size)
     return ret;
 }
 
+#ifdef PXC
 size_t gcache::PageStore::allocated_pool_size ()
 {
   size_t size= 0;
@@ -323,4 +351,16 @@ size_t gcache::PageStore::allocated_pool_size ()
     size += page->allocated_pool_size();
   }
   return size;
+}
+#endif /* PXC */
+
+void
+gcache::PageStore::set_debug(int const dbg)
+{
+    debug_ = dbg & DEBUG;
+
+    for (PageQueue::iterator i(pages_.begin()); i != pages_.end(); ++i)
+    {
+        (*i)->set_debug(debug_);
+    }
 }

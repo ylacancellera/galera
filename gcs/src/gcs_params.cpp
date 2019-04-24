@@ -24,8 +24,12 @@ const char* const GCS_PARAMS_MAX_THROTTLE      = "gcs.max_throttle";
 const char* const GCS_PARAMS_SM_DUMP           = "gcs.sm_dump";
 #endif /* GCS_SM_DEBUG */
 
-static const char* const GCS_PARAMS_FC_FACTOR_DEFAULT         = "1";
+static const char* const GCS_PARAMS_FC_FACTOR_DEFAULT         = "1.0";
+#ifdef PXC
 static const char* const GCS_PARAMS_FC_LIMIT_DEFAULT          = "100";
+#else
+static const char* const GCS_PARAMS_FC_LIMIT_DEFAULT          = "16";
+#endif /* PXC */
 static const char* const GCS_PARAMS_FC_MASTER_SLAVE_DEFAULT   = "no";
 static const char* const GCS_PARAMS_FC_DEBUG_DEFAULT          = "0";
 static const char* const GCS_PARAMS_SYNC_DONOR_DEFAULT        = "no";
@@ -139,8 +143,8 @@ params_init_int64 (gu_config_t* conf, const char* const name,
     else {
         /* Found parameter value */
         if ((min_val != max_val) && (val < min_val || val > max_val)) {
-            gu_error ("%s value out of range [%" PRIi64 ", %" PRIi64 "]: %" PRIi64,
-                      name, min_val, max_val, val);
+            gu_error ("%s value out of range [%" PRIi64 ", %" PRIi64 "]: %"
+                      PRIi64, name, min_val, max_val, val);
             return -EINVAL;
         }
     }

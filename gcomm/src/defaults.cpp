@@ -34,14 +34,23 @@ namespace gcomm
     std::string const Defaults::EvsJoinRetransPeriod    = "PT1S";
     std::string const Defaults::EvsStatsReportPeriod    = "PT1M";
     std::string const Defaults::EvsStatsReportPeriodMin = "PT1S";
+#ifdef PXC
     std::string const Defaults::EvsSendWindow           = "10";
+#else
+    std::string const Defaults::EvsSendWindow           = "4";
+#endif /* PXC */
     std::string const Defaults::EvsSendWindowMin        = "1";
+#ifdef PXC
     std::string const Defaults::EvsUserSendWindow       = "4";
+#else
+    std::string const Defaults::EvsUserSendWindow       = "2";
+#endif /* PXC */
     std::string const Defaults::EvsUserSendWindowMin    = "1";
     std::string const Defaults::EvsMaxInstallTimeouts   = "3";
     std::string const Defaults::EvsDelayMargin          = "PT1S";
     std::string const Defaults::EvsDelayedKeepPeriod    = "PT30S";
     std::string const Defaults::EvsAutoEvict            = "0";
+    std::string const Defaults::EvsVersion              = "1";
     std::string const Defaults::PcAnnounceTimeout       = "PT3S";
     std::string const Defaults::PcChecksum              = "false";
     std::string const Defaults::PcIgnoreQuorum          = "false";
@@ -51,5 +60,5 @@ namespace gcomm
     std::string const Defaults::PcWaitPrim              = "true";
     std::string const Defaults::PcWaitPrimTimeout       = "PT30S";
     std::string const Defaults::PcWeight                = "1";
-    std::string const Defaults::PcRecovery              = "1";
+    std::string const Defaults::PcRecovery              = "true";
 }

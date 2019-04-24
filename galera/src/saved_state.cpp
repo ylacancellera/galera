@@ -3,8 +3,8 @@
 //
 
 #include "saved_state.hpp"
-#include "gu_dbug.h"
-#include "uuid.hpp"
+#include <gu_dbug.h>
+#include <gu_uuid.hpp>
 
 #include <fstream>
 
@@ -27,11 +27,15 @@ SavedState::SavedState  (const std::string& file) :
     safe_to_bootstrap_(true),
     unsafe_       (0),
     corrupt_      (false),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     mtx_          (WSREP_PFS_INSTR_TAG_SAVED_STATE_MUTEX),
 #else
     mtx_          (),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    mtx_          (),
+#endif /* PXC */
     written_uuid_ (uuid_),
     current_len_  (0),
     total_marks_  (0),
@@ -47,7 +51,9 @@ SavedState::SavedState  (const std::string& file) :
     if (ifs.fail())
     {
         log_warn << "Could not open state file for reading: '" << file << '\'';
+#ifdef PXC
         log_warn << "No persistent state found. Bootstraping with default state";
+#endif /* PXC */
     }
 
     FILE* fs_tmp_ = fopen(file.c_str(), "a");
@@ -69,9 +75,9 @@ SavedState::SavedState  (const std::string& file) :
 
     if (::fcntl(fileno(fs_tmp_), F_SETLK, &flck))
     {
-        gu_throw_error(errno)
-            << "Could not get exclusive lock on state file: " << file
-            << ". Ensure no other instance is using the same state file";
+        log_warn << "Could not get exclusive lock on state file: " << file
+                 << ": " << ::strerror(errno);
+        return;
     }
 
     std::string version("0.8");
@@ -145,14 +151,18 @@ SavedState::SavedState  (const std::string& file) :
         set (uuid_, seqno_, safe_to_bootstrap_);
     }
 
+#ifdef PXC
     /* freopen will not retain the lock taken on the original fd.
-    Re-obtain the lock. */
+    Re-obtain the lock. This can create issues when user try to boot under
+    instance of node on same machine with same configuration.
+    Lock help avoid this use-case. */
     if (::fcntl(fileno(fs_), F_SETLK, &flck))
     {
-        gu_throw_error(errno)
-            << "Could not get exclusive lock on state file: " << file
-            << ". Ensure no other instance is using the same state file";
+        log_warn << "Could not get exclusive lock on state file: " << file
+                 << ": " << ::strerror(errno);
+        return;
     }
+#endif /* PXC */
 }
 
 SavedState::~SavedState ()
@@ -192,18 +202,29 @@ SavedState::set (const wsrep_uuid_t& u, wsrep_seqno_t s, bool safe_to_bootstrap)
 
     if (corrupt_) return;
 
+#ifdef PXC
     // Write new state if uuid or seqno was changed:
     if (uuid_ != u || seqno_ != s || safe_to_bootstrap_ != safe_to_bootstrap)
     {
-       uuid_ = u;
-       seqno_ = s;
-       safe_to_bootstrap_ = safe_to_bootstrap;
+        uuid_ = u;
+        seqno_ = s;
+        safe_to_bootstrap_ = safe_to_bootstrap;
 
-       if (0 == unsafe_())
-          write_file (u, s, safe_to_bootstrap);
-       else
-          log_debug << "Not writing state: unsafe counter is " << unsafe_();
+        if (0 == unsafe_())
+            write_file (u, s, safe_to_bootstrap);
+        else
+            log_debug << "Not writing state: unsafe counter is " << unsafe_();
     }
+#else
+    uuid_ = u;
+    seqno_ = s;
+    safe_to_bootstrap_ = safe_to_bootstrap;
+
+    if (0 == unsafe_())
+        write_file (u, s, safe_to_bootstrap);
+    else
+        log_debug << "Not writing state: unsafe counter is " << unsafe_();
+#endif /* PXC */
 }
 
 /* the goal of unsafe_, written_uuid_, current_len_ below is
@@ -242,9 +263,9 @@ SavedState::mark_safe()
     {
         gu::Lock lock(mtx_); ++total_locks_;
 
-        if (0 == unsafe_() && (written_uuid_ != uuid_ || seqno_ >= 0))
+        if (0 == unsafe_() && (written_uuid_ != uuid_ || seqno_ >= 0) &&
+            !corrupt_)
         {
-            assert(false == corrupt_);
             /* this will write down proper seqno if set() was called too early
              * (in unsafe state) */
             write_file (uuid_, seqno_, safe_to_bootstrap_);
@@ -255,10 +276,6 @@ SavedState::mark_safe()
 void
 SavedState::mark_corrupt()
 {
-    /* Half LONG_MAX keeps us equally far from overflow and underflow by
-       mark_unsafe()/mark_safe() calls */
-    unsafe_ = (std::numeric_limits<long>::max() >> 1);
-
     gu::Lock lock(mtx_); ++total_locks_;
 
     if (corrupt_) return;
@@ -272,6 +289,21 @@ SavedState::mark_corrupt()
 }
 
 void
+SavedState::mark_uncorrupt(const wsrep_uuid_t& u, wsrep_seqno_t s)
+{
+    gu::Lock lock(mtx_); ++total_locks_;
+
+    if (!corrupt_) return;
+
+    uuid_    = u;
+    seqno_   = s;
+    unsafe_  = 0;
+    corrupt_ = false;
+
+    write_file (u, s, safe_to_bootstrap_);
+}
+
+void
 SavedState::write_file(const wsrep_uuid_t& u, const wsrep_seqno_t s,
                        bool safe_to_bootstrap)
 {
@@ -282,14 +314,13 @@ SavedState::write_file(const wsrep_uuid_t& u, const wsrep_seqno_t s,
         if (s >= 0) { log_debug << "Saving state: " << u << ':' << s; }
 
         char buf[MAX_SIZE];
-        const gu_uuid_t* const uu(reinterpret_cast<const gu_uuid_t*>(&u));
         int state_len = snprintf (buf, MAX_SIZE - 1,
                                   "# GALERA saved state"
                                   "\nversion: " VERSION
                                   "\nuuid:    " GU_UUID_FORMAT
                                   "\nseqno:   %" PRId64
                                   "\nsafe_to_bootstrap: %d\n",
-                                  GU_UUID_ARGS(uu), s, safe_to_bootstrap);
+                                  GU_UUID_ARGS(&u), s, safe_to_bootstrap);
 
         int write_size;
         for (write_size = state_len; write_size < current_len_; ++write_size)

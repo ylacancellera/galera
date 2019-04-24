@@ -13,7 +13,9 @@
 
 #define COMMON_BASE_DIR_KEY      "base_dir"
 #define COMMON_BASE_DIR_DEFAULT  "."
+// --- PXC
 #define COMMON_BASE_DIR_DAEMON   "/var/lib/galera"
+// --- PXC
 
 #define COMMON_STATE_FILE "grastate.dat"
 #define COMMON_VIEW_STAT_FILE "gvwstate.dat"

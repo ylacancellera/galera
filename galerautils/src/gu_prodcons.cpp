@@ -75,11 +75,15 @@ void gu::prodcons::Consumer::return_ack(const Message& ack)
 }
 
 gu::prodcons::Consumer::Consumer() :
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     mutex(WSREP_PFS_INSTR_TAG_PRODCONS_MUTEX),
 #else
-    mutex(),
+     mutex(),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    mutex(),
+#endif /* PXC */
     mque(new MessageQueue),
     rque(new MessageQueue)
 {

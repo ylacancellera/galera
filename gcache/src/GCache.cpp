@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2018 Codership Oy <info@codership.com>
  */
 
 #include "GCache.hpp"
@@ -21,7 +21,9 @@ namespace gcache
 
         mallocs  = 0;
         reallocs = 0;
+#ifdef PXC
         frees    = 0;
+#endif /* PXC */
 
         seqno_locked   = SEQNO_NONE;
         seqno_max      = SEQNO_NONE;
@@ -39,25 +41,35 @@ namespace gcache
         :
         config    (cfg),
         params    (config, data_dir),
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         mtx       (WSREP_PFS_INSTR_TAG_GCACHE_MUTEX),
         cond      (WSREP_PFS_INSTR_TAG_GCACHE_CONDVAR),
 #else
+         mtx       (),
+         cond      (),
+#endif /* HAVE_PSI_INTERFACE */
+#else
         mtx       (),
         cond      (),
-#endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
         seqno2ptr (),
         gid       (),
-        mem       (params.mem_size(), seqno2ptr),
+        mem       (params.mem_size(), seqno2ptr, params.debug()),
         rb        (params.rb_name(), params.rb_size(), seqno2ptr, gid,
-                   params.recover()),
+                   params.debug(), params.recover()),
         ps        (params.dir_name(),
                    params.keep_pages_size(),
                    params.page_size(),
+                   params.debug(),
+#ifdef PXC
                    /* keep last page if PS is the only storage */
                    params.keep_pages_count() ?
                    params.keep_pages_count() :
+                    !((params.mem_size() + params.rb_size()) > 0)),
+#else
                    !((params.mem_size() + params.rb_size()) > 0)),
+#endif /* PXC */
         mallocs   (0),
         reallocs  (0),
         frees     (0),
@@ -78,6 +90,7 @@ namespace gcache
                   << "\n" << "GCache frees   : " << frees;
     }
 
+#ifdef PXC
     size_t GCache::allocated_pool_size ()
     {
         gu::Lock lock(mtx);
@@ -85,6 +98,7 @@ namespace gcache
                rb.allocated_pool_size() +
                ps.allocated_pool_size();
     }
+#endif /* PXC */
 
     /*! prints object properties */
     void print (std::ostream& os) {}
@@ -128,24 +142,3 @@ int64_t gcache_seqno_min (gcache_t* gc)
     gcache::GCache* gcache = reinterpret_cast<gcache::GCache*>(gc);
     return gcache->seqno_min ();
 }
-
-#if DEPRECATED
-void  gcache_seqno_init   (gcache_t* gc, int64_t seqno)
-{
-    gcache::GCache* gcache = reinterpret_cast<gcache::GCache*>(gc);
-    gcache->seqno_init (seqno);
-}
-
-void  gcache_seqno_assign(gcache_t* gc, const void* ptr, int64_t seqno)
-{
-    gcache::GCache* gcache = reinterpret_cast<gcache::GCache*>(gc);
-    gcache->seqno_assign (ptr, seqno, -1, false);
-}
-
-void  gcache_seqno_release(gcache_t* gc, const void* ptr)
-{
-    gcache::GCache* gcache = reinterpret_cast<gcache::GCache*>(gc);
-    gcache->seqno_release ();
-}
-#endif
-

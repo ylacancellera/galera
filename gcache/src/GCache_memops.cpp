@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2019 Codership Oy <info@codership.com>
  */
 
 #include "GCache.hpp"
@@ -26,12 +26,27 @@ namespace gcache
     bool
     GCache::discard_seqno (int64_t seqno)
     {
+        // assert(mtx.locked() && mtx.owned());
+
+#ifndef NDEBUG
+        seqno_t begin(0);
+        if (params.debug())
+        {
+            begin = (seqno2ptr.begin() != seqno2ptr.end() ?
+                     seqno2ptr.begin()->first : 0);
+            assert(begin > 0);
+            log_info << "GCache::discard_seqno(" << begin << " - "
+                     << seqno << ")";
+        }
+#endif
         for (seqno2ptr_t::iterator i = seqno2ptr.begin();
              i != seqno2ptr.end() && i->first <= seqno;)
         {
+#ifdef PXC
             /* Skip purge from this seqno onwards. */
             if (params.skip_purge(i->first))
                 return false;
+#endif /* PXC */
 
             BufferHeader* bh(ptr2BH (i->second));
 
@@ -39,13 +54,20 @@ namespace gcache
             {
                 assert (bh->seqno_g == i->first);
                 assert (bh->seqno_g <= seqno);
-                assert (bh->seqno_g <= seqno_released);
 
                 seqno2ptr.erase (i++); // post ++ is significant!
                 discard_buffer(bh);
             }
             else
             {
+#ifndef NDEBUG
+                if (params.debug())
+                {
+                    log_info << "GCache::discard_seqno(" << begin << " - "
+                             << seqno << "): "
+                             << bh->seqno_g << " not released, bailing out.";
+                }
+#endif
                 return false;
             }
         }
@@ -108,6 +130,8 @@ namespace gcache
         assert(bh->seqno_g != SEQNO_ILL);
         BH_release(bh);
 
+        seqno_t new_released(seqno_released);
+
         if (gu_likely(SEQNO_NONE != bh->seqno_g))
         {
 #ifndef NDEBUG
@@ -116,11 +140,10 @@ namespace gcache
             {
                 log_fatal << "OOO release: seqno_released " << seqno_released
                           << ", releasing " << bh->seqno_g;
+                assert(0);
             }
-            assert(seqno_released + 1 == bh->seqno_g ||
-                   SEQNO_NONE == seqno_released);
 #endif
-            seqno_released = bh->seqno_g;
+            new_released = bh->seqno_g;
         }
 #ifndef NDEBUG
         void* const ptr(bh + 1);
@@ -141,7 +164,11 @@ namespace gcache
         case BUFFER_IN_PAGE:
             if (gu_likely(bh->seqno_g > 0))
             {
-                discard_seqno (bh->seqno_g);
+                if (gu_unlikely(!discard_seqno(bh->seqno_g)))
+                {
+                    new_released = (seqno2ptr.begin()->first - 1);
+                    assert(seqno_released <= new_released);
+                }
             }
             else
             {
@@ -152,6 +179,15 @@ namespace gcache
             break;
         }
         rb.assert_size_free();
+
+#ifndef NDEBUG
+        if (params.debug())
+        {
+            log_info << "GCache::free_common(): seqno_released: "
+                     << seqno_released << " -> " << new_released;
+        }
+#endif
+        seqno_released = new_released;
     }
 
     void
@@ -162,6 +198,9 @@ namespace gcache
             BufferHeader* const bh(ptr2BH(ptr));
             gu::Lock      lock(mtx);
 
+#ifndef NDEBUG
+            if (params.debug()) { log_info << "GCache::free() " << bh; }
+#endif
             free_common (bh);
         }
         else {

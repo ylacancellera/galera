@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
  */
 
 /*! @file mem store class */
@@ -21,11 +21,12 @@ namespace gcache
     {
     public:
 
-        MemStore (size_t max_size, seqno2ptr_t& seqno2ptr)
+        MemStore (size_t const max_size, seqno2ptr_t& seqno2ptr, int const dbg)
             : max_size_ (max_size),
               size_     (0),
               allocd_   (),
-              seqno2ptr_(seqno2ptr)
+              seqno2ptr_(seqno2ptr),
+              debug_    (dbg & DEBUG)
         {}
 
         void reset ()
@@ -58,10 +59,9 @@ namespace gcache
 
                 bh->size    = size;
                 bh->seqno_g = SEQNO_NONE;
-                bh->seqno_d = SEQNO_ILL;
                 bh->flags   = 0;
                 bh->store   = BUFFER_IN_MEM;
-                bh->ctx     = this;
+                bh->ctx     = reinterpret_cast<BH_ctx_t>(this);
 
                 size_ += size;
 
@@ -76,9 +76,18 @@ namespace gcache
             assert(bh->size > 0);
             assert(bh->size <= size_);
             assert(bh->store == BUFFER_IN_MEM);
-            assert(bh->ctx == this);
+            assert(bh->ctx == reinterpret_cast<BH_ctx_t>(this));
 
             if (SEQNO_NONE == bh->seqno_g) discard (bh);
+        }
+
+        void  repossess(BufferHeader* bh)
+        {
+            assert(bh->size > 0);
+            assert(bh->seqno_g != SEQNO_NONE);
+            assert(bh->store == BUFFER_IN_MEM);
+            assert(bh->ctx == reinterpret_cast<BH_ctx_t>(this));
+            assert(BH_is_released(bh)); // will be marked unreleased by caller
         }
 
         void* realloc (void* ptr, size_type size)
@@ -135,9 +144,15 @@ namespace gcache
         // for unit tests only
         size_t _allocd () const { return size_; }
 
+#ifdef PXC
         size_t allocated_pool_size ();
+#endif /* PXC */
+
+        void set_debug(int const dbg) { debug_ = dbg & DEBUG; }
 
     private:
+
+        static int const DEBUG = 1;
 
         bool have_free_space (size_type size);
 
@@ -145,6 +160,7 @@ namespace gcache
         size_t          size_;
         std::set<void*> allocd_;
         seqno2ptr_t&    seqno2ptr_;
+        int             debug_;
     };
 }
 

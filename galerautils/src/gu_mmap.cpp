@@ -14,11 +14,13 @@
 
 #include <cerrno>
 #include <sys/mman.h>
+#ifdef PXC
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include "gu_limits.h"
+#endif /* PXC */
 
 #if defined(__FreeBSD__) && defined(MAP_NORESERVE)
 /* FreeBSD has never implemented this flags and will deprecate it. */
@@ -106,7 +108,7 @@ namespace gu
     void
     MMap::sync () const
     {
-        log_debug << "Flushing memory map to disk...";
+        log_info << "Flushing memory map to disk...";
         sync(ptr, size);
     }
 

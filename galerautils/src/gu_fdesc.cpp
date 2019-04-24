@@ -42,19 +42,24 @@ namespace gu
         S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH ;
 
     FileDescriptor::FileDescriptor (const std::string& fname,
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                                     wsrep_pfs_instr_tag_t tag,
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                                     bool const         sync)
         : name_(fname),
           fd_  (open (name_.c_str(), OPEN_FLAGS)),
           size_(fd_ < 0 ? 0 : lseek (fd_, 0, SEEK_END)),
           sync_(sync)
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
           ,tag_(tag)
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
     {
         constructor_common();
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         {
             int* file_ref = const_cast<int*>(&fd_);
@@ -64,6 +69,7 @@ namespace gu
                                NULL, name_.c_str());
         }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
     }
 
     static unsigned long long
@@ -75,7 +81,7 @@ namespace gu
 
         if (0 == err)
         {
-            unsigned long long const free_size=
+            unsigned long long const free_size =
                static_cast<unsigned long long>(stat.f_bavail) * stat.f_bsize;
 
             if (reserve < free_size)
@@ -97,9 +103,11 @@ namespace gu
     }
 
     FileDescriptor::FileDescriptor (const std::string& fname,
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                                     wsrep_pfs_instr_tag_t tag,
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                                     size_t const       size,
                                     bool   const       allocate,
                                     bool   const       sync)
@@ -107,12 +115,15 @@ namespace gu
           fd_  (open (fname.c_str(), CREATE_FLAGS, CREATE_MODE)),
           size_(size),
           sync_(sync)
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
           ,tag_(tag)
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
     {
         constructor_common();
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         {
             int* file_ref = const_cast<int*>(&fd_);
@@ -122,6 +133,7 @@ namespace gu
                                NULL, name_.c_str());
         }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
         off_t const current_size(lseek (fd_, 0, SEEK_END));
 
@@ -131,6 +143,7 @@ namespace gu
 
             if (size_t(size_) > available)
             {
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                 {
                     int* file_ref = const_cast<int*>(&fd_);
@@ -140,8 +153,10 @@ namespace gu
                                        NULL, name_.c_str());
                 }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                 ::close(fd_);
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
                 {
                     pfs_instr_callback(WSREP_PFS_INSTR_TYPE_FILE,
@@ -149,8 +164,8 @@ namespace gu
                                        NULL, NULL, name_.c_str());
                 }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
                 ::unlink(name_.c_str());
-
                 gu_throw_error(ENOSPC) << "Requested size " << size_ << " for '"
                                        << name_
                                        << "' exceeds available storage space "
@@ -212,6 +227,7 @@ namespace gu
             try { sync(); } catch (Exception& e) { log_error << e.what(); }
         }
 
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         {
             int* file_ref = const_cast<int*>(&fd_);
@@ -221,6 +237,7 @@ namespace gu
                                NULL, name_.c_str());
         }
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* PXC */
 
         if (close(fd_) != 0)
         {
@@ -246,6 +263,7 @@ namespace gu
         log_debug << "Flushed file '" << name_ << "'";
     }
 
+#ifdef PXC
     void
     FileDescriptor::unlink() const
     {
@@ -256,6 +274,7 @@ namespace gu
 #endif /* HAVE_PSI_INTERFACE */
         ::unlink (name_.c_str());
     }
+#endif /* PXC */
 
     bool
     FileDescriptor::write_byte (off_t offset)
@@ -276,8 +295,12 @@ namespace gu
     FileDescriptor::write_file (off_t const start)
     {
         // last byte of the start page
+#ifdef PXC
         off_t offset=
            (start / GU_PAGE_SIZE) * GU_PAGE_SIZE + (GU_PAGE_SIZE - 1);
+#else
+        off_t offset = (start / GU_PAGE_SIZE + 1) * GU_PAGE_SIZE - 1;
+#endif /* PXC */
 
         log_info << "Preallocating " << (size_ - start) << '/' << size_
                  << " bytes in '" << name_ << "'...";

@@ -19,7 +19,7 @@ namespace galera
             Conn(wsrep_conn_id_t conn_id)
                 :
                 conn_id_(conn_id),
-                trx_(0)
+                trx_()
             { }
 
             Conn(const Conn& other)
@@ -28,15 +28,19 @@ namespace galera
                 trx_(other.trx_)
             { }
 
-            ~Conn() { if (trx_ != 0) trx_->unref(); }
+            ~Conn() { }
 
-            void assign_trx(TrxHandle* trx)
+            void assign_trx(TrxHandleMasterPtr trx)
             {
-                if (trx_ != 0) trx_->unref();
                 trx_ = trx;
             }
 
-            TrxHandle* get_trx()
+            void reset_trx()
+            {
+                trx_ = TrxHandleMasterPtr();
+            }
+
+            TrxHandleMasterPtr get_trx()
             {
                 return trx_;
             }
@@ -44,7 +48,7 @@ namespace galera
         private:
             void operator=(const Conn&);
             wsrep_conn_id_t conn_id_;
-            TrxHandle* trx_;
+            TrxHandleMasterPtr trx_;
         };
 
         class TrxHash
@@ -53,8 +57,10 @@ namespace galera
             size_t operator()(const wsrep_trx_id_t& key) const { return key; }
         };
 
-        typedef gu::UnorderedMap<wsrep_trx_id_t, TrxHandle*, TrxHash> TrxMap;
+        typedef gu::UnorderedMap<wsrep_trx_id_t, TrxHandleMasterPtr, TrxHash>
+        TrxMap;
 
+#ifdef PXC
         /* TrxMap structure doesn't take into consideration presence of 2 trx
         objects with same trx_id (2^64 - 1 which is default trx_id) belonging
         to 2 different connections.
@@ -70,7 +76,9 @@ namespace galera
             size_t operator()(const pthread_t& key) const { return key; }
         };
 
-        typedef gu::UnorderedMap<pthread_t, TrxHandle*, ConnTrxHash> ConnTrxMap;
+        typedef gu::UnorderedMap<pthread_t, TrxHandleMasterPtr, ConnTrxHash>
+        ConnTrxMap;
+#endif /* PXC */
 
         class ConnHash
         {
@@ -81,17 +89,27 @@ namespace galera
         typedef gu::UnorderedMap<wsrep_conn_id_t, Conn, ConnHash> ConnMap;
 
     public:
-        TrxHandle* get_trx(const TrxHandle::Params& params,
-                           const wsrep_uuid_t&      source_id,
-                           wsrep_trx_id_t           trx_id,
-                           bool                     create = false);
+
+        TrxHandleMasterPtr get_trx(const TrxHandleMaster::Params& params,
+                                   const wsrep_uuid_t&            source_id,
+                                   wsrep_trx_id_t                 trx_id,
+                                   bool                           create =false);
+
+        TrxHandleMasterPtr new_trx(const TrxHandleMaster::Params& params,
+                                   const wsrep_uuid_t&            source_id,
+                                   wsrep_trx_id_t                 trx_id)
+        {
+            return TrxHandleMasterPtr(TrxHandleMaster::New(trx_pool_, params,
+                                                           source_id, -1, trx_id),
+                                      TrxHandleMasterDeleter());
+        }
 
         void discard_trx(wsrep_trx_id_t trx_id);
 
-        TrxHandle* get_conn_query(const TrxHandle::Params&,
-                                  const wsrep_uuid_t&,
-                                  wsrep_conn_id_t conn_id,
-                                  bool create = false);
+        TrxHandleMasterPtr get_conn_query(const TrxHandleMaster::Params&,
+                                          const wsrep_uuid_t&,
+                                          wsrep_conn_id_t conn_id,
+                                          bool create = false);
 
         void discard_conn_query(wsrep_conn_id_t conn_id);
 
@@ -119,35 +137,40 @@ namespace galera
         }
 
     private:
-        // Find existing trx handle in the map
-        TrxHandle* find_trx(wsrep_trx_id_t trx_id);
-
         // Create new trx handle
-        TrxHandle* create_trx(const TrxHandle::Params& params,
-                              const wsrep_uuid_t&      source_id,
-                              wsrep_trx_id_t           trx_id);
+        TrxHandleMasterPtr create_trx(const TrxHandleMaster::Params& params,
+                                      const wsrep_uuid_t&            source_id,
+                                      wsrep_trx_id_t                 trx_id);
 
         Conn*      get_conn(wsrep_conn_id_t conn_id, bool create);
 
         static const size_t trx_mem_limit_ = 1 << 20;
 
-        TrxHandle::LocalPool trx_pool_;
+        TrxHandleMaster::Pool trx_pool_;
 
         TrxMap       trx_map_;
+#ifdef PXC
         ConnTrxMap   conn_trx_map_;
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS
                      trx_mutex_;
 #else
-        gu::Mutex    trx_mutex_;
+         gu::Mutex    trx_mutex_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        gu::Mutex    trx_mutex_;
+#endif /* PXC */
         ConnMap      conn_map_;
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS
                      conn_mutex_;
 #else
-        gu::Mutex    conn_mutex_;
+         gu::Mutex    conn_mutex_;
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        gu::Mutex    conn_mutex_;
+#endif /* PXC */
     };
 
     inline std::ostream& operator<<(std::ostream& os, const Wsdb& w)

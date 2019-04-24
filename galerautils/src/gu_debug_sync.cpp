@@ -16,6 +16,7 @@ namespace {
 }
 
 
+
 void gu_debug_sync_wait(const std::string& sync)
 {
     gu::Lock lock(sync_mutex);

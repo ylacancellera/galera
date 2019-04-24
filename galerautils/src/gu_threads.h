@@ -9,9 +9,11 @@
 
 #include "gu_types.h" // bool
 
+#ifdef PXC
 /* Callback for PFS instrumentation */
 #include "wsrep_api.h"
 extern gu_pfs_instr_cb_t pfs_instr_callback;
+#endif /* PXC */
 
 #if __unix__
 

@@ -1,27 +1,9 @@
 /* Copyright (C) 2010-2017 Codership Oy <info@codersip.com> */
 
 #include "replicator_smm.hpp"
-#include "uuid.hpp"
+
 #include <gu_debug_sync.hpp>
 #include <gu_mem.h>
-
-// @todo: should be protected static member of the parent class
-static const size_t GALERA_STAGE_MAX(11);
-// @todo: should be protected static member of the parent class
-static const char* state_str[GALERA_STAGE_MAX] =
-{
-    "Initialized",
-    "Joining",
-    "Joining: preparing for State Transfer",
-    "Joining: requested State Transfer",
-    "Joining: receiving State Transfer",
-    "Joined",
-    "Synced",
-    "Donor/Desynced",
-    "Joining: State Transfer request failed",
-    "Joining: State Transfer failed",
-    "Destroyed"
-};
 
 // @todo: should be protected static member of the parent class
 static wsrep_member_status_t state2stats(galera::ReplicatorSMM::State state)
@@ -30,7 +12,6 @@ static wsrep_member_status_t state2stats(galera::ReplicatorSMM::State state)
     {
     case galera::ReplicatorSMM::S_DESTROYED :
     case galera::ReplicatorSMM::S_CLOSED    :
-    case galera::ReplicatorSMM::S_CLOSING   :
     case galera::ReplicatorSMM::S_CONNECTED : return WSREP_MEMBER_UNDEFINED;
     case galera::ReplicatorSMM::S_JOINING   : return WSREP_MEMBER_JOINER;
     case galera::ReplicatorSMM::S_JOINED    : return WSREP_MEMBER_JOINED;
@@ -38,7 +19,9 @@ static wsrep_member_status_t state2stats(galera::ReplicatorSMM::State state)
     case galera::ReplicatorSMM::S_DONOR     : return WSREP_MEMBER_DONOR;
     }
 
-    gu_throw_fatal << "invalid state " << state;
+    log_fatal << "Unknown state code: " << state;
+    assert(0);
+    return WSREP_MEMBER_ERROR;
 }
 
 // @todo: should be protected static member of the parent class
@@ -49,36 +32,49 @@ static const char* state2stats_str(galera::ReplicatorSMM::State    state,
 
     switch (state)
     {
-    case galera::ReplicatorSMM::S_DESTROYED :
-        return state_str[10];
-    case galera::ReplicatorSMM::S_CLOSED :
-    case galera::ReplicatorSMM::S_CLOSING:
+    case galera::ReplicatorSMM::S_DESTROYED:
+        return "Destroyed";
+    case galera::ReplicatorSMM::S_CLOSED:
     case galera::ReplicatorSMM::S_CONNECTED:
     {
-        if (sst_state == ReplicatorSMM::SST_REQ_FAILED)  return state_str[8];
-        else if (sst_state == ReplicatorSMM::SST_FAILED) return state_str[9];
-        else                                             return state_str[0];
+        if (sst_state == ReplicatorSMM::SST_REQ_FAILED)
+            return "Joining: State Transfer request failed";
+        else if (sst_state == ReplicatorSMM::SST_FAILED)
+            return "Joining: State Transfer failed";
+        else
+            return "Initialized";
     }
     case galera::ReplicatorSMM::S_JOINING:
     {
-        if (sst_state == ReplicatorSMM::SST_WAIT) return state_str[4];
-        else                                      return state_str[1];
+        if (sst_state == ReplicatorSMM::SST_WAIT)
+            return "Joining: receiving State Transfer";
+        else
+            return "Joining";
     }
-    case galera::ReplicatorSMM::S_JOINED : return state_str[5];
-    case galera::ReplicatorSMM::S_SYNCED : return state_str[6];
-    case galera::ReplicatorSMM::S_DONOR  : return state_str[7];
+    case galera::ReplicatorSMM::S_JOINED:
+        return "Joined";
+    case galera::ReplicatorSMM::S_SYNCED:
+        return "Synced";
+    case galera::ReplicatorSMM::S_DONOR:
+        return "Donor/Desynced";
     }
 
-    gu_throw_fatal << "invalid state " << state;
+    log_fatal << "Unknown state: " << state;
+    assert(0);
+    return "Unknown state code: ";
 }
 
 typedef enum status_vars
 {
     STATS_STATE_UUID = 0,
     STATS_PROTOCOL_VERSION,
+#ifdef PXC
     STATS_LAST_APPLIED,
+#endif /* PXC */
     STATS_LAST_COMMITTED,
+#ifdef PXC
     STATS_MONITOR_STATUS,
+#endif /* PXC */
     STATS_REPLICATED,
     STATS_REPLICATED_BYTES,
     STATS_KEYS_COUNT,
@@ -104,10 +100,12 @@ typedef enum status_vars
     STATS_FC_SSENT,
 //    STATS_FC_CSENT,
     STATS_FC_RECEIVED,
+#ifdef PXC
     STATS_FC_INTERVAL,
     STATS_FC_INTERVAL_LOW,
     STATS_FC_INTERVAL_HIGH,
     STATS_FC_STATUS,
+#endif /* PXC */
     STATS_CERT_DEPS_DISTANCE,
     STATS_APPLY_OOOE,
     STATS_APPLY_OOOL,
@@ -118,16 +116,20 @@ typedef enum status_vars
     STATS_LOCAL_STATE,
     STATS_LOCAL_STATE_COMMENT,
     STATS_CERT_INDEX_SIZE,
+#ifdef PXC
     STATS_CERT_BUCKET_COUNT,
     STATS_GCACHE_POOL_SIZE,
+#endif /* PXC */
     STATS_CAUSAL_READS,
     STATS_CERT_INTERVAL,
     STATS_OPEN_TRX,
     STATS_OPEN_CONN,
+#ifdef PXC
     STATS_IST_RECEIVE_STATUS,
     STATS_IST_RECEIVE_SEQNO_START,
     STATS_IST_RECEIVE_SEQNO_CURRENT,
     STATS_IST_RECEIVE_SEQNO_END,
+#endif /* PXC */
     STATS_INCOMING_LIST,
     STATS_MAX
 } StatusVars;
@@ -136,9 +138,13 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
 {
     { "local_state_uuid",         WSREP_VAR_STRING, { 0 }  },
     { "protocol_version",         WSREP_VAR_INT64,  { 0 }  },
+#ifdef PXC
     { "last_applied",             WSREP_VAR_INT64,  { -1 } },
+#endif /* PXC */
     { "last_committed",           WSREP_VAR_INT64,  { -1 } },
+#ifdef PXC
     { "monitor_status (L/A/C)",   WSREP_VAR_STRING, { 0 }  },
+#endif /* PXC */
     { "replicated",               WSREP_VAR_INT64,  { 0 }  },
     { "replicated_bytes",         WSREP_VAR_INT64,  { 0 }  },
     { "repl_keys",                WSREP_VAR_INT64,  { 0 }  },
@@ -164,10 +170,12 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
     { "flow_control_sent",        WSREP_VAR_INT64,  { 0 }  },
 //    { "flow_control_conts_sent",  WSREP_VAR_INT64,  { 0 }  },
     { "flow_control_recv",        WSREP_VAR_INT64,  { 0 }  },
+#ifdef PXC
     { "flow_control_interval",    WSREP_VAR_STRING, { 0 }  },
     { "flow_control_interval_low",WSREP_VAR_INT64,  { 0 }  },
     { "flow_control_interval_high",WSREP_VAR_INT64,  { 0 }, },
     { "flow_control_status",      WSREP_VAR_STRING, { 0 }  },
+#endif /* PXC */
     { "cert_deps_distance",       WSREP_VAR_DOUBLE, { 0 }  },
     { "apply_oooe",               WSREP_VAR_DOUBLE, { 0 }  },
     { "apply_oool",               WSREP_VAR_DOUBLE, { 0 }  },
@@ -178,16 +186,20 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
     { "local_state",              WSREP_VAR_INT64,  { 0 }  },
     { "local_state_comment",      WSREP_VAR_STRING, { 0 }  },
     { "cert_index_size",          WSREP_VAR_INT64,  { 0 }  },
+#ifdef PXC
     { "cert_bucket_count",        WSREP_VAR_INT64,  { 0 }  },
     { "gcache_pool_size",         WSREP_VAR_INT64,  { 0 }  },
+#endif /* PXC */
     { "causal_reads",             WSREP_VAR_INT64,  { 0 }  },
     { "cert_interval",            WSREP_VAR_DOUBLE, { 0 }  },
     { "open_transactions",        WSREP_VAR_INT64,  { 0 }  },
     { "open_connections",         WSREP_VAR_INT64,  { 0 }  },
+#ifdef PXC
     { "ist_receive_status",       WSREP_VAR_STRING, { 0 }  },
     { "ist_receive_seqno_start",  WSREP_VAR_INT64,  { 0 }  },
     { "ist_receive_seqno_current",WSREP_VAR_INT64,  { 0 }  },
     { "ist_receive_seqno_end",    WSREP_VAR_INT64,  { 0 }  },
+#endif /* PXC */
     { "incoming_addresses",       WSREP_VAR_STRING, { 0 }  },
     { 0,                          WSREP_VAR_STRING, { 0 }  }
 };
@@ -207,17 +219,27 @@ galera::ReplicatorSMM::build_stats_vars (
     stats[STATS_STATE_UUID].value._string = state_uuid_str_;
 }
 
+#ifdef PXC
 const struct wsrep_stats_var*
 galera::ReplicatorSMM::stats_get()
+#else
+const struct wsrep_stats_var*
+galera::ReplicatorSMM::stats_get() const
+#endif /* PXC */
 {
     if (S_DESTROYED == state_()) return 0;
 
     std::vector<struct wsrep_stats_var> sv(wsrep_stats_);
 
     sv[STATS_PROTOCOL_VERSION   ].value._int64  = protocol_version_;
+#ifdef PXC
     sv[STATS_LAST_APPLIED       ].value._int64  = apply_monitor_.last_left();
-    sv[STATS_LAST_COMMITTED     ].value._int64  = commit_monitor_.last_left();
+#endif /* PXC */
+    wsrep_gtid last_committed;
+    (void)last_committed_id(&last_committed);
+    sv[STATS_LAST_COMMITTED     ].value._int64  = last_committed.seqno;
 
+#ifdef PXC
     std::vector<wsrep_seqno_t> local_monitor_stats;
     local_monitor_.stats(local_monitor_stats);
     std::vector<wsrep_seqno_t> apply_monitor_stats;
@@ -238,6 +260,7 @@ galera::ReplicatorSMM::stats_get()
             sizeof(monitor_status_string_));
 
     sv[STATS_MONITOR_STATUS].value._string = monitor_status_string_;
+#endif /* PXC */
 
     sv[STATS_REPLICATED         ].value._int64  = replicated_();
     sv[STATS_REPLICATED_BYTES   ].value._int64  = replicated_bytes_();
@@ -245,16 +268,14 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_KEYS_BYTES         ].value._int64  = keys_bytes_();
     sv[STATS_DATA_BYTES         ].value._int64  = data_bytes_();
     sv[STATS_UNRD_BYTES         ].value._int64  = unrd_bytes_();
-    sv[STATS_RECEIVED           ].value._int64  = gcs_as_.received();
-    sv[STATS_RECEIVED_BYTES     ].value._int64  = gcs_as_.received_bytes();
+    sv[STATS_RECEIVED           ].value._int64  = as_->received();
+    sv[STATS_RECEIVED_BYTES     ].value._int64  = as_->received_bytes();
     sv[STATS_LOCAL_COMMITS      ].value._int64  = local_commits_();
     sv[STATS_LOCAL_CERT_FAILURES].value._int64  = local_cert_failures_();
     sv[STATS_LOCAL_REPLAYS      ].value._int64  = local_replays_();
 
     struct gcs_stats stats;
     gcs_.get_stats (&stats);
-
-    int64_t seqno_min = gcache_.seqno_min();
 
     sv[STATS_LOCAL_SEND_QUEUE    ].value._int64  = stats.send_q_len;
     sv[STATS_LOCAL_SEND_QUEUE_MAX].value._int64  = stats.send_q_len_max;
@@ -264,14 +285,20 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_LOCAL_RECV_QUEUE_MAX].value._int64  = stats.recv_q_len_max;
     sv[STATS_LOCAL_RECV_QUEUE_MIN].value._int64  = stats.recv_q_len_min;
     sv[STATS_LOCAL_RECV_QUEUE_AVG].value._double = stats.recv_q_len_avg;
+#ifdef PXC
+    int64_t seqno_min = gcache_.seqno_min();
     sv[STATS_LOCAL_CACHED_DOWNTO ].value._int64  =
         seqno_min != GCS_SEQNO_ILL ? seqno_min : GCS_SEQNO_NIL;
+#else
+    sv[STATS_LOCAL_CACHED_DOWNTO ].value._int64  = gcache_.seqno_min();
+#endif /* PXC */
     sv[STATS_FC_PAUSED_NS        ].value._int64  = stats.fc_paused_ns;
     sv[STATS_FC_PAUSED_AVG       ].value._double = stats.fc_paused_avg;
     sv[STATS_FC_SSENT            ].value._int64  = stats.fc_ssent;
 //    sv[STATS_FC_CSENT            ].value._int64  = stats.fc_csent;
     sv[STATS_FC_RECEIVED         ].value._int64  = stats.fc_received;
 
+#ifdef PXC
     std::ostringstream osinterval;
     osinterval << "[ " << stats.fc_lower_limit << ", " << stats.fc_upper_limit << " ]";
     strncpy(interval_string_, osinterval.str().c_str(), sizeof(interval_string_));
@@ -279,6 +306,7 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_FC_INTERVAL_LOW     ].value._int64 = stats.fc_lower_limit;
     sv[STATS_FC_INTERVAL_HIGH    ].value._int64 = stats.fc_upper_limit;
     sv[STATS_FC_STATUS           ].value._string = (stats.fc_status ? "ON" : "OFF");
+#endif /* PXC */
 
     double avg_cert_interval(0);
     double avg_deps_dist(0);
@@ -288,38 +316,46 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_CERT_DEPS_DISTANCE  ].value._double = avg_deps_dist;
     sv[STATS_CERT_INTERVAL       ].value._double = avg_cert_interval;
     sv[STATS_CERT_INDEX_SIZE     ].value._int64 = index_size;
+#ifdef PXC
     sv[STATS_CERT_BUCKET_COUNT   ].value._int64 = cert_.bucket_count();
-
     sv[STATS_GCACHE_POOL_SIZE    ].value._int64 = gcache_.allocated_pool_size();
+#endif /* PXC */
 
     double oooe;
     double oool;
     double win;
-    const_cast<Monitor<ApplyOrder>&>(apply_monitor_).
-        get_stats(&oooe, &oool, &win);
+    apply_monitor_.get_stats(&oooe, &oool, &win);
 
     sv[STATS_APPLY_OOOE          ].value._double = oooe;
     sv[STATS_APPLY_OOOL          ].value._double = oool;
     sv[STATS_APPLY_WINDOW        ].value._double = win;
 
-    const_cast<Monitor<CommitOrder>&>(commit_monitor_).
-        get_stats(&oooe, &oool, &win);
+    commit_monitor_.get_stats(&oooe, &oool, &win);
 
     sv[STATS_COMMIT_OOOE         ].value._double = oooe;
     sv[STATS_COMMIT_OOOL         ].value._double = oool;
     sv[STATS_COMMIT_WINDOW       ].value._double = win;
 
-
-    sv[STATS_LOCAL_STATE         ].value._int64  = state2stats(state_());
-    sv[STATS_LOCAL_STATE_COMMENT ].value._string = state2stats_str(state_(),
-                                                                   sst_state_);
-    sv[STATS_CAUSAL_READS].value._int64    = causal_reads_();
+    if (st_.corrupt())
+    {
+        sv[STATS_LOCAL_STATE        ].value._int64  = WSREP_MEMBER_ERROR;
+        sv[STATS_LOCAL_STATE_COMMENT].value._string = "Inconsistent";
+    }
+    else
+    {
+        sv[STATS_LOCAL_STATE        ].value._int64  =state2stats(state_());
+        sv[STATS_LOCAL_STATE_COMMENT].value._string =state2stats_str(state_(),
+                                                                     sst_state_);
+    }
+    sv[STATS_CAUSAL_READS        ].value._int64    = causal_reads_();
 
     Wsdb::stats wsdb_stats(wsdb_.get_stats());
     sv[STATS_OPEN_TRX].value._int64 = wsdb_stats.n_trx_;
     sv[STATS_OPEN_CONN].value._int64 = wsdb_stats.n_conn_;
 
-    if (ist_receiver_.running())
+#ifdef PXC
+    if (ist_receiver_.running()
+        && ist_receiver_.current_seqno() != WSREP_SEQNO_UNDEFINED)
     {
         // calculate %-age complete
         int percent_complete = 100;
@@ -327,20 +363,37 @@ galera::ReplicatorSMM::stats_get()
         wsrep_seqno_t   last = ist_receiver_.last_seqno();
         wsrep_seqno_t   current = ist_receiver_.current_seqno() - 1;
 
-        if (last > first)
-            percent_complete = 100.0 * static_cast<float>(current - first) / static_cast<float>(last - first);
-        percent_complete = std::max(percent_complete, 0);
-        percent_complete = std::min(percent_complete, 100);
+        // Now that IST processes all events to re-create cert queue current_seqno < first_seqno
+        if (current >= first)
+        {
+          if (last > first)
+              percent_complete = 100.0 * static_cast<float>(current - first)
+                                         / static_cast<float>(last - first);
+          percent_complete = std::max(percent_complete, 0);
+          percent_complete = std::min(percent_complete, 100);
 
-        std::ostringstream   os;
-        os << percent_complete << "% complete, received seqno "
-           << current << " of " << first << "-" << last;
-        strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_));
-        sv[STATS_IST_RECEIVE_STATUS].value._string = ist_status_string_;
+          std::ostringstream   os;
+          os << percent_complete << "% complete, received seqno "
+             << current << " of " << first << "-" << last;
+          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_));
+          sv[STATS_IST_RECEIVE_STATUS].value._string = ist_status_string_;
 
-        sv[STATS_IST_RECEIVE_SEQNO_START].value._int64 = first;
-        sv[STATS_IST_RECEIVE_SEQNO_CURRENT].value._int64 = current;
-        sv[STATS_IST_RECEIVE_SEQNO_END].value._int64 = last;
+          sv[STATS_IST_RECEIVE_SEQNO_START].value._int64 = first;
+          sv[STATS_IST_RECEIVE_SEQNO_CURRENT].value._int64 = current;
+          sv[STATS_IST_RECEIVE_SEQNO_END].value._int64 = last;
+        }
+        else
+        {
+          std::ostringstream   os;
+          os << "preloading certification queue from "
+             << current << " to " << first;
+          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_));
+          sv[STATS_IST_RECEIVE_STATUS].value._string = ist_status_string_;
+
+          sv[STATS_IST_RECEIVE_SEQNO_START].value._int64 = first;
+          sv[STATS_IST_RECEIVE_SEQNO_CURRENT].value._int64 = current;
+          sv[STATS_IST_RECEIVE_SEQNO_END].value._int64 = last;
+        }
     }
     else
     {
@@ -349,6 +402,7 @@ galera::ReplicatorSMM::stats_get()
         sv[STATS_IST_RECEIVE_SEQNO_CURRENT].value._int64 = 0;
         sv[STATS_IST_RECEIVE_SEQNO_END].value._int64 = 0;
     }
+#endif /* PXC */
 
     // Get gcs backend status
     gu::Status status;
@@ -415,8 +469,12 @@ galera::ReplicatorSMM::stats_get()
         sv[sv_pos].type = WSREP_VAR_STRING;
         sv[sv_pos].value._string = 0;
 
-        assert(static_cast<size_t>(tail_buf - reinterpret_cast<const char*>(buf)) == vec_size + tail_size);
-        assert(reinterpret_cast<const char*>(buf)[vec_size + tail_size - 1] == '\0');
+        assert(static_cast<size_t>
+               (tail_buf - reinterpret_cast<const char*>(buf)) ==
+               vec_size + tail_size);
+        assert(reinterpret_cast<const char*>(buf)[vec_size + tail_size - 1] ==
+               '\0');
+
         // Finally copy sv vector to buf
         memcpy(buf, &sv[0], vec_size);
     }
@@ -451,10 +509,12 @@ galera::ReplicatorSMM::stats_free(struct wsrep_stats_var* arg)
     gu_free(arg);
 }
 
+#ifdef PXC
 void
 galera::ReplicatorSMM::fetch_pfs_info(wsrep_node_info_t* nodes, uint32_t size)
 {
     gcs_.fetch_pfs_info(nodes, size);
 }
+#endif /* PXC */
 
 

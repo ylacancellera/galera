@@ -14,7 +14,9 @@ namespace po = boost::program_options;
 
 #include <iostream>
 #include <fstream>
+#ifdef PXC
 #include <errno.h>
+#endif /* PXC */
 
 namespace garb
 {
@@ -102,7 +104,11 @@ Config::Config (int argc, char* argv[])
 
         if (!ifs.good())
         {
+#ifdef PXC
             gu_throw_error(errno)
+#else
+            gu_throw_error(ENOENT)
+#endif /* PXC */
                 << "Failed to open configuration file '" << cfg_
                 << "' for reading.";
         }

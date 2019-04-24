@@ -98,11 +98,15 @@ public:
  */
 class gu::prodcons::Producer
 {
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::CondWithPFS cond;  /*! Condition variable */
 #else
-    gu::Cond cond;  /*! Condition variable */
+     gu::Cond cond;  /*! Condition variable */
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Cond cond;  /*! Condition variable */
+#endif /* PXC */
 
     Consumer& cons; /*! Consumer associated to this producer */
 
@@ -111,11 +115,15 @@ class gu::prodcons::Producer
      *
      * @return Reference to condition variable
      */
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     CondWithPFS& get_cond() { return cond; }
 #else
-    Cond& get_cond() { return cond; }
+     Cond& get_cond() { return cond; }
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    Cond& get_cond() { return cond; }
+#endif /* PXC */
     friend class Consumer;
 public:
     /*!
@@ -124,11 +132,15 @@ public:
      * @param cons_ Consumer associated to this producer
      */
     Producer(Consumer& cons_) :
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         cond(WSREP_PFS_INSTR_TAG_PRODCONS_CONDVAR),
 #else
-        cond(),
+         cond(),
 #endif /* HAVE_PSI_INTERFACE */
+#else
+        cond(),
+#endif /* PXC*/
         cons(cons_)
     { }
 
@@ -146,11 +158,15 @@ public:
  */
 class gu::prodcons::Consumer
 {
+#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     gu::MutexWithPFS mutex; /*! Mutex for internal locking */
 #else
     gu::Mutex mutex; /*! Mutex for internal locking */
 #endif /* HAVE_PSI_INTERFACE */
+#else
+    gu::Mutex mutex; /*! Mutex for internal locking */
+#endif /* PXC */
     MessageQueue* mque; /*! Message queue for producer messages */
     MessageQueue* rque; /*! Message queue for ack messages */
 
