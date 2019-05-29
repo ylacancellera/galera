@@ -204,17 +204,21 @@ namespace gcache
             const std::string& rb_name()  const { return rb_name_;  }
             const std::string& dir_name() const { return dir_name_; }
 
-            size_t mem_size()            const { return mem_size_;         }
-            size_t rb_size()             const { return rb_size_;          }
-            size_t page_size()           const { return page_size_;        }
-            size_t keep_pages_size()     const { return keep_pages_size_;  }
+            size_t mem_size()            const { return mem_size_;        }
+            size_t rb_size()             const { return rb_size_;         }
+            size_t page_size()           const { return page_size_;       }
+            size_t keep_pages_size()     const { return keep_pages_size_; }
             size_t keep_pages_count()    const { return keep_pages_count_; }
+            int    debug()               const { return debug_;           }
             bool   recover()             const { return recover_;         }
 
-            void mem_size         (size_t s) { mem_size_         = s; }
-            void page_size        (size_t s) { page_size_        = s; }
-            void keep_pages_size  (size_t s) { keep_pages_size_  = s; }
+            void mem_size        (size_t s) { mem_size_        = s; }
+            void page_size       (size_t s) { page_size_       = s; }
+            void keep_pages_size (size_t s) { keep_pages_size_ = s; }
             void keep_pages_count (size_t c) { keep_pages_count_ = c; }
+#ifndef NDEBUG
+            void debug           (int    d) { debug_           = d; }
+#endif
 
         private:
 
@@ -225,6 +229,7 @@ namespace gcache
             size_t            page_size_;
             size_t            keep_pages_size_;
             size_t            keep_pages_count_;
+            int               debug_;
             bool        const recover_;
         }
             params;
