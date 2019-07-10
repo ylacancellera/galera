@@ -142,7 +142,7 @@ deterministic_tests = int(ARGUMENTS.get('deterministic_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 
 
-GALERA_VER = ARGUMENTS.get('version', '3.32')
+GALERA_VER = ARGUMENTS.get('version', '3.34')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 # export to any module that might have use of those
 Export('GALERA_VER', 'GALERA_REV')
@@ -209,6 +209,11 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(CPPPATH = ['/usr/local/include'])
 if sysname == 'sunos':
    env.Replace(SHLINKFLAGS = '-shared ')
+
+# Build shared objects with dynamic symbol dispatching disabled.
+# This enables predictable behavior upon dynamic loading with programs
+# that have own versions of commonly used libraries linked in (boost, asio, etc.)
+env.Append(SHLINKFLAGS = ' -Wl,-Bsymbolic -Wl,-Bsymbolic-functions')
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
@@ -281,7 +286,7 @@ def CheckSystemASIOVersion(context):
 #define XSTR(x) STR(x)
 #define STR(x) #x
 #pragma message "Asio version:" XSTR(ASIO_VERSION)
-#if ASIO_VERSION < 101001
+#if ASIO_VERSION < 101008
 #error Included asio version is too old
 #elif ASIO_VERSION >= 101100
 #error Included asio version is too new
@@ -293,7 +298,7 @@ int main()
 }
 
 """
-    context.Message('Checking ASIO version (>= 1.10.1 and < 1.11.0) ... ')
+    context.Message('Checking ASIO version (>= 1.10.8 and < 1.11.0) ... ')
     result = context.TryLink(system_asio_test_source_file, '.cpp')
     context.Result(result)
     return result
