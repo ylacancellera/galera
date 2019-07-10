@@ -46,17 +46,18 @@ static const char* Defaults[] =
     "evs.join_retrans_period",     "PT1S",
     "evs.keepalive_period",        "PT1S",
     "evs.max_install_timeouts",    "3",
-    "evs.send_window",             "4",
+    "evs.send_window",             "10",
     "evs.stats_report_period",     "PT1M",
     "evs.suspect_timeout",         "PT5S",
     "evs.use_aggregate",           "true",
-    "evs.user_send_window",        "2",
+    "evs.user_send_window",        "4",
     "evs.version",                 "0",
     "evs.view_forget_timeout",     "P1D",
 #ifndef NDEBUG
     "gcache.debug",                "0",
 #endif
     "gcache.dir",                  ".",
+    "gcache.freeze_purge_at_seqno","-1",
     "gcache.keep_pages_size",      "0",
     "gcache.keep_pages_count",     "0",
     "gcache.mem_size",             "0",
@@ -66,8 +67,8 @@ static const char* Defaults[] =
     "gcache.size",                 "128M",
     "gcomm.thread_prio",           "",
     "gcs.fc_debug",                "0",
-    "gcs.fc_factor",               "1.0",
-    "gcs.fc_limit",                "16",
+    "gcs.fc_factor",               "1",
+    "gcs.fc_limit",                "100",
     "gcs.fc_master_slave",         "no",
     "gcs.max_packet_size",         "64500",
     "gcs.max_throttle",            "0.25",
@@ -257,6 +258,11 @@ START_TEST(defaults)
 
             /* Abnormal termination callback: */
             NULL, // wsrep_abort_cb_t      abort_cb
+
+            /* Instrument mutex/condition variables through MySQL Performance
+              Schema infrastructure. Callback help in creating these mutexes in MySQL
+              space with needed infrastructure to register them. */
+            NULL, // wsrep_pfs_instr_cb_t   pfs_instr_cb
         };
     ret = provider.init(&provider, &init_args);
     fail_if(WSREP_OK != ret);
