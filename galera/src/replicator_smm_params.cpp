@@ -124,8 +124,9 @@ galera::ReplicatorSMM::ParseOptions::ParseOptions(Replicator&       repl,
                                                   gu::Config&       conf,
                                                   const char* const opts)
 {
-    try {
-        conf.parse(opts);
+    try
+    {
+        if (opts) conf.parse(opts);
     }
     catch (gu::NotFound) {}
 
