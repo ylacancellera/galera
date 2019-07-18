@@ -408,6 +408,7 @@ wsrep_status_t galera::ReplicatorSMM::connect(const std::string& cluster_name,
 
 wsrep_status_t galera::ReplicatorSMM::close()
 {
+    gu::Lock lock(closing_mutex_);
 
 #if PXC 
     /* If IST is prepared waiting for SST to complete and if SST fails
@@ -421,7 +422,6 @@ wsrep_status_t galera::ReplicatorSMM::close()
     }
 #endif /* PXC */
 
-    gu::Lock lock(closing_mutex_);
 
     if (state_() > S_CLOSED)
     {
@@ -482,7 +482,11 @@ wsrep_status_t galera::ReplicatorSMM::async_recv(void* recv_ctx)
     if (!exit_loop && receivers_.sub_and_fetch(1) == 0)
     {
         gu::Lock lock(closing_mutex_);
+#ifdef PXC
+        if (state_() > S_CLOSED && (!closing_ || sst_state_ == SST_CANCELED))
+#else
         if (state_() > S_CLOSED && !closing_)
+#endif /* PXC */
         {
             assert(WSREP_CONN_FAIL == retval);
             /* Last recv thread exiting due to error but replicator is not
@@ -580,6 +584,7 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandleSlave& ts)
     if (ts.local() == false)
     {
         GU_DBUG_SYNC_WAIT("after_commit_slave_sync");
+        GU_DBUG_SYNC_WAIT("sync.apply_trx.after_commit_leave");
     }
 
     wsrep_seqno_t const safe_to_discard(cert_.set_trx_committed(ts));
@@ -1557,6 +1562,14 @@ galera::ReplicatorSMM::commit_order_leave(TrxHandleSlave&          trx,
     {
         CommitOrder co(trx, co_mode_);
         commit_monitor_.leave(co);
+
+#ifdef PXC
+        if (trx.local() == false) {
+          GU_DBUG_SYNC_WAIT("sync.applier_interim_commit.after_commit_leave");
+        } else {
+          GU_DBUG_SYNC_WAIT("sync.interim_commit.after_commit_leave");
+        }
+#endif /* PXC */
     }
 
     TX_SET_STATE(trx, end_state);
@@ -2558,14 +2571,14 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
     assert(cc.seqno_l > -1);
 
 #ifdef PXC
-    // If SST operation was canceled, we shall immediately
-    // return from the function to avoid hang-up in the monitor
-    // drain code and avoid restart of the SST.
-    if (sst_state_ == SST_CANCELED)
-    {
-        // We must resume receiving messages from gcs.
-        gcs_.resume_recv();
-        return;
+    /* if node fails post SST before the IST or other processing start then
+    avoid dispatching any further action but make sure the queue/fifo is cleared
+    and all delivered write-sets are popped and ignored.
+    Above situtation can be stimulated by passing a unknown/unrecognizable
+    option. */
+    if (sst_state_ == SST_CANCELED) {
+      resume_recv();
+      return;
     }
 #endif /* PXC */
 
@@ -3502,11 +3515,6 @@ void
 galera::ReplicatorSMM::abort()
 {
     log_info << "ReplicatorSMM::abort()";
-#ifdef PXC
-    /* close sequence also ensure SST and IST signalling */
-    close();
-#else
     gcs_.close();
-#endif /* PXC */
     gu_abort();
 }

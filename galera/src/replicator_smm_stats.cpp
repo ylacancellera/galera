@@ -234,10 +234,12 @@ galera::ReplicatorSMM::stats_get() const
     sv[STATS_PROTOCOL_VERSION   ].value._int64  = protocol_version_;
 #ifdef PXC
     sv[STATS_LAST_APPLIED       ].value._int64  = apply_monitor_.last_left();
-#endif /* PXC */
+    sv[STATS_LAST_COMMITTED     ].value._int64  = commit_monitor_.last_left();
+#else
     wsrep_gtid last_committed;
     (void)last_committed_id(&last_committed);
     sv[STATS_LAST_COMMITTED     ].value._int64  = last_committed.seqno;
+#endif /* PXC */
 
 #ifdef PXC
     std::vector<wsrep_seqno_t> local_monitor_stats;

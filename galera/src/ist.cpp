@@ -455,10 +455,18 @@ void galera::ist::Receiver::run()
             for SST to complete. */
             while (ready_ == false && interrupted_ == false)
                 lock.wait(cond_);
+
+            /* If SST fails then on signal to resume IST skip IST given SST
+            failure. */
+            if (interrupted_ == true) {
+              log_error << "###### IST was interrupted";
+              goto err;
+            }
 #else
             while (ready_ == false) { lock.wait(cond_); }
-#endif
+#endif /* PXC */
         }
+
         log_info << "####### IST applying starts with " << first_seqno_; //remove
         assert(first_seqno_ > 0);
 

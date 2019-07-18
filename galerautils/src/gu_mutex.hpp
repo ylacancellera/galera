@@ -20,6 +20,11 @@
 #define GU_MUTEX_DEBUG
 #endif
 
+/* Say t-1 locks mutex m1 and then enter cond-wait. This wait will inherently
+unlock m1 there-by allowing other thread to take over m1. This action will
+cause owned_ to get reset to new thread (say t2).
+When t-1 try to unlock it the check for owned will fail.*/
+
 namespace gu
 {
     class Mutex
@@ -147,24 +152,10 @@ namespace gu
                                WSREP_PFS_INSTR_OPS_LOCK,
                                m_tag, reinterpret_cast<void**> (&value),
                                NULL, NULL);
-#ifdef GU_MUTEX_DEBUG
-                locked_ = true;
-                owned_  = gu_thread_self();
-#endif /* GU_MUTEX_DEBUG */
         }
 
         void unlock()
         {
-            // this is not atomic, but the presumption is that unlock()
-            // should never be called before preceding lock() completes
-#if defined(GU_DEBUG_MUTEX) || defined(GU_MUTEX_DEBUG)
-            assert(locked());
-            assert(owned());
-#if defined(GU_MUTEX_DEBUG)
-            locked_ = false;
-#endif /* GU_MUTEX_DEBUG */
-#endif /* GU_DEBUG_MUTEX */
-
             pfs_instr_callback(WSREP_PFS_INSTR_TYPE_MUTEX,
                                WSREP_PFS_INSTR_OPS_UNLOCK,
                                m_tag, reinterpret_cast<void**> (&value),
@@ -175,8 +166,8 @@ namespace gu
         bool locked() const { return gu_mutex_locked(&value_); }
         bool owned()  const { return locked() && gu_mutex_owned(&value_);  }
 #elif defined(GU_MUTEX_DEBUG)
-        bool locked() const { return locked_; }
-        bool owned()  const { return locked() && gu_thread_equal(owned_,gu_thread_self()); }
+        bool locked() const { return true; }
+        bool owned()  const { return true; }
 #endif /* GU_DEBUG_MUTEX */
 
    protected:

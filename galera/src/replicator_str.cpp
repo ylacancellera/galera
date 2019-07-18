@@ -763,14 +763,6 @@ ReplicatorSMM::prepare_state_request (const void*         sst_req,
                     gu_throw_error(EPERM) << "neither SST nor IST is possible.";
             }
 
-#ifdef PXC
-            if (ist_req_len)
-            {
-                log_info << "State gap can be likely serviced using IST."
-                         << " SST request though present would be void.";
-            }
-#endif /* PXC */
-
             StateRequest* ret = new StateRequest_v1 (sst_req, sst_req_len,
                                                      ist_req, ist_req_len);
             free (ist_req);
@@ -1064,7 +1056,8 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             // after restart, state must be marked as "unsafe":
             if (!unsafe) st_.mark_unsafe();
 
-            close();
+            /* this is now being done as part of the caller action. */
+            // close();
 
             delete req;
             return -ECANCELED;
@@ -1157,7 +1150,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             abort();
         }
     }
+#ifdef PXC
+    else if (unsafe)
+#else
     else
+#endif /* PXC */
     {
         /* Reaching here means 2 things:
         * SST completed in which case req->ist_len = 0.
@@ -1216,7 +1213,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
 #ifdef PXC
             // We must close the IST receiver if the node
             // is in the process of shutting down:
-            if (ist_prepared_) ist_prepared_ = false;
+            if (ist_prepared_)
+            {
+                ist_prepared_ = false;
+                (void)ist_receiver_.finished();
+            }
 #endif /* PXC */
 
             if (do_ist)

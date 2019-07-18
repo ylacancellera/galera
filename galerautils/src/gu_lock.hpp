@@ -95,6 +95,7 @@ namespace gu
                 int ret = gu_cond_timedwait (&(cond.cond), pfs_mtx_->value, &ts);
                 cond.ref_count--;
                 if (gu_unlikely(ret)) gu_throw_error(ret);
+                return;
             }
 #endif /* HAVE_PSI_INTERFACE */
 #endif /* PXC */

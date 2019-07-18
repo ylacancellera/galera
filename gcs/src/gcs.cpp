@@ -1025,7 +1025,7 @@ gcs_handle_act_conf (gcs_conn_t* conn, gcs_act_rcvd& rcvd)
             long non_arb_memb_count = 0;
             for (unsigned int i = 0; i < conf.memb.size(); ++i)
             {
-                if (conf.memb[i].incoming_.empty())
+                if (!conf.memb[i].incoming_.empty())
                     non_arb_memb_count++;
             }
             conn->non_arb_memb_count = non_arb_memb_count;
