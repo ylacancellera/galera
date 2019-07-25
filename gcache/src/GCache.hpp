@@ -279,7 +279,6 @@ namespace gcache
         gu::Cond        cond;
 #endif /* PXC */
 
-
         seqno2ptr_t     seqno2ptr;
         gu::UUID        gid;
 

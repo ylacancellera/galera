@@ -55,7 +55,7 @@ gu::Allocator::FilePage::FilePage (const std::string& name,
 #ifdef HAVE_PSI_INTERFACE
     fd_  (name, WSREP_PFS_INSTR_TAG_RECORDSET_FILE, size, false, false),
 #else
-     fd_  (name, size, false, false),
+    fd_  (name, size, false, false),
 #endif /* HAVE_PSI_INTERFACE */
 #else
     fd_  (name, size, false, false),

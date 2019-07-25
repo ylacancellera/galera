@@ -164,7 +164,7 @@ namespace gu
 #ifdef PXC
 #if defined(HAVE_UNORDERED_MAP)
         void reserve(size_t n) { impl_.reserve(n); }
-#endif
+#endif /* HAVE_UNORDERED_MAP */
         size_t bucket_count() { return impl_.bucket_count(); }
 #endif /* PXC */
     };
@@ -201,7 +201,7 @@ namespace gu
 #ifdef PXC
 #if defined(HAVE_UNORDERED_MAP)
         void reserve(size_t n) { impl_.reserve(n); }
-#endif
+#endif /* HAVE_UNORDERED_MAP */
         size_t bucket_count() { return impl_.bucket_count(); }
 #endif /* PXC */
     };

@@ -466,7 +466,6 @@ void galera::ist::Receiver::run()
             while (ready_ == false) { lock.wait(cond_); }
 #endif /* PXC */
         }
-
         log_info << "####### IST applying starts with " << first_seqno_; //remove
         assert(first_seqno_ > 0);
 

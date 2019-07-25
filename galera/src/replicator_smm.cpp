@@ -422,7 +422,6 @@ wsrep_status_t galera::ReplicatorSMM::close()
     }
 #endif /* PXC */
 
-
     if (state_() > S_CLOSED)
     {
         start_closing();
@@ -483,6 +482,11 @@ wsrep_status_t galera::ReplicatorSMM::async_recv(void* recv_ctx)
     {
         gu::Lock lock(closing_mutex_);
 #ifdef PXC
+        /* If SST is cancelled say due to some other error while booting
+        server then unireg_abort sequence will initiate the closure
+        that will set closing = true so the special check to ensure
+        that closure flow is completed by the applier thread if sst is
+        canceled. */
         if (state_() > S_CLOSED && (!closing_ || sst_state_ == SST_CANCELED))
 #else
         if (state_() > S_CLOSED && !closing_)

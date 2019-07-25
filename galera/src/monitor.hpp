@@ -327,7 +327,6 @@ namespace galera
         }
 #endif /* PXC */
 
-
         ssize_t       size()        const { return process_size_; }
 
         bool would_block (wsrep_seqno_t seqno) const

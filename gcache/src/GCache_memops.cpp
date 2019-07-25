@@ -83,6 +83,7 @@ namespace gcache
                r->first > seqno)
         {
             BufferHeader* bh(ptr2BH(r->second));
+
             assert(BH_is_released(bh));
             assert(bh->seqno_g == r->first);
             assert(bh->seqno_g > seqno);

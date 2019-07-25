@@ -972,7 +972,7 @@ namespace galera
         wsrep_sst_donate_cb_t  sst_donate_cb_;
         wsrep_synced_cb_t      synced_cb_;
 #ifdef PXC
-        wsrep_abort_cb_t      abort_cb_;
+        wsrep_abort_cb_t       abort_cb_;
 #endif /* PXC */
 
         // SST

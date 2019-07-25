@@ -243,7 +243,7 @@ namespace galera
         gu::MutexWithPFS
                       mutex_;
 #else
-         gu::Mutex     mutex_;
+        gu::Mutex     mutex_;
 #endif /* HAVE_PSI_INTERFACE */
 #else
         gu::Mutex     mutex_;

@@ -1104,7 +1104,7 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
 
 #ifdef PXC
             /* Update the proper seq-no so if there is need for IST (post SST)
-            and if IST fails before starting to apply transaction next restart
+            and if IST fails (before starting to apply transaction), next restart
             will not do a complete SST one more time. */
             update_state_uuid (sst_uuid_, sst_seqno_);
 #else
@@ -1208,17 +1208,16 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             ist_receiver_.ready(ist_from);
             recv_IST(recv_ctx);
 
-            wsrep_seqno_t const ist_seqno(ist_receiver_.finished());
-
 #ifdef PXC
             // We must close the IST receiver if the node
             // is in the process of shutting down:
             if (ist_prepared_)
             {
                 ist_prepared_ = false;
-                (void)ist_receiver_.finished();
             }
 #endif /* PXC */
+
+            wsrep_seqno_t const ist_seqno(ist_receiver_.finished());
 
             if (do_ist)
             {

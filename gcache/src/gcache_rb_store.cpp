@@ -54,7 +54,7 @@ namespace gcache
 #ifdef HAVE_PSI_INTERFACE
         fd_        (name, WSREP_PFS_INSTR_TAG_RINGBUFFER_FILE, check_size(size)),
 #else
-         fd_        (name, check_size(size)),
+        fd_        (name, check_size(size)),
 #endif /* HAVE_PSI_INTERFACE */
 #else
         fd_        (name, check_size(size)),
@@ -271,7 +271,7 @@ namespace gcache
         next_ = ret + size;
 
 #ifdef PXC
-        size_t max_used=
+        size_t max_used =
             next_ - static_cast<uint8_t*>(mmap_.ptr) + sizeof(BufferHeader);
 
         if (max_used > max_used_)

@@ -74,7 +74,6 @@ Commandline Options:
     revno=XXXX          source code revision number
     bpostatic=path      a path to static libboost_program_options.a
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
-    version=X.X.X       galera version
     bits=[32bit|64bit]
     psi=[0|1]           instrument galera mutexes/cond-vars using mysql psi (only with pxc-5.7+)
     gcov=[True|False]   compile Galera for code coverage reporting
@@ -169,11 +168,8 @@ GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
 if GALERA_REV == "XXXX" and os.path.isfile("GALERA_REVISION"):
-    f = open("GALERA_REVISION", "r")
-    try:
+    with open("GALERA_REVISION", "r") as f:
         GALERA_REV = f.readline().rstrip("\n")
-    finally:
-        f.close()
 
 # export to any module that might have use of those
 Export('GALERA_VER', 'GALERA_REV')
@@ -557,7 +553,11 @@ if boost == 1:
     conf.env.Append(CPPFLAGS = ' -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG=1')
 
     # Common procedure to find boost static library
-    boost_libpaths = [ boost_library_path, '/usr/local/lib', '/usr/local/lib64', '/usr/lib', '/usr/lib64' ]
+    if bits == 64:
+        boost_libpaths = [ boost_library_path, '/usr/lib64', '/usr/local/lib64' ]
+    else:
+        boost_libpaths = [ boost_library_path, '/usr/local/lib', '/usr/lib' ]
+
     def check_boost_library(libBaseName, header, configuredLibPath, autoadd = 1):
         libName = libBaseName + boost_library_suffix
         if configuredLibPath != '' and not os.path.isfile(configuredLibPath):
