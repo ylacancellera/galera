@@ -348,9 +348,9 @@ namespace galera
                 case BYPASS:
                     gu_throw_fatal
                         << "commit order condition called in bypass mode";
+                    // fall through
                 case OOOC:
                     return true;
-                    // fall through
                 case LOCAL_OOOC:
                     if (trx_.is_local()) { return true; }
                     // in case of remote trx fall through
