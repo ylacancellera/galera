@@ -51,9 +51,9 @@ gcache::Page::drop_fs_cache() const
 gcache::Page::Page (void* ps, const std::string& name, size_t size, int dbg)
     :
 #ifdef HAVE_PSI_INTERFACE
-    fd_   (name, WSREP_PFS_INSTR_TAG_GCACHE_PAGE_FILE, size, false, false),
+    fd_   (name, WSREP_PFS_INSTR_TAG_GCACHE_PAGE_FILE, size, true, false),
 #else
-    fd_   (name, size, false, false),
+    fd_   (name, size, true, false),
 #endif /* HAVE_PSI_INTERFACE */
     mmap_ (fd_),
     ps_   (ps),
