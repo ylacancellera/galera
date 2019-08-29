@@ -2485,7 +2485,7 @@ void galera::ReplicatorSMM::record_cc_seqnos(wsrep_seqno_t cc_seqno,
 {
     cc_seqno_ = cc_seqno;
     cc_lowest_trx_seqno_ = cert_.lowest_trx_seqno();
-    log_info << "Lowest cert indnex boundary for CC from " << source
+    log_info << "Lowest cert index boundary for CC from " << source
              << ": " << cc_lowest_trx_seqno_;;
     log_info << "Min available from gcache for CC from " << source
              << ": " << gcache_.seqno_min();
@@ -2699,30 +2699,17 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
             // applied already in SST/IST, skip
             gu_trace(local_monitor_.leave(lo));
             resume_recv();
-            /* let's under why we we skip CC with an example.
-            - Say we have single node cluster just booted so state of
-              cluster = x:1
-            - Now n2 joins the cluster that causes Configuration Change (CC)
-              event moving cluster state to x:2
-            - n2 demands SST (given n2 state = 0:-1) followed by IST (as per
-              new G-4 protocol).
-            - There is no need of IST per say but as per the new protocol
-              n2 prepares for IST from 0-2
-            - In meantime before the real SST starts n3 joins moving state
-              of cluster to x:3
-            - SST completes with this new updated state and updated state
-              is restored on n2.
-            - Post SST, n2 get IST about its own CC with write-set = 2
-              which can be ignored as action for the event is already processed.
-            - Now n2 tends to process write-set=3 that it got from group
-              channel subscription since when n3 got added n2 was part of the
-              cluster.
-            - n2 already has processed the said write-set event so the event
-              is ignored.
-            - while the event is ignored it is not added to gcache seqno2ptr
-              vector that breaks the sequencing often leading the error
-              when next time higher seqno is freed. */
-            gcache_.seqno_assign(cc.buf, conf.seqno, GCS_ACT_CCHANGE, false);
+            /* skipping CC will not add the said entry to gcache. For detailed
+            comment check galera::ist::Receiver::run (use-case-1) */
+            try {
+              ssize_t wsize;
+              gcache_.seqno_get_ptr(conf.seqno, wsize);
+              log_info << "####### Write-set " << conf.seqno << " is already"
+                       << " added to gcache (likely through IST)";
+              gcache_.seqno_unlock();
+            } catch (gu::NotFound &nf) {
+              gcache_.seqno_assign(cc.buf, conf.seqno, GCS_ACT_CCHANGE, false);
+            }
             // gcache_.free(const_cast<void*>(cc.buf));
             ::free(view_info);
             return;

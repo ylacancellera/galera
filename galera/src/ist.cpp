@@ -541,6 +541,100 @@ void galera::ist::Receiver::run()
             assert(current_seqno_ == act.seqno_g);
             assert(act.type != GCS_ACT_UNKNOWN);
 
+            /* Say use-case is booting 3 node cluster n1, n2, n3 all from scratch.
+            - n1 bootstraps and create cluster with state x:1
+            - n2 boots up and joins cluster moving cluster state from x:1 -> x:2
+            - n2 then demands SST since state of n2 is 0:-1.
+            - n1 decided to donate SST to n2.
+            - As per new G-4 protocol cc events are all persisted.
+              n2 raises SST followed by IST request.
+            - n2 demands IST request for 0-2.
+            - n1 detects SST action and decided to process IST only for 2-2
+            - n2 gets SST state that represent x:2 followed by IST with
+              write-set = 2.
+            - Since n2 already has write-set = 2 it ignores applying
+              the said write-set.
+            (n3 will join post this with same sequencing).
+
+            .... this is how normal flow happens.
+
+            so process of joinint the node can be summarized as
+            (a) grant membership and update configuration (that is persisted).
+            (b) request SST + IST (with range).
+            (c) donor kicks-off IST (async action).
+            (d) donor initiate SST (again async action).
+            (e) joiner before applying IST wait for SST to complete.
+            (f) post SST joiner apply IST only write set > sst-write-set.
+            (e) other write-set still are cached in gcache and are added
+                to gcache maintain seqno2ptr.
+
+            use-case-1
+            ----------
+
+            Now say n3 joins after n2 is done with (c) but before donor
+            initiate (d). n1 updates membership and update cc moving state
+            from x:2 -> x:3. Post SST n2 get state = x:3 (first_seqno_ = 3).
+            Check below (must_apply) will ignore applying write-set from
+            IST channel as  2 < 3 that suggest SST already got changes from
+            write-set 2 so no need to apply it but write-set is kept active
+            in gcache so cert preload is reset back to (2) from (3) that was
+            set immediately post-SST.
+
+            Write-set (CC event) registered with seqno=3 is also delivered to
+            n2 through group channel. n2 ignore processing group channel
+            delivered event given the said event (creation of updated view)
+            as it is already present through SST.
+
+            While n2 ignores applying this event it is also freed from gcache.
+            This creates inconsistency as n2 maintained gcache now has
+            event=2, event=3 (absent), other events.....
+            gcache is expected to have all events sequentially.
+            [recv_ordered that read events from ist channel caches the events
+             to gcache and also add it to the gcache vector seqno2ptr]
+
+            fix-1: ensure such ignored event are added gcache.
+
+            use-case-2
+            ----------
+
+            Now say n3 joins between (b) and (c). n1 updates membership from
+            x:2 -> x:3 and initiate IST. IST followed by SST is never processed
+            based on demand but based on donor state so donor initiate IST
+            with write-set 3-3.
+
+            n2 demanded 0-2 but received IST write-set=3 and SST with write-sets
+            upto = 3. n2 also recieved the said write-set from group channel since
+            n2 was part of the group channel when n3 joined.
+            n2 ignores processing of the event received from group channel
+            (ignore creation of view since the view is already created through
+             SST restoration) but try to add the said ignored event to gcache
+            as per the protocol established above. Unfortunately, it hits an
+            error here because IST during its processing has already added it.
+
+            fix-2: avoid adding events to gcache that has
+                   seqno > ist-demanded-seqno (3 > 2 avoid adding 3).
+
+            use-case-3:
+            -----------
+
+            Now say instead of n3 joining n2 which is already part of the cluster
+            and waiting for SST + IST faces some n/w glitch.
+
+            This cause another configuration change registered under seqno=3
+            but this cc is not delivered to n2 due to n/w issue.
+
+            Once n/w is back n2 get the SST with state = x:3 and IST with seqno=2.
+            As as explained in use-case-1 it ignored seqno=2 (2 < 3) but
+            as it was case in use-case-1 local ordered CC event cause addition
+            of seqno=3 to gcache vector but since this event never got delivered
+            this seqno is not added to gcache. Instead it processes an event
+            with CC = -1 that registers its disconnection from the cluster.
+            Eventually it catches up with the cluster through IST demanding
+            3-4 writeset as n2 has registered state = 3 from SST but this causes
+            inconsistency in gcache seqno2ptr vector as write-set 3 never get
+            registered.
+            */
+
             bool const must_apply(current_seqno_ >= first_seqno_);
             bool const preload(ret.second);
 
