@@ -2708,6 +2708,14 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
                        << " added to gcache (likely through IST)";
               gcache_.seqno_unlock();
             } catch (gu::NotFound &nf) {
+              /* If the said seqno is being added as part of this routine
+              then ensure cert position is adjusted as it is done during
+              handling of cc event as part of IST flow. */
+              establish_protocol_versions(conf.repl_proto_ver);
+              cert_.adjust_position(*view_info, gu::GTID(conf.uuid, conf.seqno),
+                                    trx_params_.version_);
+              // record CC releated state seqnos, needed for IST on DONOR
+              record_cc_seqnos(conf.seqno, "group");
               gcache_.seqno_assign(cc.buf, conf.seqno, GCS_ACT_CCHANGE, false);
             }
             // gcache_.free(const_cast<void*>(cc.buf));
