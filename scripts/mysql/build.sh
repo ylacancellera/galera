@@ -435,16 +435,15 @@ then
         && BUILD_OPT="-DCMAKE_BUILD_TYPE=Debug -DDEBUG_EXTNAME=OFF" \
         || BUILD_OPT="-DCMAKE_BUILD_TYPE=RelWithDebInfo" # like in RPM spec
 
-        BUILD_OPT+=" -DWITH_WSREP=1"
         BUILD_OPT+=" -DWITH_EXTRA_CHARSETS=all"
         BUILD_OPT+=" -DMYSQL_MAINTAINER_MODE=0"
         BUILD_OPT+=" -DWITH_ZLIB=system"
 
         if [ "$MYSQL" == "mysql" ] # remove this distinction when MySQL
         then                       # fixes its SSL support
-            BUILD_OPT="-DWITH_SSL=bundled"
+            BUILD_OPT+="-DWITH_SSL=bundled"
         else
-            BUILD_OPT="-DWITH_SSL=system"
+            BUILD_OPT+="-DWITH_SSL=system"
         fi
 
         if [ "$MYSQL" = "mysql" ]
@@ -462,6 +461,7 @@ then
                 [ "yes" = "$BOOTSTRAP" ] && BUILD_OPT+=" -DDOWNLOAD_BOOST=1"
             fi
         else # MariaDB-specific build options
+            BUILD_OPT+=" -DWITH_READLINE=system"
             BUILD_OPT+=" -DWITH_DEBUG:BOOL=ON"
             BUILD_OPT+=" -DWITH_INNODB_DISALLOW_WRITES:BOOL=ON"
             BUILD_OPT+=" -DWITH_MARIABACKUP:BOOL=ON"
@@ -488,6 +488,10 @@ then
         # (at least it distinguishes between gcc/clang)
         ln -sf $(which ccache || which $CC)  $(basename $CC)
         ln -sf $(which ccache || which $CXX) $(basename $CXX)
+
+        # to make sure debug build has nothing optimized out -
+        # only CPPFLAGS seems to let to OVERRIDE optimization flag with cmake
+        [ "$DEBUG" = "yes" ] && CPPFLAGS="${CPPFLAGS:-""} -O0"
 
         cmake \
             -DCMAKE_C_COMPILER=$(basename $CC) \
@@ -571,7 +575,15 @@ if [ $TAR == "yes" ]; then
     pushd $MYSQL_BINS;
     [ -x wsrep_sst_rsync_wan ] || ln -s wsrep_sst_rsync wsrep_sst_rsync_wan
     popd
-    tar -xzf ${MYSQL}_var_$MYSQL_MAJOR.tgz -C $MYSQL_DIST_DIR
+    if [ -f ${MYSQL}_var_$MYSQL_MAJOR.tgz ]
+    then
+        tar -xzf ${MYSQL}_var_$MYSQL_MAJOR.tgz -C $MYSQL_DIST_DIR
+        chmod 700 $MYSQL_DIST_DIR/var
+    else
+        install -m 700 -d $MYSQL_DIST_DIR/var
+    fi
+    install -m 755 init_db.sh $MYSQL_BINS/init_db.sh
+
     install -m 644 LICENSE.mysql $MYSQL_DIST_DIR
 
     # Copy required Galera libraries

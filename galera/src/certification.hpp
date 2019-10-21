@@ -68,6 +68,7 @@ namespace galera
         TestResult append_trx(const TrxHandleSlavePtr&);
         TestResult test(const TrxHandleSlavePtr&, bool store_keys);
         wsrep_seqno_t position() const { return position_; }
+        wsrep_seqno_t increment_position(); /* for dummy IST events */
 
         /* this is for configuration change use */
         void adjust_position(const View&, const gu::GTID& gtid, int version);
@@ -146,6 +147,9 @@ namespace galera
         void erase_nbo_ctx(wsrep_seqno_t);
         size_t nbo_size() const { return nbo_map_.size(); }
 
+        void mark_inconsistent();
+        bool is_inconsistent() const { return inconsistent_; }
+
     private:
 
         // Non-copyable
@@ -196,11 +200,14 @@ namespace galera
                     //
                     // TrxHandleLock   lock(*trx);
 
-                    assert(trx->is_committed() == true);
-                    if (trx->is_committed() == false)
+                    if (!cert_.is_inconsistent())
                     {
-                        log_warn << "trx not committed in purge and discard: "
-                                 << *trx;
+                        assert(trx->is_committed() == true);
+                        if (trx->is_committed() == false)
+                        {
+                            log_warn <<"trx not committed in purge and discard: "
+                                     << *trx;
+                        }
                     }
 
                     // If depends seqno is not WSREP_SEQNO_UNDEFINED
@@ -236,6 +243,7 @@ namespace galera
         CertIndexNBO  nbo_index_;
         TrxHandleSlave::Pool nbo_pool_;
         DepsSet       deps_set_;
+        View          current_view_;
         ServiceThd*   service_thd_;
 #ifdef PXC
         gcache::GCache* gcache_;
@@ -284,8 +292,8 @@ namespace galera
 
         unsigned int const max_length_check_; /* Mask how often to check */
 
+        bool               inconsistent_;
         bool               log_conflicts_;
-        View               current_view_;
         bool               optimistic_pa_;
     };
 }

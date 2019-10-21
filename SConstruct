@@ -96,6 +96,16 @@ link_arch    = ''
 # Build directory
 build_dir    = ''
 
+# Version script file
+galera_script = File('#/galera-sym.map').abspath
+with open(galera_script, 'w') as f:
+    f.write('''{
+    global: wsrep_loader;
+            wsrep_interface_version;
+    local:  *;
+};
+''')
+
 
 #
 # Read commandline options
@@ -163,7 +173,7 @@ if psi:
 
 opt_flags = opt_flags + ' -DPXC'
 
-GALERA_VER = ARGUMENTS.get('version', '4.2')
+GALERA_VER = ARGUMENTS.get('version', '4.3')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -240,11 +250,6 @@ if sysname == 'freebsd' or sysname == 'sunos':
     env.Append(CPPPATH = ['/usr/local/include'])
 if sysname == 'sunos':
     env.Replace(SHLINKFLAGS = '-shared ')
-
-# Build shared objects with dynamic symbol dispatching disabled.
-# This enables predictable behavior upon dynamic loading with programs
-# that have own versions of commonly used libraries linked in (boost, asio, etc.)
-env.Append(SHLINKFLAGS = ' -Wl,-Bsymbolic -Wl,-Bsymbolic-functions')
 
 # Add paths is extra_sysroot argument was specified
 extra_sysroot = ARGUMENTS.get('extra_sysroot', '')
@@ -332,7 +337,7 @@ def CheckSystemASIOVersion(context):
 #define XSTR(x) STR(x)
 #define STR(x) #x
 #pragma message "Asio version:" XSTR(ASIO_VERSION)
-#if ASIO_VERSION < 101001
+#if ASIO_VERSION < 101008
 #error Included asio version is too old
 #elif ASIO_VERSION >= 101100
 #error Included asio version is too new
@@ -344,7 +349,7 @@ int main()
 }
 
 """
-    context.Message('Checking ASIO version (>= 1.10.1 and < 1.11.0) ... ')
+    context.Message('Checking ASIO version (>= 1.10.8 and < 1.11.0) ... ')
     result = context.TryLink(system_asio_test_source_file, '.cpp')
     context.Result(result)
     return result
@@ -412,6 +417,15 @@ def CheckSetTmpEcdh(context):
 int main() { SSL_CTX* ctx=NULL; EC_KEY* ecdh=NULL; return !SSL_CTX_set_tmp_ecdh(ctx,ecdh); }
 """
     context.Message('Checking for SSL_CTX_set_tmp_ecdh_() ... ')
+    result = context.TryLink(test_source, '.cpp')
+    context.Result(result)
+    return result
+
+def CheckVersionScript(context):
+    test_source = """
+int main() { return 0; }
+"""
+    context.Message('Checking for --version-script linker option ... ')
     result = context.TryLink(test_source, '.cpp')
     context.Result(result)
     return result
@@ -719,6 +733,21 @@ if sysname != 'darwin':
 conf.Finish()
 
 #
+# Check version script linker option
+#
+
+test_env = env.Clone()
+# Append version script flags to general link options for test
+test_env.Append(LINKFLAGS = ' -Wl,--version-script=' + galera_script)
+
+conf = Configure(test_env, custom_tests = {
+    'CheckVersionScript': CheckVersionScript,
+})
+
+has_version_script = conf.CheckVersionScript()
+conf.Finish()
+
+#
 # this follows recipes from http://www.scons.org/wiki/UnitTests
 #
 
@@ -740,6 +769,7 @@ else:
 check_env.Append(BUILDERS = {'Test' :  bld})
 
 Export('check_env')
+Export('has_version_script galera_script')
 
 #
 # If deterministic_tests is given, export GALERA_TEST_DETERMINISTIC

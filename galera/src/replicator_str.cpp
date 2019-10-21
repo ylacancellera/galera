@@ -1113,7 +1113,10 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
 
             if (str_proto_ver_ < 3)
             {
-                cert_.assign_initial_position(gu::GTID(sst_uuid_, sst_seqno_),
+                // all IST events will bypass certification
+                gu::GTID const cert_position
+                    (sst_uuid_, std::max(cc_seqno, sst_seqno_));
+                cert_.assign_initial_position(cert_position,
                                               trx_params_.version_);
                 // with higher versions this happens in cert index preload
             }
@@ -1237,7 +1240,15 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             }
 
             if (ist_seqno == sst_seqno_)
-                log_info << "IST received: " << state_uuid_ << ":" << ist_seqno;
+            {
+                log_info << "IST received: " << state_uuid_ << ":" <<ist_seqno;
+                if (str_proto_ver_ < 3)
+                {
+                    // see cert_.assign_initial_position() above
+                    assert(cc_seqno == ist_seqno);
+                    assert(cert_.lowest_trx_seqno() == ist_seqno);
+                }
+            }
             else
                 log_info << "Cert. index preloaded up to " << ist_seqno;
         }
@@ -1414,9 +1425,18 @@ void ReplicatorSMM::ist_trx(const TrxHandleSlavePtr& tsp, bool must_apply,
            ts.nbo_end());
     assert(ts.local_seqno() == WSREP_SEQNO_UNDEFINED);
 
-    if (ts.nbo_start() == true || ts.nbo_end() == true)
+    ts.verify_checksum();
+    if (gu_unlikely(cert_.position() == WSREP_SEQNO_UNDEFINED))
     {
-        if (must_apply == true)
+        // This is the first pre IST event for rebuilding cert index
+        cert_.assign_initial_position(
+            /* proper UUID will be installed by CC */
+            gu::GTID(gu::UUID(), ts.global_seqno() - 1), ts.version());
+    }
+
+    if (ts.nbo_start() || ts.nbo_end())
+    {
+        if (must_apply)
         {
             ts.verify_checksum();
             ts.set_state(TrxHandle::S_CERTIFYING);
@@ -1457,8 +1477,11 @@ void ReplicatorSMM::ist_trx(const TrxHandleSlavePtr& tsp, bool must_apply,
             // Skipping NBO events in preload is fine since joiner either
             // have all events applied in case of pure IST and donor refuses to
             // donate SST from the position there are NBOs going on.
-            assert(preload == true);
+            assert(preload);
             log_debug << "Skipping NBO event: " << ts;
+            wsrep_seqno_t const pos(cert_.increment_position());
+            assert(ts.global_seqno() == pos);
+            (void)pos;
         }
 #if 0
         log_info << "\n     IST processing NBO_"
@@ -1470,29 +1493,29 @@ void ReplicatorSMM::ist_trx(const TrxHandleSlavePtr& tsp, bool must_apply,
     }
     else
     {
-        if (gu_unlikely(preload == true && !ts.is_dummy()))
+        if (gu_unlikely(preload == true))
         {
-            ts.verify_checksum();
-            if (gu_unlikely(cert_.position() == 0))
+            if (gu_likely(!ts.is_dummy()))
             {
-                // This is the first pre IST trx for rebuilding cert index
-                cert_.assign_initial_position(
-                    /* proper UUID will be installed by CC */
-                    gu::GTID(gu::UUID(), ts.global_seqno() - 1),
-                    ts.version());
+                ts.set_state(TrxHandle::S_CERTIFYING);
+                Certification::TestResult result(cert_.append_trx(tsp));
+                if (result != Certification::TEST_OK)
+                {
+                    gu_throw_fatal << "Pre IST trx append returned unexpected "
+                                   << "certification result " << result
+                                   << ", expected " << Certification::TEST_OK
+                                   << "must abort to maintain consistency";
+                }
+                // Mark trx committed for certification bookkeeping here
+                // if it won't pass to applying stage
+                if (!must_apply) cert_.set_trx_committed(ts);
             }
-            ts.set_state(TrxHandle::S_CERTIFYING);
-            Certification::TestResult result(cert_.append_trx(tsp));
-            if (result != Certification::TEST_OK)
+            else
             {
-                gu_throw_fatal << "Pre IST trx append returned unexpected "
-                               << "certification result " << result
-                               << ", expected " << Certification::TEST_OK
-                               << "must abort to maintain consistency";
+                wsrep_seqno_t const pos(cert_.increment_position());
+                assert(ts.global_seqno() == pos);
+                (void)pos;
             }
-            // Mark trx committed for certification bookkeeping here
-            // if it won't pass to applying stage
-            if (!must_apply) cert_.set_trx_committed(ts);
         }
         else if (ts.state() == TrxHandle::S_REPLICATING)
         {
@@ -1516,7 +1539,6 @@ void ReplicatorSMM::ist_cc(const gcs_action& act, bool must_apply,
 {
     assert(GCS_ACT_CCHANGE == act.type);
     assert(act.seqno_g > 0);
-    //log_info << "~~~~~ preprocessing CC " << act.seqno_g;
 
     gcs_act_cchange const conf(act.buf, act.size);
 
@@ -1527,6 +1549,16 @@ void ReplicatorSMM::ist_cc(const gcs_action& act, bool must_apply,
     wsrep_view_info_t* const view_info(
         galera_view_info_create(conf, capabilities(conf.repl_proto_ver),
                                 -1, uuid_undefined));
+
+    if (gu_unlikely(cert_.position() == WSREP_SEQNO_UNDEFINED) &&
+        (must_apply || preload))
+    {
+        // This is the first IST event for rebuilding cert index,
+        // need to initialize certification
+        establish_protocol_versions(conf.repl_proto_ver);
+        cert_.assign_initial_position(gu::GTID(conf.uuid, conf.seqno - 1),
+                                      trx_params_.version_);
+    }
 
     if (must_apply == true)
     {

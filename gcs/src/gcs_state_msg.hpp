@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2019 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -42,6 +42,9 @@ typedef struct gcs_state_msg
     int              gcs_proto_ver;
     int              repl_proto_ver;
     int              appl_proto_ver;
+    int              prim_gcs_ver;
+    int              prim_repl_ver;
+    int              prim_appl_ver;
     int              prim_joined;   // number of joined nodes in its last PC
     int              desync_count;
     uint8_t          vote_policy;   // voting policy the node is using
@@ -60,6 +63,7 @@ typedef struct gcs_state_quorum
     gu_uuid_t   group_uuid;   //! group UUID
     gcs_seqno_t act_id;       //! next global seqno
     gcs_seqno_t conf_id;      //! configuration id
+    gcs_seqno_t last_applied; //! group-wide commit cut
     bool        primary;      //! primary configuration or not
     int         version;      //! state excahnge version (max understood by all)
     int         gcs_proto_ver;
@@ -73,6 +77,7 @@ gcs_state_quorum_t;
 
 #define GCS_QUORUM_NON_PRIMARY (gcs_state_quorum_t){    \
         GU_UUID_NIL,                                    \
+        GCS_SEQNO_ILL,                                  \
         GCS_SEQNO_ILL,                                  \
         GCS_SEQNO_ILL,                                  \
         false,                                          \
@@ -98,6 +103,9 @@ gcs_state_msg_create (const gu_uuid_t* state_uuid,
                       int              gcs_proto_ver,
                       int              repl_proto_ver,
                       int              appl_proto_ver,
+                      int              prim_gcs_ver,
+                      int              prim_repl_ver,
+                      int              prim_appl_ver,
                       int              desync_count,
                       uint8_t          flags);
 

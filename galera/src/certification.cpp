@@ -947,6 +947,7 @@ galera::Certification::Certification(gu::Config& conf, ServiceThd* thd)
     nbo_index_             (),
     nbo_pool_              (sizeof(TrxHandleSlave)),
     deps_set_              (),
+    current_view_          (),
     service_thd_           (thd),
 #ifdef PXC
     gcache_                (gcache),
@@ -985,8 +986,8 @@ galera::Certification::Certification(gu::Config& conf, ServiceThd* thd)
 
     max_length_            (max_length(conf)),
     max_length_check_      (length_check(conf)),
+    inconsistent_          (false),
     log_conflicts_         (conf.get<bool>(CERT_PARAM_LOG_CONFLICTS)),
-    current_view_          (),
     optimistic_pa_         (conf.get<bool>(CERT_PARAM_OPTIMISTIC_PA))
 {}
 
@@ -1021,6 +1022,7 @@ galera::Certification::~Certification()
 void galera::Certification::assign_initial_position(const gu::GTID& gtid,
                                                     int const       version)
 {
+    assert(gtid.seqno() >= 0 || gtid == gu::GTID());
     switch (version)
     {
         // value -1 used in initialization when trx protocol version is not
@@ -1100,7 +1102,7 @@ galera::Certification::adjust_position(const View&         view,
     if (version != version_)
     {
         std::for_each(trx_map_.begin(), trx_map_.end(), PurgeAndDiscard(*this));
-        assert(trx_map_.end()->first + 1 == position_);
+        assert(trx_map_.empty() || trx_map_.rbegin()->first + 1 == position_);
         trx_map_.clear();
         assert(cert_index_ng_.empty());
         if (service_thd_)
@@ -1127,6 +1129,14 @@ galera::Certification::adjust_position(const View&         view,
         e.clear_ended();
         e.nbo_ctx()->set_aborted(true);
     }
+}
+
+wsrep_seqno_t
+galera::Certification::increment_position()
+{
+    gu::Lock lock(mutex_);
+    position_++;
+    return position_;
 }
 
 galera::Certification::TestResult
@@ -1368,4 +1378,12 @@ galera::Certification::param_set(const std::string& key,
     }
 
     conf_.set(key, value);
+}
+
+void
+galera::Certification::mark_inconsistent()
+{
+    gu::Lock lock(mutex_);
+    assert(!inconsistent_);
+    inconsistent_ = true;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2019 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -71,7 +71,7 @@ gcs_group_init (gcs_group_t* group, gu::Config* const cnf, gcache_t* const cache
     group->my_name      = strdup(node_name ? node_name : NODE_NO_NAME);
     group->my_address   = strdup(inc_addr  ? inc_addr  : NODE_NO_ADDR);
     group->state        = GCS_GROUP_NON_PRIMARY;
-    group->last_applied = GCS_SEQNO_ILL; // mark for recalculation
+    group->last_applied = group->act_id_;
     group->last_node    = -1;
     group->vote_request_seqno = GCS_NO_VOTE_SEQNO;
     group->vote_result  = (VoteResult){ GCS_NO_VOTE_SEQNO, 0 };
@@ -83,6 +83,9 @@ gcs_group_init (gcs_group_t* group, gu::Config* const cnf, gcache_t* const cache
     group->prim_seqno   = GCS_SEQNO_ILL;
     group->prim_num     = 0;
     group->prim_state   = GCS_NODE_STATE_NON_PRIM;
+    group->prim_gcs_ver  = 0;
+    group->prim_repl_ver = 0;
+    group->prim_appl_ver = 0;
 
     *(gcs_proto_t*)&group->gcs_proto_ver = gcs_proto_ver;
     *(int*)&group->repl_proto_ver = repl_proto_ver;
@@ -114,6 +117,7 @@ gcs_group_init_history (gcs_group_t*    group,
     }
 
     group->act_id_    = gtid.seqno();
+    group->last_applied = group->act_id_;
     group->group_uuid = gtid.uuid()();
     return 0;
 }
@@ -142,6 +146,7 @@ group_nodes_init (const gcs_group_t* group, const gcs_comp_msg_t* comp)
                                group->gcs_proto_ver, group->repl_proto_ver,
                                group->appl_proto_ver, memb->segment);
             }
+            assert(ret[i].last_applied == GCS_SEQNO_NIL);
         }
     }
     else {
@@ -226,7 +231,9 @@ group_redo_last_applied (gcs_group_t* group)
         assert( 0  < group->last_applied_proto_ver ||
                -1 == group->last_applied_proto_ver /* for unit tests */);
 
-//        gu_debug ("last_applied[%d]: %lld", n, seqno);
+        log_debug << "last_last_applied[" << n << "]: "
+                  << node->id << ", " << node->last_applied << ", "
+                  << (group_count_last_applied(*group, *node) ? "yes" : "no");
 
         /* NOTE: It is crucial for consistency that last_applied algorithm
          *       is absolutely identical on all nodes. Therefore for the
@@ -240,18 +247,47 @@ group_redo_last_applied (gcs_group_t* group)
         if ((GCS_NODE_STATE_SYNCED == node->status) /* ignore donor */
 #endif
             && (seqno <= last_applied)) {
-            assert (seqno >= 0);
-            last_applied = seqno;
-            last_node    = n;
+#ifndef NDEBUG
+            if (seqno > 0 && seqno < group->last_applied)
+            {
+                log_info << "Node:\n" << *node
+                         << "\nattempts to set last_applied to " << seqno
+                         << " below the current " << group->last_applied;
+            }
+#endif /* NDEBUG */
+            if (seqno >= group->last_applied || group->quorum.gcs_proto_ver < 2)
+            {
+                last_applied = seqno;
+                last_node    = n;
+            }
+            else if (seqno < group->last_applied)
+            {
+                if (0 != seqno)
+                {
+                    log_debug << "Last applied: " << seqno
+                              << " at node " << node->id
+                              << " is less than group last applied: "
+                              << group->last_applied;
+                    /* This is a possible situation since we allow for
+                     * the non-determinism in the last applied reporting.
+                     * Even a synced node can report a slightly lower number
+                     * depending on when it decides to report. */
+                }
+                // the node has not yet reported its last applied
+            }
         }
         // extra diagnostic, ignore
         //else if (!count) { gu_warn("not counting %d", n); }
     }
 
     if (gu_likely (last_node >= 0)) {
+        assert(last_applied >= group->last_applied ||
+               group->quorum.gcs_proto_ver < 2);
         group->last_applied = last_applied;
         group->last_node    = last_node;
     }
+
+    log_debug << "final last_applied: " << group->last_applied;
 }
 
 static void
@@ -273,6 +309,32 @@ group_go_non_primary (gcs_group_t* group)
     group->state   = GCS_GROUP_NON_PRIMARY;
     group->conf_id = GCS_SEQNO_ILL;
     // what else? Do we want to change anything about the node here?
+}
+
+static void
+group_check_proto_ver(gcs_group_t* group)
+{
+    assert(group->quorum.primary); // must be called only on primary CC
+
+    gcs_node_t& node(group->nodes[group->my_idx]);
+    bool fail(false);
+
+#define GROUP_CHECK_NODE_PROTO_VER(LEVEL)                               \
+    if (node.LEVEL < group->quorum.LEVEL) {                             \
+        gu_fatal("Group requested %s: %d, max supported by this node: %d." \
+                 "Upgrade the node before joining this group."          \
+                 "Need to abort.",                                      \
+                 #LEVEL, group->quorum.LEVEL, node.LEVEL);              \
+        fail = true;                                                    \
+    }
+
+    GROUP_CHECK_NODE_PROTO_VER(gcs_proto_ver);
+    GROUP_CHECK_NODE_PROTO_VER(repl_proto_ver);
+    GROUP_CHECK_NODE_PROTO_VER(appl_proto_ver);
+
+#undef GROUP_CHECK_NODE_PROTO_VER
+
+    if (fail) gu_abort();
 }
 
 static const char group_empty_id[GCS_COMP_MEMB_ID_MAX_LEN + 1] = { 0, };
@@ -376,6 +438,12 @@ group_post_state_exchange (gcs_group_t* group)
             group->group_uuid = quorum->group_uuid;
             group->prim_uuid  = group->state_uuid;
             group->state_uuid = GU_UUID_NIL;
+
+            if (quorum->gcs_proto_ver >= 2) // see below for older version
+            {
+                assert(quorum->last_applied >= 0);
+                group->last_applied = quorum->last_applied;
+            }
         }
         else {
             // no state exchange happend, processing old state messages
@@ -392,7 +460,18 @@ group_post_state_exchange (gcs_group_t* group)
 
         assert (group->prim_num > 0);
 
-        group_redo_last_applied(group);
+#define GROUP_UPDATE_PROTO_VER(LEVEL) \
+        if (group->prim_##LEVEL##_ver < quorum->LEVEL##_proto_ver) \
+            group->prim_##LEVEL##_ver = quorum->LEVEL##_proto_ver;
+        GROUP_UPDATE_PROTO_VER(gcs);
+        GROUP_UPDATE_PROTO_VER(repl);
+        GROUP_UPDATE_PROTO_VER(appl);
+#undef GROUP_UPDATE_PROTO_VER
+
+        if (quorum->gcs_proto_ver < 2) // see above for newer version
+        {
+            group_redo_last_applied(group);
+        }
         // votes will be recounted on CC action creation
     }
     else {
@@ -425,6 +504,7 @@ group_post_state_exchange (gcs_group_t* group)
              int(quorum->vote_policy),
              GU_UUID_ARGS(&quorum->group_uuid));
 
+    if (quorum->primary) group_check_proto_ver(group);
     group_check_donor(group);
 }
 
@@ -484,7 +564,7 @@ gcs_group_handle_comp_msg (gcs_group_t* group, const gcs_comp_msg_t* comp)
     }
     else {
         // Self-leave message
-        gu_info ("Received self-leave message.");
+        gu_info ("New SELF-LEAVE.");
         assert (0 == new_nodes_num);
         assert (!prim_comp);
     }
@@ -533,7 +613,11 @@ gcs_group_handle_comp_msg (gcs_group_t* group, const gcs_comp_msg_t* comp)
                              GU_UUID_ARGS(&group->group_uuid));
                 }
 
+                group->last_applied = group->act_id_;
+                assert(group->last_applied >= 0);
+
                 new_nodes[0].status = GCS_NODE_STATE_JOINED;
+                new_nodes[0].last_applied = group->last_applied;
             }
         }
     }
@@ -602,7 +686,12 @@ gcs_group_handle_comp_msg (gcs_group_t* group, const gcs_comp_msg_t* comp)
                 group_post_state_exchange (group);
             }
         }
-        group_redo_last_applied (group);
+
+        if (group->quorum.gcs_proto_ver < 2)
+        {
+            // commit cut recomputation should happen only after state exchange
+            group_redo_last_applied (group);
+        }
     }
 
     return group->state;
@@ -615,7 +704,6 @@ gcs_group_handle_uuid_msg  (gcs_group_t* group, const gcs_recv_msg_t* msg)
 
     if (GCS_GROUP_WAIT_STATE_UUID == group->state &&
         0 == msg->sender_idx /* check that it is from the representative */) {
-//        group->state_uuid = *(gu_uuid_t*)msg->buf;
         gu_uuid_copy(&group->state_uuid, (const gu_uuid_t*)msg->buf);
         group->state = GCS_GROUP_WAIT_STATE_MSG;
     }
@@ -646,6 +734,8 @@ gcs_group_handle_state_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
         gcs_state_msg_t* state = gcs_state_msg_read (msg->buf, msg->size);
 
         if (state) {
+            char state_str[1024];
+            gcs_state_msg_snprintf(state_str, sizeof(state_str), state);
 
             const gu_uuid_t* state_uuid = gcs_state_msg_uuid (state);
 
@@ -654,6 +744,7 @@ gcs_group_handle_state_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
                 gu_info ("STATE EXCHANGE: got state msg: " GU_UUID_FORMAT
                          " from %d (%s)", GU_UUID_ARGS(state_uuid),
                          msg->sender_idx, gcs_state_msg_name(state));
+                gu_debug("%s", state_str);
 
                 if (gu_log_debug) group_print_state_debug(state);
 
@@ -667,6 +758,7 @@ gcs_group_handle_state_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
                           GU_UUID_ARGS(state_uuid),
                           msg->sender_idx, gcs_state_msg_name(state),
                           GU_UUID_ARGS(&group->state_uuid));
+                gu_debug ("%s", state_str);
 
                 if (gu_log_debug) group_print_state_debug(state);
 
@@ -748,6 +840,7 @@ gcs_group_handle_last_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
     // assert (seqno >= group->last_applied);
 
     gcs_node_set_last_applied (&group->nodes[msg->sender_idx], gtid.seqno());
+    assert(group->nodes[msg->sender_idx].last_applied >= 0);
 
     if (msg->sender_idx == group->last_node   &&
         gtid.seqno()    >  group->last_applied) {
@@ -2082,7 +2175,7 @@ group_get_node_state (const gcs_group_t* const group, long const node_idx)
         group->prim_seqno,
         group->act_id_,
         cached,
-        node->last_applied,
+        group->last_applied, // should be the same global property as act_id_
         node->vote_seqno,
         node->vote_res,
         group->vote_policy,
@@ -2094,6 +2187,9 @@ group_get_node_state (const gcs_group_t* const group, long const node_idx)
         node->gcs_proto_ver,
         node->repl_proto_ver,
         node->appl_proto_ver,
+        group->prim_gcs_ver,
+        group->prim_repl_ver,
+        group->prim_appl_ver,
         node->desync_count,
         flags
         );
