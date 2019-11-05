@@ -1429,6 +1429,7 @@ void ReplicatorSMM::ist_trx(const TrxHandleSlavePtr& tsp, bool must_apply,
     if (gu_unlikely(cert_.position() == WSREP_SEQNO_UNDEFINED))
     {
         // This is the first pre IST event for rebuilding cert index
+        log_info << "First IST (trx) event for rebuilding cert index";
         cert_.assign_initial_position(
             /* proper UUID will be installed by CC */
             gu::GTID(gu::UUID(), ts.global_seqno() - 1), ts.version());
@@ -1555,6 +1556,7 @@ void ReplicatorSMM::ist_cc(const gcs_action& act, bool must_apply,
     {
         // This is the first IST event for rebuilding cert index,
         // need to initialize certification
+        log_info << "First IST (CC) event for rebuilding cert index";
         establish_protocol_versions(conf.repl_proto_ver);
         cert_.assign_initial_position(gu::GTID(conf.uuid, conf.seqno - 1),
                                       trx_params_.version_);

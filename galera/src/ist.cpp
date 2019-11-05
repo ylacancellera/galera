@@ -674,7 +674,7 @@ void galera::ist::Receiver::run()
             case GCS_ACT_CCHANGE:
                 log_info << "####### Passing IST CC " << act.seqno_g
                          << ", must_apply: " << must_apply
-                         << ", preload: " << preload;
+                         << ", preload: " << (preload ? "true" : "false");
                 handler_.ist_cc(act, must_apply, preload);
                 break;
             default:

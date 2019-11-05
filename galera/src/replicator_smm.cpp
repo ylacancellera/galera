@@ -2500,6 +2500,7 @@ void galera::ReplicatorSMM::record_cc_seqnos(wsrep_seqno_t cc_seqno,
                                              const char* source)
 {
     cc_seqno_ = cc_seqno;
+    log_info << "Recording CC from " << source << ": " << cc_seqno_;
     cc_lowest_trx_seqno_ = cert_.lowest_trx_seqno();
     log_info << "Lowest cert index boundary for CC from " << source
              << ": " << cc_lowest_trx_seqno_;;
@@ -2623,6 +2624,10 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
         log_debug << "Drain monitors from " << last_committed()
                   << " upto " << upto;
         gu_trace(drain_monitors(upto));
+    } else if (upto <= sst_seqno_) {
+      /* Said CC event is already part of the SST */
+      //log_info << "####### drain monitors upto " << upto;
+      //gu_trace(drain_monitors(upto));
     }
     else
     {
@@ -2812,6 +2817,9 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
     }
 
     Replicator::State const next_state(state2repl(my_state, my_idx));
+#ifdef PXC
+    bool error = false;
+#endif /* PXC */
 
     if (conf.conf_id >= 0) // Primary configuration
     {
@@ -2896,6 +2904,7 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
                 {
                     state_.shift_to(S_CONNECTED);
                 }
+                error = true;
             }
 #else
             // GCache::seqno_reset() happens here
@@ -2972,10 +2981,35 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
             assert(!from_IST);
         }
 
+#ifdef PXC
+        if (!error) {
+
+          if (cc_seqno_ > group_seqno) {
+            /* request_state_transfer flow above has registered CC even that
+            > than group-seqno. This is possible because if the said node joined
+            cluster at xth position and by the time donor is ready to donate,
+            cluster (in turn donor which is already part of the cluster) state
+            has moved from x -> x + 1 registering another node joining there-by
+            updating the cc position from x -> x + 1.
+            cc_seqno > group_seqno indicate that SST + IST action has captured
+            future CC seqno that is more relevant so no need to capture
+            group-seqno CC event.
+            ref-tc: galera.galera_wan_restart_ist */
+          } else {
+            // record CC related state seqnos, needed for IST on DONOR
+            record_cc_seqnos(group_seqno, "group");
+          }
+
+          // GCache must contain some actions, at least this CC
+          assert(gcache_.seqno_min() > 0 || conf.repl_proto_ver < ORDERED_CC);
+        }
+#else
         // record CC related state seqnos, needed for IST on DONOR
         record_cc_seqnos(group_seqno, "group");
+
         // GCache must contain some actions, at least this CC
         assert(gcache_.seqno_min() > 0 || conf.repl_proto_ver < ORDERED_CC);
+#endif /* PXC */
 
 #ifdef PXC
         // We should not try to joining the cluster at the GCS level,

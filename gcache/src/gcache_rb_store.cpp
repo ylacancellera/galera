@@ -36,6 +36,23 @@ namespace gcache
         size_used_ = 0;
         size_trail_= 0;
 
+        /* When doing complete/full reset ensure that gcache is cleared too.
+        Normally full reset take place when the cluster is re-boostrapped
+        that assigns a new cluster-id. Gcache only stores seqno and not
+        cluster-id so looking at gcache one can't say if the said entries
+        belongs to old cluster or new bootstrapped cluster.
+        For example: initially cluster had cluster-id = x
+        gcache entries: x:1, x:2, x:3, x:4
+        new bootstrap cluster has cluster-id = y and gcache is recovered
+        then gcache entries would be y:1, y:2, y:3, y:4
+
+        This doesn't make sense since entires are wrongly being associated
+        with new cluster id.
+        ref-tc: mysql-wsrep-features#9 */
+        log_info << "Complete reset of the galera cache";
+        memset(start_, 0, size_cache_);
+        mmap_.sync();
+
 //        mallocs_  = 0;
 //        reallocs_ = 0;
     }
@@ -1055,12 +1072,14 @@ namespace gcache
             else assert(size_trail_ >= sizeof(BufferHeader));
 
             estimate_space();
+#if 0
 #ifdef PXC
             /* On graceful shutdown all the active buffers are released
             so on recovery size_used_ = 0.
             size_cache_ = size_free_ + size_used_ + releasebutnotdiscarded */
             size_used_ = 0;
 #endif /* PXC */
+#endif
 
             /* now discard all the locked-in buffers (see seqno_reset()) */
             gu::Progress<size_t> progress(
