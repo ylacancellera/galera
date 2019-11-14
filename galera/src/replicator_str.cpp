@@ -1390,8 +1390,17 @@ void ReplicatorSMM::recv_IST(void* recv_ctx)
     catch (gu::Exception& e)
     {
         std::ostringstream os;
-        os << "Receiving IST failed, node restart required: " << e.what();
 
+        /* If IST queue was EOF that suggest IST is not going to happen
+        and DONOR (operating with old g-3 protocol) will directly send SST. */
+        if (ist_event_queue_.is_eof() && str_proto_ver_ < 3) {
+            log_info << "IST loop interrupted. Likely cause: DONOR is running"
+                     << " galera-3 or earlier protocol and has decided to"
+                     << " skip IST in favor of complete SST";
+            return;
+        }
+
+        os << "Receiving IST failed, node restart required: " << e.what();
         switch (event_type)
         {
         case ISTEvent::T_NULL:

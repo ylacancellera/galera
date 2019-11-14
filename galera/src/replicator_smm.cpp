@@ -3069,7 +3069,12 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 
     free(app_req);
     assert(!from_IST || conf.seqno > 0);
-    assert(!st_required || conf.seqno > 0);
+    /* CC event is not generated with older-protocol (galera-3) and if donor is
+    operating with older-protocol and has not yet processed any write-set
+    it would continue to keep conf.seqno = 0. If newer-protocol joiner, joins
+    at this stage then despite of opting for sst it would still get
+    conf.seqno = 0. */
+    assert(!st_required || conf.seqno > 0 || str_proto_ver_ < 3);
 
     if (!from_IST /* A separate view from IST will be passed to ISTEventQueue */
         &&

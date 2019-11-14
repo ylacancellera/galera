@@ -278,6 +278,7 @@ namespace galera
                 error_(0),
                 queue_()
             { }
+            int is_eof() { return eof_; }
             void reset() { eof_ = false; error_ = 0; }
             void eof(int error)
             {
