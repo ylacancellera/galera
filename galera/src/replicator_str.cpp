@@ -1111,7 +1111,18 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             update_state_uuid (sst_uuid_);
 #endif /* PXC */
 
+#ifdef PXC
+            /* If donor is using old protocol then reset cert position only if
+            IST is expected. When node joins the cluster it continues to get
+            write-sets from the group. SST that happens post node joins
+            may already have said write-sets. If the cert position is set here
+            based on SST position it would create and issue certifying
+            (append_trx) these write-sets post SST is done as
+            position_ > trx->global_seqno_. */
+            if (str_proto_ver_ < 3 && req->ist_len() > 0)
+#else
             if (str_proto_ver_ < 3)
+#endif /* PXC */
             {
                 // all IST events will bypass certification
                 gu::GTID const cert_position
