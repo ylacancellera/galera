@@ -260,6 +260,19 @@ namespace galera
             { assert(T_TRX == type_); return ts_; }
             wsrep_view_info_t* view() const
             { assert(T_VIEW == type_); return view_; }
+#ifdef PXC
+            wsrep_seqno_t seqno()
+            {
+                if (type_ == T_VIEW)
+                {
+                   return view_->state_id.seqno;
+                }
+                else
+                {
+                   return ts_->global_seqno();
+                }
+            }
+#endif /* PXC */
         private:
             TrxHandleSlavePtr  ts_;
             wsrep_view_info_t* view_;
@@ -277,9 +290,14 @@ namespace galera
                 eof_(false),
                 error_(0),
                 queue_()
+#ifdef PXC
+                , processed_upto_(0)
+#endif /* PXC */
             { }
+#ifdef PXC
             int is_eof() { return eof_; }
-            void reset() { eof_ = false; error_ = 0; }
+#endif /* PXC */
+            void reset() { eof_ = false; error_ = 0; processed_upto_ = 0;}
             void eof(int error)
             {
                 gu::Lock lock(mutex_);
@@ -322,6 +340,9 @@ namespace galera
                 {
                     ret = queue_.front();
                     queue_.pop();
+#ifdef PXC
+                    processed_upto_ = ret.seqno();
+#endif /* PXC */
                 }
                 else
                 {
@@ -337,12 +358,22 @@ namespace galera
                 return ret;
             }
 
+#ifdef PXC
+            wsrep_seqno_t processed_upto()
+            {
+                return processed_upto_;
+            }
+#endif /* PXC */
+
         private:
             gu::Mutex mutex_;
             gu::Cond  cond_;
             bool eof_;
             int error_;
             std::queue<ISTEvent> queue_;
+#ifdef PXC
+            wsrep_seqno_t processed_upto_;
+#endif /* PXC */
         };
 
 

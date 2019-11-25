@@ -368,6 +368,8 @@ galera::ReplicatorSMM::stats_get() const
         // Now that IST processes all events to re-create cert queue current_seqno < first_seqno
         if (current >= first)
         {
+          wsrep_seqno_t seq = ist_event_queue_.processed_upto();
+          current = ((seq == 0) ? first : seq);
           if (last > first)
               percent_complete = 100.0 * static_cast<float>(current - first)
                                          / static_cast<float>(last - first);
