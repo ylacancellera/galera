@@ -698,6 +698,9 @@ namespace galera
                 case BYPASS:
                 case OOOC:
                 case LOCAL_OOOC:
+                    gu_throw_error(EINVAL)
+                        << "invalid value " << str << " for commit order mode";
+                    break;
                 case NO_OOOC:
                     break;
                 default:
