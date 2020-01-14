@@ -527,6 +527,7 @@ namespace galera
             flags_ (flags)
         {
             assert ((uintptr_t(reserved) % GU_WORD_BYTES) == 0);
+            gu_trace(check_size());
         }
 
         ~WriteSetOut() { delete annt_; }

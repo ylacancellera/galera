@@ -1103,9 +1103,16 @@ wsrep_status_t galera_to_execute_start(wsrep_t*                const gh,
     TrxHandleMaster& trx(*txp.get());
     assert(trx.state() == TrxHandle::S_EXECUTING);
 
-    trx.set_flags(TrxHandle::wsrep_flags_to_trx_flags(
-                      flags | WSREP_FLAG_ISOLATION));
-
+    try {
+      trx.set_flags(
+          TrxHandle::wsrep_flags_to_trx_flags(flags | WSREP_FLAG_ISOLATION));
+    } catch (gu::Exception &e) {
+      log_error << e.what();
+      if (e.get_errno() == EMSGSIZE)
+        return WSREP_SIZE_EXCEEDED;
+      else
+        return WSREP_CONN_FAIL;
+    }
 
     // NBO-end event. Application should have provided the ongoing
     // operation start event source node id and connection id in
