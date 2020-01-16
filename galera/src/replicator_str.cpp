@@ -1119,7 +1119,7 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             based on SST position it would create and issue certifying
             (append_trx) these write-sets post SST is done as
             position_ > trx->global_seqno_. */
-            if (str_proto_ver_ < 3 && req->ist_len() > 0)
+            if (str_proto_ver_ < 3 && (sst_seqno_ < cc_seqno))
 #else
             if (str_proto_ver_ < 3)
 #endif /* PXC */
