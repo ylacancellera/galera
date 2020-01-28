@@ -69,7 +69,7 @@ namespace gcache
 
         void  reset();
 
-        void  seqno_reset();
+        void  seqno_reset(bool zero_out = false);
 
         /* returns true when successfully discards all seqnos in range */
         bool  discard_seqnos(seqno2ptr_t::iterator i_begin,
@@ -202,7 +202,7 @@ namespace gcache
         int64_t       scan(off_t offset, int scan_step);
         void          recover(off_t offset, int version);
 
-        void          estimate_space();
+        void          estimate_space(bool zero_out = false);
 
         RingBuffer(const gcache::RingBuffer&);
         RingBuffer& operator=(const gcache::RingBuffer&);

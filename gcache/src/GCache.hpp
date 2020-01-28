@@ -61,7 +61,7 @@ namespace gcache
          * Reinitialize seqno sequence (after SST or such)
          * Clears seqno->ptr map // and sets seqno_min to seqno.
          */
-        void seqno_reset (const gu::GTID& gtid);
+        void seqno_reset (const gu::GTID& gtid, bool zero_out = false);
 
         /*!
          * Assign sequence number to buffer pointed to by ptr
