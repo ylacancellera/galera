@@ -409,7 +409,7 @@ namespace gcache
     }
 
     void
-    RingBuffer::estimate_space()
+    RingBuffer::estimate_space(bool zero_out)
     {
         /* Estimate how much space remains */
         if (first_ < next_)
@@ -420,6 +420,11 @@ namespace gcache
             size_used_ = next_ - first_;
             size_free_ = size_cache_ - size_used_;
             size_trail_ = 0;
+            if (zero_out) {
+                memset(next_, 0, (end_ - next_));
+                memset(start_, 0, (first_ - start_));
+                mmap_.sync();
+            }
         }
         else
         {
@@ -429,6 +434,11 @@ namespace gcache
             assert(size_trail_ > 0);
             size_free_ = first_ - next_ + size_trail_ - sizeof(BufferHeader);
             size_used_ = size_cache_ - size_free_;
+            if (zero_out) {
+                memset(end_ - size_trail_, 0, size_trail_);
+                memset(next_, 0, first_ - next_);
+                mmap_.sync();
+            }
         }
 
         assert_sizes();
@@ -436,7 +446,7 @@ namespace gcache
     }
 
     void
-    RingBuffer::seqno_reset()
+    RingBuffer::seqno_reset(bool zero_out)
     {
         write_preamble(false);
 
@@ -511,7 +521,7 @@ namespace gcache
         assert ((BH_cast(first_))->seqno_g == SEQNO_NONE);
         assert (!BH_is_released(BH_cast(first_)));
 
-        estimate_space();
+        estimate_space(zero_out);
 
         log_info << "GCache DEBUG: RingBuffer::seqno_reset(): discarded "
                  << (size_free_ - old) << " bytes";

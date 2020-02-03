@@ -16,7 +16,7 @@ namespace gcache
      * Clears seqno->ptr map in case of history gap (after SST or such).
      */
     void
-    GCache::seqno_reset (const gu::GTID& gtid)
+    GCache::seqno_reset (const gu::GTID& gtid, bool zero_out)
     {
         gu::Lock lock(mtx);
 
@@ -41,7 +41,7 @@ namespace gcache
         gid = gtid.uuid();
 
         /* order is significant here */
-        rb.seqno_reset();
+        rb.seqno_reset(zero_out);
         mem.seqno_reset();
 
         seqno2ptr.clear();

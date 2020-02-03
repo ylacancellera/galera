@@ -2627,18 +2627,54 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
     }
 
     wsrep_seqno_t const upto(cert_.position());
-    if (upto >= last_committed())
-    {
-        log_debug << "Drain monitors from " << last_committed()
+    if (cc.seqno_g > last_committed() && (upto != WSREP_SEQNO_UNDEFINED)) {
+        /* If CC event has seqno = x but transactions processing has not yet
+        completed processing upto x - 1 then wait for it to happen before
+        processing the said CC event. Said CC event will reset monitors and
+        that cause transactions processing to fail.
+
+        Why hasn't transactions processing with lower sequence number not
+        yet complete?
+        * If donor node is not restarted since joiner node restart then
+          donor node is likely to maintain cert queue to cover all the CC
+          changes right from the point when joiner left.
+
+        * This means when joiner request for missing write-sets, donor will
+          mark all write-set with special flag, to preload, in order to
+          recreate cert queue on joiner too (like donor).
+
+        * If donor node has been restarted when joiner node was down
+          cert queue on donor is reinitialized with lowest seqno = donor
+          node rejoin seqno.
+          Before donor went down say it has processed N write-sets and these
+          N write-sets are needed by joiner then all these N write-sets
+          are provisioned to joiner w/o preload flag as donor lowest
+          cert seqno is > N write-sets seqno (so no need to re-create
+          cert queue with these N write-sets).
+
+          This means joiner will simply add these N write-sets to the ist queue
+          w/o waiting for them to complete and may reach processing of CC
+          event that reflect DONOR joining before N write-sets are completed.
+          This can potentially create a situation when N write-sets are not
+          yet applied by JOINER is trying to force set apply and commit monitor
+          with future seqno (based on CC).
+
+        This "if" condition helps handle the said situration.
+        */
+        log_info << "Drain monitors from " << last_committed()
+                  << " upto current CC event " << cc.seqno_g;
+
+        gu_trace(drain_monitors(cc.seqno_g - 1));
+    } else if (upto >= last_committed()) {
+        /* upto reflect current cert position. This loop is mainly to take care
+        of use-case 1 (see above) when DONOR has not yet restarted.*/
+        log_info << "Drain monitors from " << last_committed()
                   << " upto " << upto;
+
         gu_trace(drain_monitors(upto));
     } else if (upto <= sst_seqno_) {
-      /* Said CC event is already part of the SST */
-      //log_info << "####### drain monitors upto " << upto;
-      //gu_trace(drain_monitors(upto));
-    }
-    else
-    {
+        /* Do nothing. Said CC event is already taken care by SST. */
+    } else {
         /* this may happen when processing self-leave CC after connection
          * closure due to inconsistency. */
         assert(st_.corrupt());
@@ -2763,7 +2799,7 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 
     update_incoming_list(*view_info);
 
-    bool const st_required
+    bool st_required
         (state_transfer_required(*view_info, my_state == GCS_NODE_STATE_PRIM));
 
     void*  app_req(0);
@@ -2771,6 +2807,27 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 #ifndef NDEBUG
     bool   app_waits_sst(false);
 #endif
+
+    /* Say complete cluster was force aborted (power/dc failure, etc.....)
+    In theory all nodes should have same state but this may not be true always.
+
+    Let's assume a situation where-in one of the node has some missing
+    write-sets. Node start processing the write-sets and eventually lands up
+    in situation when it is suppose to apply the said CC event.
+
+    This CC event is same one that caused JOINER to join the cluster
+    and reflect need of JOINER to do state transfer.
+
+    While processing CC event from IST such state transfer request should be
+    skipped but the co-ordinates especially cert position, etc.... should be
+    updated. This condition handling help detect such situation. */
+    if (from_IST && (cc.seqno_g == ist_receiver_.last_seqno())) {
+        if (st_required) {
+            st_required = false;
+            log_info << "Supressing ST as CC " << cc.seqno_g
+                     << " is registering self-event";
+        }
+    }
 
     if (st_required)
     {
@@ -2935,6 +2992,18 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
             // processed.
             log_info << "####### Setting monitor position to " << group_seqno;
             set_initial_position(group_uuid, group_seqno - 1);
+
+            /* If bootstrapping a new cluster then reset gcache gtid.
+            gcache gtid is set only in gcache header that in turn help represent
+            that all write-sets appended to said gcache belongs to said cluster
+            configuration. If cluster is re-boostrapped to start with new
+            cluster id then bootstrapping node should update/set this gtid.
+            Other joining node update this GTID as part of state transfer
+            process. */
+            if (view_info->view == 1 && !from_IST) {
+                log_info << "####### Resetting gcache as cluster is being bootstrapped";
+                gcache_.seqno_reset(gu::GTID(group_uuid, group_seqno - 1), true);
+            }
 
             if (!from_IST)
             {
