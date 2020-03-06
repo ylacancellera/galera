@@ -1047,6 +1047,38 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
         else
         {
             while (false == sst_received_) sst_lock.wait(sst_cond_);
+
+#ifdef PXC
+            /* This is the workaround for the case when SEQNO got from
+              SST is in the past (smaller) than current cluster state.
+              Such situation may happen if donor is 5.7 node.
+              1. 5.7 introduced performance optimization as the commit
+                 c01c75da8ec67197e5b2f86edbdd9541df717faa
+              2. Optimization introduced the problem that NULL/VOID DDL
+                 can commit out of order (PXC-2213)
+              3. Fix for PXC-2213 (commit commit f4c32c54c56c91ab3890ab15e2c5b572d261febd)
+                 introduced the issue worked around here.
+
+              Problem:
+              1. 5.7 cluster in state global_seqno=N
+              2. 5.7 node executes DDL statement which fails => global_seqno=N=1
+              3. 5.7 node skips saving global_seqno into SE
+              4. New node joins, SST is started
+              5. cluster state (cc_seqno) viewed by the joiner is N+1
+              6. sst_seqno_ is N
+              7. In debug build we hit assert below
+              8. In release build cert_ is initialized with N+1 but apply_monitor_
+                 and commit_monitor_ are initialized with N which causes infinite
+                 wait in commit_monitor_ when node joins cluster at GCS level
+                 at the end of processing GCS_ACT_CCHANGE. */
+            if (str_proto_ver_ < 3 && sst_seqno_ < cc_seqno) {
+                log_warn << "Seqno received from SST is in the past. "
+                         << "It should be equal to or greater than seqno received from cluster "
+                         << "but this may happen if the node joins PXC 5.7 cluster. "
+                         << "Adjusting SST seqno: " << sst_seqno_ << " -> " << cc_seqno;
+                sst_seqno_ = cc_seqno;
+            }
+#endif
         }
 
 #ifdef PXC
