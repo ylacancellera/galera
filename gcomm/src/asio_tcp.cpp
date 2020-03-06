@@ -69,10 +69,15 @@ void gcomm::AsioTcpSocket::handshake_handler(const asio::error_code& ec)
             gu::exclude_ssl_error(ec) == false)
         {
 
-            log_error << "handshake with remote endpoint "
-                      << remote_addr() << " failed: " << ec << ": '"
-                      << ec.message()
-                      << "' ( " << gu::extra_error_info(ec) << ")";
+            log_error
+                << "handshake with remote endpoint "
+                << remote_addr() << " failed: " << ec << ": '"
+                << ec.message()
+                << "' ( " << gu::extra_error_info(ec) << ")" << std::endl
+                << "This error is often caused by SSL issues. "
+                << "For more information, please see:" << std::endl
+                << "  https://per.co.na/pxc/encrypt_cluster_traffic" << std::endl
+                << "--------";
         }
         FAILED_HANDLER(ec);
         return;
