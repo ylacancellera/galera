@@ -1071,7 +1071,12 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                  and commit_monitor_ are initialized with N which causes infinite
                  wait in commit_monitor_ when node joins cluster at GCS level
                  at the end of processing GCS_ACT_CCHANGE. */
-            if (str_proto_ver_ < 3 && sst_seqno_ < cc_seqno) {
+            log_info << " str_proto_ver_: " << str_proto_ver_
+                     << " sst_seqno_: " << sst_seqno_
+                     << " cc_seqno: " << cc_seqno
+                     << " req->ist_len(): " << req->ist_len();
+            if (str_proto_ver_ < 3 && sst_seqno_ < cc_seqno &&
+                req->ist_len() == 0 ) {
                 log_warn << "Seqno received from SST is in the past. "
                          << "It should be equal to or greater than seqno received from cluster "
                          << "but this may happen if the node joins PXC 5.7 cluster. "
