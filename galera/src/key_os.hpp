@@ -131,7 +131,7 @@ namespace galera
                     size_t len_size(gu::uleb128_size(key_len));
                     keys_.resize(offset + len_size);
                     (void)gu::uleb128_encode(
-                        key_len, &keys_[0], keys_.size(), offset);
+                        key_len, keys_.data(), keys_.size(), offset);
                     keys_.insert(keys_.end(), base, base + keys[i].key_len);
 #endif
                 }
@@ -169,7 +169,7 @@ namespace galera
 #else
                 size_t key_len;
                 size_t offset(
-                    gu::uleb128_decode(&keys_[0], keys_size, i, key_len));
+                    gu::uleb128_decode(keys_.data(), keys_size, i, key_len));
                 key_len += offset - i;
 #endif
                 if (gu_unlikely((i + key_len) > keys_size))
@@ -209,7 +209,7 @@ namespace galera
 
         size_t hash() const
         {
-            return gu_table_hash(&keys_[0], keys_.size());
+            return gu_table_hash(keys_.data(), keys_.size());
         }
 
         size_t hash_with_flags() const
@@ -268,7 +268,7 @@ namespace galera
             size_t keys_size(keys_.size());
             offset = gu::uleb128_encode(keys_size, buf, buflen, offset);
             assert (offset + key_size <= buflen);
-            std::copy(&keys_[0], &keys_[0] + keys_size, buf + offset);
+            std::copy(keys_.data(), keys_.data() + keys_size, buf + offset);
             return (offset + keys_size);
         }
 #endif

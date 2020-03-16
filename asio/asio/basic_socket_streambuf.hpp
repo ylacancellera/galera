@@ -388,7 +388,7 @@ protected:
 
         buffer = buffer + bytes_transferred_;
       }
-      setp(&put_buffer_[0], &put_buffer_[0] + put_buffer_.size());
+      setp(put_buffer_.data(), put_buffer_.data() + put_buffer_.size());
 
       // If the new character is eof then our work here is done.
       if (traits_type::eq_int_type(c, traits_type::eof()))
@@ -437,7 +437,7 @@ private:
     if (unbuffered_)
       setp(0, 0);
     else
-      setp(&put_buffer_[0], &put_buffer_[0] + put_buffer_.size());
+      setp(put_buffer_.data(), put_buffer_.data() + put_buffer_.size());
   }
 
   template <typename ResolverQuery>

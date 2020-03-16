@@ -96,7 +96,7 @@ void galera::WriteSet::append_key(const KeyData& kd)
     {
         KeyOS cmp(version_);
 
-        (void)cmp.unserialize(&keys_[0], keys_.size(), i->second);
+        (void)cmp.unserialize(keys_.data(), keys_.size(), i->second);
 
         if (key == cmp && key.flags() == cmp.flags()) return;
     }
@@ -104,7 +104,7 @@ void galera::WriteSet::append_key(const KeyData& kd)
     size_t key_size(key.serial_size());
     size_t offset(keys_.size());
     keys_.resize(offset + key_size);
-    (void)key.serialize(&keys_[0], keys_.size(), offset);
+    (void)key.serialize(keys_.data(), keys_.size(), offset);
     (void)key_refs_.insert(std::make_pair(hash, offset));
 }
 
@@ -115,7 +115,7 @@ void galera::WriteSet::get_keys(KeySequence& s) const
     while (offset < keys_.size())
     {
         KeyOS key(version_);
-        if ((offset = key.unserialize(&keys_[0], keys_.size(), offset)) == 0)
+        if ((offset = key.unserialize(keys_.data(), keys_.size(), offset)) == 0)
         {
             gu_throw_fatal << "failed to unserialize key";
         }

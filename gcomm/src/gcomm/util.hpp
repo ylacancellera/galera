@@ -38,7 +38,7 @@ namespace gcomm
         const size_t prev_size(buf.size());
         buf.resize(buf.size() + c.serial_size());
         size_t ret;
-        gu_trace(ret = c.serialize(&buf[0] + prev_size, buf.size(),
+        gu_trace(ret = c.serialize(buf.data() + prev_size, buf.size(),
                                    prev_size));
         assert(ret == prev_size + c.serial_size());
         return ret;
