@@ -307,7 +307,7 @@ void gcomm::AsioTcpSocket::write_handler(const asio::error_code& ec,
                 cbs[0] = asio::const_buffer(dg.header()
                                             + dg.header_offset(),
                                             dg.header_len());
-                cbs[1] = asio::const_buffer(&dg.payload()[0],
+                cbs[1] = asio::const_buffer(dg.payload().data(),
                                             dg.payload().size());
                 write_one(cbs);
             }
@@ -372,7 +372,7 @@ namespace gcomm
                 cbs[0] = asio::const_buffer(dg.header()
                                             + dg.header_offset(),
                                             dg.header_len());
-                cbs[1] = asio::const_buffer(&dg.payload()[0],
+                cbs[1] = asio::const_buffer(dg.payload().data(),
                                             dg.payload().size());
                 socket_->write_one(cbs);
             }
@@ -447,7 +447,7 @@ void gcomm::AsioTcpSocket::read_handler(const asio::error_code& ec,
         NetHeader hdr;
         try
         {
-            unserialize(&recv_buf_[0], recv_buf_.size(), 0, hdr);
+            unserialize(recv_buf_.data(), recv_buf_.size(), 0, hdr);
         }
         catch (gu::Exception& e)
         {
@@ -563,7 +563,7 @@ void gcomm::AsioTcpSocket::async_receive()
 
     gu::array<asio::mutable_buffer, 1>::type mbs;
 
-    mbs[0] = asio::mutable_buffer(&recv_buf_[0], recv_buf_.size());
+    mbs[0] = asio::mutable_buffer(recv_buf_.data(), recv_buf_.size());
     read_one(mbs);
 }
 

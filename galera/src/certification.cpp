@@ -595,7 +595,7 @@ galera::NBOEntry copy_ts(
         gu_throw_error(ERANGE) << "Buffer size " << buf->size()
                                << " out of range";
     gcs_action act = {ts->global_seqno(), ts->local_seqno(),
-                      &(*buf)[0], static_cast<int32_t>(buf->size()),
+                      buf->data(), static_cast<int32_t>(buf->size()),
                       GCS_ACT_WRITESET};
     if (ts->certified() == false)
     {

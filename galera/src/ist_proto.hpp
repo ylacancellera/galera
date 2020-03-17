@@ -305,8 +305,8 @@ namespace galera
             {
                 Handshake  hs(version_);
                 gu::Buffer buf(hs.serial_size());
-                size_t offset(hs.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0],
+                size_t offset(hs.serialize(buf.data(), buf.size(), 0));
+                size_t n(asio::write(socket, asio::buffer(buf.data(),
                                                           buf.size())));
                 if (n != offset)
                 {
@@ -319,14 +319,14 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
+                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
                     gu_throw_error(EPROTO) << "error receiving handshake";
                 }
 
-                (void)msg.unserialize(&buf[0], buf.size(), 0);
+                (void)msg.unserialize(buf.data(), buf.size(), 0);
 
                 log_debug << "handshake msg: " << msg.version() << " "
                           << msg.type() << " " << msg.len();
@@ -364,8 +364,8 @@ namespace galera
             {
                 HandshakeResponse hsr(version_);
                 gu::Buffer buf(hsr.serial_size());
-                size_t offset(hsr.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0], buf.size())));
+                size_t offset(hsr.serialize(buf.data(), buf.size(), 0));
+                size_t n(asio::write(socket, asio::buffer(buf.data(), buf.size())));
                 if (n != offset)
                 {
                     gu_throw_error(EPROTO)
@@ -378,14 +378,14 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
+                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
                     gu_throw_error(EPROTO) << "error receiving handshake";
                 }
 
-                (void)msg.unserialize(&buf[0], buf.size(), 0);
+                (void)msg.unserialize(buf.data(), buf.size(), 0);
 
                 log_debug << "handshake response msg: " << msg.version()
                           << " " << msg.type()
@@ -415,8 +415,8 @@ namespace galera
             {
                 Ctrl       ctrl(version_, code);
                 gu::Buffer buf(ctrl.serial_size());
-                size_t offset(ctrl.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0],buf.size())));
+                size_t offset(ctrl.serialize(buf.data(), buf.size(), 0));
+                size_t n(asio::write(socket, asio::buffer(buf.data(),buf.size())));
                 if (n != offset)
                 {
                     gu_throw_error(EPROTO) << "error sending ctrl message";
@@ -428,14 +428,14 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
+                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
                     gu_throw_error(EPROTO) << "error receiving handshake";
                 }
 
-                (void)msg.unserialize(&buf[0], buf.size(), 0);
+                (void)msg.unserialize(buf.data(), buf.size(), 0);
 
                 log_debug << "msg: " << msg.version() << " " << msg.type()
                           << " " << msg.len();
@@ -526,17 +526,17 @@ namespace galera
                                trx_meta_size + payload_size, buffer.seqno_g());
 
                 gu::Buffer buf(to_msg.serial_size() + trx_meta_size);
-                size_t  offset(to_msg.serialize(&buf[0], buf.size(), 0));
+                size_t  offset(to_msg.serialize(buf.data(), buf.size(), 0));
 
                 if (gu_unlikely(version_ < VER40))
                 {
                     offset = gu::serialize8(buffer.seqno_g(),
-                                            &buf[0], buf.size(), offset);
+                                            buf.data(), buf.size(), offset);
                     offset = gu::serialize8(seqno_d,
-                                            &buf[0], buf.size(), offset);
+                                            buf.data(), buf.size(), offset);
                 }
 
-                cbs[0] = asio::const_buffer(&buf[0], buf.size());
+                cbs[0] = asio::const_buffer(buf.data(), buf.size());
 
                 if (gu_likely(payload_size))
                 {
@@ -558,7 +558,7 @@ namespace galera
                 {
                     bytes -= asio::read(
                         socket,
-                        asio::buffer(&buf[0], std::min(buf.size(), bytes)));
+                        asio::buffer(buf.data(), std::min(buf.size(), bytes)));
                 }
                 assert(bytes == 0);
             }
@@ -579,14 +579,14 @@ namespace galera
 
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
+                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
                     gu_throw_error(EPROTO) << "error receiving trx header";
                 }
 
-                (void)msg.unserialize(&buf[0], buf.size(), 0);
+                (void)msg.unserialize(buf.data(), buf.size(), 0);
 
                 log_debug << "received header: " << n << " bytes, type "
                           << msg.type() << " len " << msg.len();
@@ -608,7 +608,7 @@ namespace galera
 
                         buf.resize(sizeof(seqno_g) + sizeof(seqno_d));
 
-                        n = asio::read(socket, asio::buffer(&buf[0],buf.size()));
+                        n = asio::read(socket, asio::buffer(buf.data(),buf.size()));
                         if (n != buf.size())
                         {
                             assert(0);
@@ -616,7 +616,7 @@ namespace galera
                                 << "error reading trx meta data";
                         }
 
-                        offset = gu::unserialize8(&buf[0],buf.size(),0,seqno_g);
+                        offset = gu::unserialize8(buf.data(),buf.size(),0,seqno_g);
                         if (gu_unlikely(seqno_g <= 0))
                         {
                             assert(0);
@@ -624,7 +624,7 @@ namespace galera
                                 << "non-positive sequence number " << seqno_g;
                         }
 
-                        offset = gu::unserialize8(&buf[0], buf.size(), offset,
+                        offset = gu::unserialize8(buf.data(), buf.size(), offset,
                                                   seqno_d);
                         if (gu_unlikely(seqno_d == WSREP_SEQNO_UNDEFINED &&
                                         offset != msg.len()))

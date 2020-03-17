@@ -147,7 +147,7 @@ int gcomm::AsioUdpSocket::send(const Datagram& dg)
     cbs[0] = asio::const_buffer(buf, sizeof(buf));
     cbs[1] = asio::const_buffer(dg.header() + dg.header_offset(),
                           dg.header_len());
-    cbs[2] = asio::const_buffer(&dg.payload()[0], dg.payload().size());
+    cbs[2] = asio::const_buffer(dg.payload().data(), dg.payload().size());
     try
     {
         socket_.send_to(cbs, target_ep_);
@@ -220,7 +220,7 @@ void gcomm::AsioUdpSocket::async_receive()
 {
     Critical<AsioProtonet> crit(net_);
     gu::array<asio::mutable_buffer, 1>::type mbs;
-    mbs[0] = asio::mutable_buffer(&recv_buf_[0], recv_buf_.size());
+    mbs[0] = asio::mutable_buffer(recv_buf_.data(), recv_buf_.size());
     socket_.async_receive_from(mbs, source_ep_,
                                boost::bind(&AsioUdpSocket::read_handler,
                                            shared_from_this(),

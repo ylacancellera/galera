@@ -41,6 +41,9 @@ namespace galera
         const_iterator begin() const { return buf_; }
         const_iterator end()   const { return (buf_ + buf_size_); }
 
+        iterator data()  noexcept { return buf_; }
+        const_iterator data() const noexcept { return buf_; }
+
     private:
 
         MappedBuffer(const MappedBuffer&);

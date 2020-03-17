@@ -1121,8 +1121,8 @@ wsrep_status_t galera_to_execute_start(wsrep_t*                const gh,
     {
         galera::NBOKey key(meta->gtid.seqno);
         gu::Buffer buf(galera::NBOKey::serial_size());
-        (void)key.serialize(&buf[0], buf.size(), 0);
-        struct wsrep_buf data_buf = {&buf[0], buf.size()};
+        (void)key.serialize(buf.data(), buf.size(), 0);
+        struct wsrep_buf data_buf = {buf.data(), buf.size()};
         gu_trace(append_data_array(trx, &data_buf, 1, WSREP_DATA_ORDERED,true));
     }
 
