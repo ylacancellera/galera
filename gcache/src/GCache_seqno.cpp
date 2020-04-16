@@ -196,6 +196,15 @@ namespace gcache
             int64_t const start(it->first - 1);
             int64_t const end  (seqno - start >= 2*batch_size ?
                                 start + batch_size : seqno);
+
+            // Just not to overcomplicate the logic here:
+            // release only if the whole batch can be released, if not - wait.
+            while(seqno_locked != SEQNO_NONE && end >= seqno_locked) {
+                log_debug << "GCache::seqno_release requested: " << seqno
+                          << " locked: " << seqno_locked << " - waiting";
+                lock.wait(cond);
+            }
+
 #ifndef NDEBUG
             if (params.debug())
             {
