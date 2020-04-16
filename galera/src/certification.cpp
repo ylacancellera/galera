@@ -32,7 +32,7 @@ static std::string const CERT_PARAM_LENGTH_CHECK (CERT_PARAM_PREFIX +
                                                   "length_check");
 
 static std::string const CERT_PARAM_LOG_CONFLICTS_DEFAULT("no");
-static std::string const CERT_PARAM_OPTIMISTIC_PA_DEFAULT("yes");
+static std::string const CERT_PARAM_OPTIMISTIC_PA_DEFAULT("no");
 
 /*** It is EXTREMELY important that these constants are the same on all nodes.
  *** Don't change them ever!!! ***/
