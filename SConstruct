@@ -160,13 +160,7 @@ psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
     opt_flags = opt_flags + ' -DHAVE_PSI_INTERFACE'
 
-<<<<<<< HEAD
-GALERA_VER = ARGUMENTS.get('version', '3.41')
-||||||| 013adaf9
-GALERA_VER = ARGUMENTS.get('version', '3.38')
-=======
-GALERA_VER = ARGUMENTS.get('version', '3.40')
->>>>>>> dutow/pxc-rel-5.6.47
+GALERA_VER = ARGUMENTS.get('version', '3.43')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given

@@ -2485,9 +2485,9 @@ START_TEST(test_out_queue_limit)
     std::vector<char> data(1 << 15);
     gcomm::Datagram dg(gu::SharedBuffer(
                            new gu::Buffer(data.begin(), data.end())));
-    // Default user send window is 2 and out queue limit is 1M,
-    // so we can write 2 + 32 messages without blocking.
-    for (size_t i(0); i < 34; ++i)
+    // Default user send window is 4 and out queue limit is 1M,
+    // so we can write 4 + 32 messages without blocking.
+    for (size_t i(0); i < 36; ++i)
     {
         fail_unless(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == 0);
     }
