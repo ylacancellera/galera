@@ -22,9 +22,11 @@ public:
 
     ~RecvLoop () {}
 
+    int returnCode() const { return rcode_; }
+
 private:
 
-    void loop();
+    int loop();
 
     const Config& config_;
     gu::Config    gconf_;
@@ -56,6 +58,7 @@ private:
     gu::UUID    uuid_;
     gu::seqno_t seqno_;
     int         proto_;
+    int         rcode_;
 
 }; /* RecvLoop */
 
