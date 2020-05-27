@@ -130,18 +130,13 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     sst_donor_          (),
     sst_uuid_           (WSREP_UUID_UNDEFINED),
     sst_seqno_          (WSREP_SEQNO_UNDEFINED),
-#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     sst_mutex_          (WSREP_PFS_INSTR_TAG_SST_MUTEX),
     sst_cond_           (WSREP_PFS_INSTR_TAG_SST_CONDVAR),
 #else
-     sst_mutex_          (),
-     sst_cond_           (),
-#endif /* HAVE_PSI_INTERFACE */
-#else
     sst_mutex_          (),
     sst_cond_           (),
-#endif /* PXC */
+#endif /* HAVE_PSI_INTERFACE */
     sst_retry_sec_      (1),
     sst_received_       (false),
     gcache_             (config_, config_.get(BASE_DIR)),
@@ -160,10 +155,8 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     cert_               (config_, &service_thd_, &gcache_),
 #else
     cert_               (config_, &service_thd_),
-<<<<<<< HEAD
 #endif /* PXC */
-    pending_cert_queue_ (),
-#ifdef PXC
+    pending_cert_queue_ (gcache_),
 #ifdef HAVE_PSI_INTERFACE
     local_monitor_      (WSREP_PFS_INSTR_TAG_LOCAL_MONITOR_MUTEX,
                          WSREP_PFS_INSTR_TAG_LOCAL_MONITOR_CONDVAR),
@@ -172,20 +165,10 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     commit_monitor_     (WSREP_PFS_INSTR_TAG_COMMIT_MONITOR_MUTEX,
                          WSREP_PFS_INSTR_TAG_COMMIT_MONITOR_CONDVAR),
 #else
-     local_monitor_      (),
-     apply_monitor_      (),
-     commit_monitor_     (),
-#endif /* HAVE_PSI_INTERFACE */
-#else
-||||||| 88f3e29c
-    pending_cert_queue_ (),
-=======
-    pending_cert_queue_ (gcache_),
->>>>>>> release_26.4.5
     local_monitor_      (),
     apply_monitor_      (),
     commit_monitor_     (),
-#endif /* PXC */
+#endif /* HAVE_PSI_INTERFACE */
     causal_read_timeout_(config_.get(Param::causal_read_timeout)),
     receivers_          (),
     replicated_         (),
@@ -201,15 +184,11 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
     causal_reads_       (),
     preordered_id_      (),
     incoming_list_      (""),
-#ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     incoming_mutex_     (WSREP_PFS_INSTR_TAG_INCOMING_MUTEX),
 #else
-     incoming_mutex_     (),
-#endif /* HAVE_PSI_INTERFACE */
-#else
     incoming_mutex_     (),
-#endif /* PXC */
+#endif /* HAVE_PSI_INTERFACE */
     wsrep_stats_        ()
 {
 
@@ -621,7 +600,9 @@ void galera::ReplicatorSMM::apply_trx(void* recv_ctx, TrxHandleSlave& ts)
     if (ts.local() == false)
     {
         GU_DBUG_SYNC_WAIT("after_commit_slave_sync");
+#ifdef PXC
         GU_DBUG_SYNC_WAIT("sync.apply_trx.after_commit_leave");
+#endif /* PXC */
     }
 
     wsrep_seqno_t const safe_to_discard(cert_.set_trx_committed(ts));
@@ -757,7 +738,9 @@ wsrep_status_t galera::ReplicatorSMM::replicate(TrxHandleMaster& trx,
     act.seqno_g = GCS_SEQNO_ILL;
 #endif
 
+#ifdef PXC
     GU_DBUG_SYNC_WAIT("before_replicate_sync")
+#endif /* PXC */
 
     act.buf  = NULL;
     act.size = trx.gather(actv);
@@ -1524,7 +1507,7 @@ galera::ReplicatorSMM::commit_order_leave(TrxHandleSlave&          ts,
         commit_monitor_.leave(co);
 
 #ifdef PXC
-        if (trx.local() == false) {
+        if (ts.local() == false) {
           GU_DBUG_SYNC_WAIT("sync.applier_interim_commit.after_commit_leave");
         } else {
           GU_DBUG_SYNC_WAIT("sync.interim_commit.after_commit_leave");
@@ -1930,6 +1913,7 @@ galera::ReplicatorSMM::to_isolation_end(TrxHandleMaster&         trx,
     }
 
     CommitOrder co(ts, co_mode_);
+
 #ifdef PXC
     if (co_mode_ != CommitOrder::BYPASS)
     {
@@ -2217,7 +2201,6 @@ void galera::ReplicatorSMM::process_trx(void* recv_ctx,
     assert(ts.depends_seqno() == -1 || ts.version() >= 4);
     assert(ts.state() == TrxHandle::S_REPLICATING);
 
-<<<<<<< HEAD
 #ifdef PXC
     // If the SST has been canceled, then ignore any other
     // incoming transactions, as the node should be shutting down
@@ -2228,18 +2211,9 @@ void galera::ReplicatorSMM::process_trx(void* recv_ctx,
     }
 #endif /* PXC */
 
-    wsrep_status_t const retval(cert_and_catch(0, ts_ptr));
-#if 0
-    if (ts.nbo_start() == true || ts.nbo_end() == true)
-||||||| 88f3e29c
-    wsrep_status_t const retval(cert_and_catch(0, ts_ptr));
-#if 0
-    if (ts.nbo_start() == true || ts.nbo_end() == true)
-=======
     // SST thread drains monitors after IST, so this should be
     // safe way to check if the ts was contained in IST.
     if (ts.global_seqno() <= apply_monitor_.last_left())
->>>>>>> release_26.4.5
     {
         handle_trx_overlapping_ist(ts_ptr);
         return;
@@ -2655,88 +2629,23 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
     }
 }
 
-void galera::ReplicatorSMM::drain_monitors_for_local_conf_change()
+void galera::ReplicatorSMM::drain_monitors_for_local_conf_change(const gcs_act_cchange& cc)
 {
-    wsrep_seqno_t const upto(cert_.position());
-<<<<<<< HEAD
-    if (cc.seqno_g > last_committed() && (upto != WSREP_SEQNO_UNDEFINED)) {
-        /* If CC event has seqno = x but transactions processing has not yet
-        completed processing upto x - 1 then wait for it to happen before
-        processing the said CC event. Said CC event will reset monitors and
-        that cause transactions processing to fail.
-
-        Why hasn't transactions processing with lower sequence number not
-        yet complete?
-        * If donor node is not restarted since joiner node restart then
-          donor node is likely to maintain cert queue to cover all the CC
-          changes right from the point when joiner left.
-
-        * This means when joiner request for missing write-sets, donor will
-          mark all write-set with special flag, to preload, in order to
-          recreate cert queue on joiner too (like donor).
-
-        * If donor node has been restarted when joiner node was down
-          cert queue on donor is reinitialized with lowest seqno = donor
-          node rejoin seqno.
-          Before donor went down say it has processed N write-sets and these
-          N write-sets are needed by joiner then all these N write-sets
-          are provisioned to joiner w/o preload flag as donor lowest
-          cert seqno is > N write-sets seqno (so no need to re-create
-          cert queue with these N write-sets).
-
-          This means joiner will simply add these N write-sets to the ist queue
-          w/o waiting for them to complete and may reach processing of CC
-          event that reflect DONOR joining before N write-sets are completed.
-          This can potentially create a situation when N write-sets are not
-          yet applied by JOINER is trying to force set apply and commit monitor
-          with future seqno (based on CC).
-
-        This "if" condition helps handle the said situration.
-        */
-        log_info << "Drain monitors from " << last_committed()
-                  << " upto current CC event " << cc.seqno_g;
-
-        gu_trace(drain_monitors(cc.seqno_g - 1));
-    } else if (upto >= last_committed()) {
-        /* upto reflect current cert position. This loop is mainly to take care
-        of use-case 1 (see above) when DONOR has not yet restarted.*/
-        log_info << "Drain monitors from " << last_committed()
-                  << " upto " << upto;
-
-||||||| 88f3e29c
-    if (upto >= last_committed())
-    {
-        log_debug << "Drain monitors from " << last_committed()
-                  << " upto " << upto;
-=======
+   wsrep_seqno_t const upto(cert_.position());
+        log_info << "Maybe drain monitors from " << last_committed()
+                  << " upto current CC event " << cc.seqno
+                  << " upto:" << upto;
     assert(upto >= last_committed());
     if (upto >= last_committed())
     {
-        log_debug << "Drain monitors from " << last_committed()
+        log_info << "Drain monitors from " << last_committed()
                   << " up to " << upto;
->>>>>>> release_26.4.5
         gu_trace(drain_monitors(upto));
-<<<<<<< HEAD
-    } else if (upto <= sst_seqno_) {
-        /* Do nothing. Said CC event is already taken care by SST. */
-    } else {
-        /* this may happen when processing self-leave CC after connection
-         * closure due to inconsistency. */
-        assert(st_.corrupt());
-||||||| 88f3e29c
-    }
-    else
-    {
-        /* this may happen when processing self-leave CC after connection
-         * closure due to inconsistency. */
-        assert(st_.corrupt());
-=======
     }
     else
     {
         log_warn << "Cert position " << upto << " less than last committed "
                  << last_committed();
->>>>>>> release_26.4.5
     }
 }
 
@@ -2763,7 +2672,7 @@ void galera::ReplicatorSMM::process_non_prim_conf_change(
     // there may be blocked appliers.
     if (not st_.corrupt())
     {
-        drain_monitors_for_local_conf_change();
+        drain_monitors_for_local_conf_change(conf);
     }
 
     update_incoming_list(*view_info);
@@ -2872,64 +2781,14 @@ void galera::ReplicatorSMM::process_group_change(
         wsrep_cb_status_t cret(connected_cb_(app_ctx_, view_info));
         if (cret != WSREP_CB_SUCCESS)
         {
-<<<<<<< HEAD
-            assert(!from_IST);
-            log_info << "####### skipping CC " << conf.seqno
-                     << (from_IST ? ", from IST" : ", local");
-
-            // applied already in SST/IST, skip
-            gu_trace(local_monitor_.leave(lo));
-            resume_recv();
-            /* skipping CC will not add the said entry to gcache. For detailed
-            comment check galera::ist::Receiver::run (use-case-1) */
-            try {
-              ssize_t wsize;
-              gcache_.seqno_get_ptr(conf.seqno, wsize);
-              log_info << "####### Write-set " << conf.seqno << " is already"
-                       << " added to gcache (likely through IST)";
-              gcache_.seqno_unlock();
-            } catch (gu::NotFound &nf) {
-              /* If the said seqno is being added as part of this routine
-              then ensure cert position is adjusted as it is done during
-              handling of cc event as part of IST flow. */
-              establish_protocol_versions(conf.repl_proto_ver);
-              cert_.adjust_position(*view_info, gu::GTID(conf.uuid, conf.seqno),
-                                    trx_params_.version_);
-              // record CC releated state seqnos, needed for IST on DONOR
-              record_cc_seqnos(conf.seqno, "group");
-              gcache_.seqno_assign(cc.buf, conf.seqno, GCS_ACT_CCHANGE, false);
-            }
-            // gcache_.free(const_cast<void*>(cc.buf));
-            ::free(view_info);
-            return;
-||||||| 88f3e29c
-            assert(!from_IST);
-            log_info << "####### skipping CC " << conf.seqno
-                     << (from_IST ? ", from IST" : ", local");
-
-            // applied already in SST/IST, skip
-            gu_trace(local_monitor_.leave(lo));
-            resume_recv();
-            gcache_.free(const_cast<void*>(cc.buf));
-            ::free(view_info);
-            return;
-=======
             log_fatal << "Application returned error "
                       << cret
                       << " from connect callback, aborting";
             abort();
->>>>>>> release_26.4.5
         }
     }
 }
 
-<<<<<<< HEAD
-    bool st_required
-        (state_transfer_required(*view_info, my_state == GCS_NODE_STATE_PRIM));
-||||||| 88f3e29c
-    bool const st_required
-        (state_transfer_required(*view_info, my_state == GCS_NODE_STATE_PRIM));
-=======
 void galera::ReplicatorSMM::process_st_required(
     void* recv_ctx,
     int const group_proto_ver,
@@ -2937,53 +2796,35 @@ void galera::ReplicatorSMM::process_st_required(
 {
     const wsrep_seqno_t group_seqno(view_info->state_id.seqno);
     const wsrep_uuid_t& group_uuid (view_info->state_id.uuid);
->>>>>>> release_26.4.5
 
     void*  app_req(0);
     size_t app_req_len(0);
 #ifndef NDEBUG
     bool   app_waits_sst(false);
 #endif
+
+    /* Say complete cluster was force aborted (power/dc failure, etc.....)
+    In theory all nodes should have same state but this may not be true always.
+    Let's assume a situation where-in one of the node has some missing
+    write-sets. Node start processing the write-sets and eventually lands up
+    in situation when it is suppose to apply the said CC event.
+    This CC event is same one that caused JOINER to join the cluster
+    and reflect need of JOINER to do state transfer.
+    While processing CC event from IST such state transfer request should be
+    skipped but the co-ordinates especially cert position, etc.... should be
+    updated. This condition handling help detect such situation. */
+    if ((group_seqno == ist_receiver_.last_seqno())) {
+            log_info << "Supressing ST as CC " << group_seqno
+                     << " is registering self-event";
+            return;
+    }
+
+
     log_info << "State transfer required: "
              << "\n\tGroup state: " << group_uuid << ":" << group_seqno
              << "\n\tLocal state: " << state_uuid_<< ":" << last_committed();
 
-<<<<<<< HEAD
-    /* Say complete cluster was force aborted (power/dc failure, etc.....)
-    In theory all nodes should have same state but this may not be true always.
-
-    Let's assume a situation where-in one of the node has some missing
-    write-sets. Node start processing the write-sets and eventually lands up
-    in situation when it is suppose to apply the said CC event.
-
-    This CC event is same one that caused JOINER to join the cluster
-    and reflect need of JOINER to do state transfer.
-
-    While processing CC event from IST such state transfer request should be
-    skipped but the co-ordinates especially cert position, etc.... should be
-    updated. This condition handling help detect such situation. */
-    if (from_IST && (cc.seqno_g == ist_receiver_.last_seqno())) {
-        if (st_required) {
-            st_required = false;
-            log_info << "Supressing ST as CC " << cc.seqno_g
-                     << " is registering self-event";
-        }
-    }
-
-    if (st_required)
-    {
-        log_info << "State transfer required: "
-                 << "\n\tGroup state: " << group_uuid << ":" << group_seqno
-                 << "\n\tLocal state: " << state_uuid_<< ":" << last_committed();
-||||||| 88f3e29c
-    if (st_required)
-    {
-        log_info << "State transfer required: "
-                 << "\n\tGroup state: " << group_uuid << ":" << group_seqno
-                 << "\n\tLocal state: " << state_uuid_<< ":" << last_committed();
-=======
     if (S_CONNECTED != state_()) state_.shift_to(S_CONNECTED);
->>>>>>> release_26.4.5
 
     wsrep_cb_status_t const rcode(sst_request_cb_(app_ctx_,
                                                   &app_req, &app_req_len));
@@ -3009,31 +2850,43 @@ void galera::ReplicatorSMM::process_st_required(
     log_info << "App waits SST: " << app_waits_sst;
 #endif
     // GCache::seqno_reset() happens here
+#ifdef PXC
+    bool error = false;
+    long ret =
+#endif /* PXC */
     request_state_transfer (recv_ctx,
                             group_proto_ver, group_uuid, group_seqno, app_req,
                             app_req_len);
+#ifdef PXC
+            if (ret < 0 || sst_state_ == SST_CANCELED)
+            {
+                // If the IST/SST request was cancelled due to error
+                // at the GCS level or if request was cancelled by another
+                // thread (by initiative of the server), and if the node
+                // remain in the S_JOINING state, then we must return it
+                // to the S_CONNECTED state (to the original state, which
+                // exist before the request_state_transfer started).
+                // In other words, if state transfer failed, then we
+                // need to move node back to the original state, because
+                // joining was canceled:
+
+                if (state_() == S_JOINING)
+                {
+                    state_.shift_to(S_CONNECTED);
+                }
+                error = true;
+            }
+#endif /* PXC */
     free(app_req);
 
-    finish_local_prim_conf_change(group_proto_ver, group_seqno, "sst");
+    if(!error) {
+      // The actual SST seqno can be different than what we requested!
+      finish_local_prim_conf_change(group_proto_ver, sst_seqno_, "sst");
+    }
     // No need to submit view info. It is always contained either
     // in SST or applied in IST.
 }
 
-<<<<<<< HEAD
-#if 0 
-        // We need to set the protocol version BEFORE the view callback, so that
-        // any version-dependent code is run using the correct version instead
-        // of -1.
-        if (view_info->view >= 0) // Primary configuration
-            establish_protocol_versions (repl_proto);
-#endif /* 0 */
-
-        wsrep_cb_status_t const rcode(sst_request_cb_(app_ctx_,
-                                                      &app_req, &app_req_len));
-||||||| 88f3e29c
-        wsrep_cb_status_t const rcode(sst_request_cb_(app_ctx_,
-                                                      &app_req, &app_req_len));
-=======
 void galera::ReplicatorSMM::reset_index_if_needed(
     const wsrep_view_info_t* view_info,
     int const prev_protocol_version,
@@ -3042,26 +2895,7 @@ void galera::ReplicatorSMM::reset_index_if_needed(
 {
     const wsrep_seqno_t group_seqno(view_info->state_id.seqno);
     const wsrep_uuid_t& group_uuid (view_info->state_id.uuid);
->>>>>>> release_26.4.5
 
-<<<<<<< HEAD
-        if (WSREP_CB_SUCCESS != rcode)
-        {
-            assert(app_req_len <= 0);
-            log_fatal << "SST request callback failed. This is unrecoverable, "
-                      << "restart required.";
-#ifdef PXC
-            local_monitor_.leave(lo);
-#endif /* PXC */
-            abort();
-||||||| 88f3e29c
-        if (WSREP_CB_SUCCESS != rcode)
-        {
-            assert(app_req_len <= 0);
-            log_fatal << "SST request callback failed. This is unrecoverable, "
-                      << "restart required.";
-            abort();
-=======
     //
     // Starting from protocol_version_ 8 joiner's cert index is rebuilt
     // from IST.
@@ -3090,36 +2924,9 @@ void galera::ReplicatorSMM::reset_index_if_needed(
             position.set(group_uuid, group_seqno);
             trx_proto_ver = std::get<0>(get_trx_protocol_versions(
                                             next_protocol_version));
->>>>>>> release_26.4.5
         }
         else
         {
-<<<<<<< HEAD
-            log_fatal << "Local state UUID " << state_uuid_
-                      << " is different from group state UUID " << group_uuid
-                      << ", and SST request is null: restart required.";
-#ifdef PXC
-            local_monitor_.leave(lo);
-#endif /* PXC */
-            abort();
-        }
-#ifndef NDEBUG
-        app_waits_sst = (app_req_len > 0) &&
-            (app_req_len != (strlen(WSREP_STATE_TRANSFER_NONE) + 1) ||
-             memcmp(app_req, WSREP_STATE_TRANSFER_NONE, app_req_len));
-#endif
-||||||| 88f3e29c
-            log_fatal << "Local state UUID " << state_uuid_
-                      << " is different from group state UUID " << group_uuid
-                      << ", and SST request is null: restart required.";
-            abort();
-        }
-#ifndef NDEBUG
-        app_waits_sst = (app_req_len > 0) &&
-            (app_req_len != (strlen(WSREP_STATE_TRANSFER_NONE) + 1) ||
-             memcmp(app_req, WSREP_STATE_TRANSFER_NONE, app_req_len));
-#endif
-=======
             position = gu::GTID();
             // With PROTO_VER_ORDERED_CC/index preload the cert protocol version
             // is adjusted during IST/cert index preload.
@@ -3138,23 +2945,13 @@ void galera::ReplicatorSMM::reset_index_if_needed(
                  << (st_required ? "yes" : "no");
         /* flushes service thd, must be called before gcache_.seqno_reset()*/
         cert_.assign_initial_position(position, trx_proto_ver);
->>>>>>> release_26.4.5
     }
     else
     {
         log_info << "Skipping cert index reset";
     }
 
-<<<<<<< HEAD
-    Replicator::State const next_state(state2repl(my_state, my_idx));
-#ifdef PXC
-    bool error = false;
-#endif /* PXC */
-||||||| 88f3e29c
-    Replicator::State const next_state(state2repl(my_state, my_idx));
-=======
 }
->>>>>>> release_26.4.5
 
 void galera::ReplicatorSMM::shift_to_next_state(Replicator::State next_state)
 {
@@ -3193,7 +2990,16 @@ void galera::ReplicatorSMM::shift_to_next_state(Replicator::State next_state)
 
 void galera::ReplicatorSMM::become_joined_if_needed()
 {
+#ifdef PXC
+        // We should not try to join the cluster at the GCS level,
+        // if the node is not in the S_JOINING state, or if we did not
+        // send the IST/SST request, or if it is failed. In other words,
+        // any state other than SST_WAIT (f.e. SST_NONE or SST_CANCELED)
+        // not require us to sending the JOIN message at the GCS level:
+    if (state_() == S_JOINING && sst_state_ == SST_WAIT)
+#else
     if (state_() == S_JOINING && sst_state_ != SST_NONE)
+#endif /* PXC */
     {
         /* There are two reasons we can be here:
          * 1) we just got state transfer in request_state_transfer().
@@ -3251,42 +3057,6 @@ namespace {
     struct ViewInfoDeleter { void operator()(void* ptr) { ::free(ptr); } };
 }
 
-<<<<<<< HEAD
-#ifdef PXC
-            long ret = request_state_transfer (recv_ctx,
-                                               group_uuid, group_seqno, app_req,
-                                               app_req_len);
-
-            if (ret < 0 || sst_state_ == SST_CANCELED)
-            {
-                // If the IST/SST request was cancelled due to error
-                // at the GCS level or if request was cancelled by another
-                // thread (by initiative of the server), and if the node
-                // remain in the S_JOINING state, then we must return it
-                // to the S_CONNECTED state (to the original state, which
-                // exist before the request_state_transfer started).
-                // In other words, if state transfer failed, then we
-                // need to move node back to the original state, because
-                // joining was canceled:
-
-                if (state_() == S_JOINING)
-                {
-                    state_.shift_to(S_CONNECTED);
-                }
-                error = true;
-            }
-#else
-            // GCache::seqno_reset() happens here
-            request_state_transfer (recv_ctx,
-                                    group_uuid, group_seqno, app_req,
-                                    app_req_len);
-#endif /* PXC */
-||||||| 88f3e29c
-            // GCache::seqno_reset() happens here
-            request_state_transfer (recv_ctx,
-                                    group_uuid, group_seqno, app_req,
-                                    app_req_len);
-=======
 void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
                                                      const gcs_act_cchange& conf,
                                                      int const my_index,
@@ -3310,7 +3080,6 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
         ~CcBufDiscard()
         {
             if (cc_buf_) gcache_.free(cc_buf_);
->>>>>>> release_26.4.5
         }
         void keep(wsrep_seqno_t const cc_seqno) // keep cc_buf_ in gcache_
         {
@@ -3342,50 +3111,8 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     const wsrep_uuid_t& group_uuid (view_info->state_id.uuid);
     wsrep_seqno_t const group_seqno(view_info->state_id.seqno);
 
-<<<<<<< HEAD
-            /* If bootstrapping a new cluster then reset gcache gtid.
-            gcache gtid is set only in gcache header that in turn help represent
-            that all write-sets appended to said gcache belongs to said cluster
-            configuration. If cluster is re-boostrapped to start with new
-            cluster id then bootstrapping node should update/set this gtid.
-            Other joining node update this GTID as part of state transfer
-            process. */
-            if (view_info->view == 1 && !from_IST) {
-                log_info << "####### Resetting gcache as cluster is being bootstrapped";
-                gcache_.seqno_reset(gu::GTID(group_uuid, group_seqno - 1), true);
-            }
-
-            if (!from_IST)
-            {
-                /* CCs from IST already have seqno assigned and cert. position
-                 * adjusted */
-                if (protocol_version_ >= ORDERED_CC)
-                {
-                    gu_trace(gcache_.seqno_assign(cc.buf, conf.seqno,
-                                                  GCS_ACT_CCHANGE, false));
-                }
-                else /* before protocol ver 10 conf changes are not ordered */
-                {
-                    gu_trace(gcache_.free(const_cast<void*>(cc.buf)));
-                }
-||||||| 88f3e29c
-            if (!from_IST)
-            {
-                /* CCs from IST already have seqno assigned and cert. position
-                 * adjusted */
-                if (protocol_version_ >= ORDERED_CC)
-                {
-                    gu_trace(gcache_.seqno_assign(cc.buf, conf.seqno,
-                                                  GCS_ACT_CCHANGE, false));
-                }
-                else /* before protocol ver 10 conf changes are not ordered */
-                {
-                    gu_trace(gcache_.free(const_cast<void*>(cc.buf)));
-                }
-=======
     assert(group_seqno == conf.seqno);
     assert(not ordered || group_seqno > 0);
->>>>>>> release_26.4.5
 
     /* Invalidate sst_seqno_ in case of group change. */
     if (state_uuid_ != group_uuid) sst_seqno_ = WSREP_SEQNO_UNDEFINED;
@@ -3401,88 +3128,11 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
         return;
     }
 
-<<<<<<< HEAD
-#ifdef PXC
-        if (!error) {
-
-          if (cc_seqno_ > group_seqno) {
-            /* request_state_transfer flow above has registered CC even that
-            > than group-seqno. This is possible because if the said node joined
-            cluster at xth position and by the time donor is ready to donate,
-            cluster (in turn donor which is already part of the cluster) state
-            has moved from x -> x + 1 registering another node joining there-by
-            updating the cc position from x -> x + 1.
-            cc_seqno > group_seqno indicate that SST + IST action has captured
-            future CC seqno that is more relevant so no need to capture
-            group-seqno CC event.
-            ref-tc: galera.galera_wan_restart_ist */
-          } else {
-            // record CC related state seqnos, needed for IST on DONOR
-            record_cc_seqnos(group_seqno, "group");
-          }
-
-          // GCache must contain some actions, at least this CC
-          assert(gcache_.seqno_min() > 0 || conf.repl_proto_ver < ORDERED_CC);
-        }
-#else
-        // record CC related state seqnos, needed for IST on DONOR
-        record_cc_seqnos(group_seqno, "group");
-
-        // GCache must contain some actions, at least this CC
-        assert(gcache_.seqno_min() > 0 || conf.repl_proto_ver < ORDERED_CC);
-#endif /* PXC */
-
-#ifdef PXC
-        // We should not try to joining the cluster at the GCS level,
-        // if the node is not in the S_JOINING state, or if we did not
-        // sent the IST/SST request, or if it is failed. In other words,
-        // any state other than SST_WAIT (f.e. SST_NONE or SST_CANCELED)
-        // not require us to sending the JOIN message at the GCS level:
-        if (!from_IST && state_() == S_JOINING && sst_state_ == SST_WAIT)
-#else
-        if (!from_IST && state_() == S_JOINING && sst_state_ != SST_NONE)
-#endif /* PXC */
-        {
-            /* There are two reasons we can be here:
-             * 1) we just got state transfer in request_state_transfer() above;
-             * 2) we failed here previously (probably due to partition).
-             */
-            try {
-                gcs_.join(gu::GTID(state_uuid_, sst_seqno_), 0);
-                sst_state_ = SST_NONE;
-            }
-            catch (gu::Exception& e)
-            {
-                log_error << "Failed to JOIN the cluster after SST";
-            }
-        }
-||||||| 88f3e29c
-        // record CC related state seqnos, needed for IST on DONOR
-        record_cc_seqnos(group_seqno, "group");
-        // GCache must contain some actions, at least this CC
-        assert(gcache_.seqno_min() > 0 || conf.repl_proto_ver < ORDERED_CC);
-
-        if (!from_IST && state_() == S_JOINING && sst_state_ != SST_NONE)
-        {
-            /* There are two reasons we can be here:
-             * 1) we just got state transfer in request_state_transfer() above;
-             * 2) we failed here previously (probably due to partition).
-             */
-            try {
-                gcs_.join(gu::GTID(state_uuid_, sst_seqno_), 0);
-                sst_state_ = SST_NONE;
-            }
-            catch (gu::Exception& e)
-            {
-                log_error << "Failed to JOIN the cluster after SST";
-            }
-        }
-=======
     log_info << "####### processing CC " << group_seqno
              << ", local"
              << (ordered ? ", ordered" : ", unordered");
 
-    drain_monitors_for_local_conf_change();
+    drain_monitors_for_local_conf_change(conf);
 
     int const prev_protocol_version(protocol_version_);
 
@@ -3490,7 +3140,6 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     if (first_view)
     {
         process_first_view(view_info.get(), new_uuid);
->>>>>>> release_26.4.5
     }
     else if (state_uuid_ != group_uuid)
     {
@@ -3503,46 +3152,11 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
 
     gcs_node_state_t const my_state(conf.memb[my_index].state_);
 
-<<<<<<< HEAD
-        if (S_CONNECTED != next_state)
-        {
-            log_fatal << "Internal error: unexpected next state for "
-                      << "non-prim: " << next_state
-                      << ". Current state: " << state_() <<". Restart required.";
-#ifdef PXC
-            local_monitor_.leave(lo);
-#endif /* PXC */
-            abort();
-        }
-||||||| 88f3e29c
-        if (S_CONNECTED != next_state)
-        {
-            log_fatal << "Internal error: unexpected next state for "
-                      << "non-prim: " << next_state
-                      << ". Current state: " << state_() <<". Restart required.";
-            abort();
-        }
-=======
     assert(my_state > GCS_NODE_STATE_NON_PRIM);
     assert(my_state < GCS_NODE_STATE_MAX);
->>>>>>> release_26.4.5
 
     update_incoming_list(*view_info);
 
-<<<<<<< HEAD
-    free(app_req);
-    assert(!from_IST || conf.seqno > 0);
-    /* CC event is not generated with older-protocol (galera-3) and if donor is
-    operating with older-protocol and has not yet processed any write-set
-    it would continue to keep conf.seqno = 0. If newer-protocol joiner, joins
-    at this stage then despite of opting for sst it would still get
-    conf.seqno = 0. */
-    assert(!st_required || conf.seqno > 0 || str_proto_ver_ < 3);
-||||||| 88f3e29c
-    free(app_req);
-    assert(!from_IST || conf.seqno > 0);
-    assert(!st_required || conf.seqno > 0);
-=======
     bool const st_required
         (state_transfer_required(*view_info, group_proto_version,
                                  my_state == GCS_NODE_STATE_PRIM));
@@ -3552,7 +3166,6 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     // carries seqno 1, so it can't be less than 1. For older protocols
     // it can be 0.
     assert(group_seqno >= (group_proto_version >= PROTO_VER_ORDERED_CC));
->>>>>>> release_26.4.5
 
     reset_index_if_needed(view_info.get(),
                           prev_protocol_version,
@@ -3590,14 +3203,14 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     {
         /* if CC is ordered need to use preceding seqno */
         set_initial_position(group_uuid, group_seqno - ordered);
-        gcache_.seqno_reset(gu::GTID(group_uuid, group_seqno - ordered));
+        gcache_.seqno_reset(gu::GTID(group_uuid, group_seqno - ordered), true);
     }
     else
     {
         // Note: Monitor initial position setting is not needed as this CC
         // is processed in order.
         assert(state_uuid_ == group_uuid);
-        update_state_uuid(group_uuid);
+        update_state_uuid(group_uuid, group_seqno);
     }
 
     /* CCs from IST already have seqno assigned and cert. position
@@ -4155,6 +3768,7 @@ galera::ReplicatorSMM::update_state_uuid (const wsrep_uuid_t& uuid)
         strncpy(str, os.str().c_str(), sizeof(state_uuid_str_) - 1);
         str[sizeof(state_uuid_str_) - 1] = '\0';
     }
+
 
 #ifdef PXC
     st_.set(uuid, seqno, safe_to_bootstrap_);

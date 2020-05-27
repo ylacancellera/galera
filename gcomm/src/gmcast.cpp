@@ -1171,33 +1171,19 @@ void gcomm::GMCast::check_liveness()
             p->state() < Proto::S_FAILED &&
             p->recv_tstamp() + peer_timeout_ < now)
         {
-<<<<<<< HEAD
             // Only log if addr has not been blacklisted
             if (addr_blacklist_.find(p->remote_addr()) == addr_blacklist_.end())
             {
+                gcomm::SocketStats stats(p->socket()->stats());
                 log_info << self_string()
                          << " connection to peer "
                          << p->remote_uuid() << " with addr "
                          << p->remote_addr()
                          << " timed out, no messages seen in " << peer_timeout_
+                         << ", socket stats: "
+                         << stats
                          << " (gmcast.peer_timeout)";
             }
-||||||| 88f3e29c
-            log_info << self_string()
-                     << " connection to peer "
-                     << p->remote_uuid() << " with addr "
-                     << p->remote_addr()
-                     << " timed out, no messages seen in " << peer_timeout_;
-=======
-            gcomm::SocketStats stats(p->socket()->stats());
-            log_info << self_string()
-                     << " connection to peer "
-                     << p->remote_uuid() << " with addr "
-                     << p->remote_addr()
-                     << " timed out, no messages seen in " << peer_timeout_
-                     << ", socket stats: "
-                     << stats;
->>>>>>> release_26.4.5
             p->set_state(Proto::S_FAILED);
             handle_failed(p);
         }

@@ -208,7 +208,7 @@ RecvLoop::loop()
         case GCS_ACT_INCONSISTENCY:
             // something went terribly wrong, restart needed
             gcs_.close();
-            return;
+            return 2;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
         case GCS_ACT_FLOW:

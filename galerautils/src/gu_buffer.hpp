@@ -60,6 +60,10 @@ namespace gu
         {
             return (empty() ? 0 : &buf_[0]);
         }
+        byte_t* data() 
+        {
+            return (empty() ? 0 : &buf_[0]);
+        }
         void resize(size_t size) { buf_.resize(size); }
         void reserve(size_t size) { buf_.reserve(size); }
         void clear() { buf_.clear(); }

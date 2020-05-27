@@ -4,15 +4,8 @@
 # see: https://wiki.debian.org/Hardening
 export DEB_BUILD_HARDENING = 1
 DPKG_EXPORT_BUILDFLAGS = 1
-<<<<<<< HEAD
-# The following is not available on Debian6
-#include /usr/share/dpkg/buildflags.mk
-||||||| 88f3e29c
-include /usr/share/dpkg/buildflags.mk
-=======
 include /usr/share/dpkg/default.mk
 include /usr/share/dpkg/buildflags.mk
->>>>>>> release_26.4.5
 
 # Parallel build support as adviced
 # at https://www.debian.org/doc/debian-policy/ch-source.html#s-debianrules-options
@@ -46,7 +39,6 @@ ifneq (,$(filter strict_build_flags,$(DEB_BUILD_OPTIONS)))
 	SCONS_ARGS += strict_build_flags=1
 endif
 
-<<<<<<< HEAD
 # Galera Version
 ifneq (,$(filter version=%,$(DEB_BUILD_OPTIONS)))
        VERSION = $(filter version=%,$(DEB_BUILD_OPTIONS))
@@ -58,14 +50,12 @@ ifneq (,$(filter revno=%,$(DEB_BUILD_OPTIONS)))
        REVNO = $(filter revno=%,$(DEB_BUILD_OPTIONS))
        SCONS_ARGS += $(REVNO)
 endif
-||||||| 88f3e29c
-=======
+
 # Some mipsel buildd's are a bit slow and fail tests if they are not
 # given enough time
 ifeq (mipsel,$(DEB_HOST_ARCH))
         export CK_TIMEOUT_MULTIPLIER=2
 endif
->>>>>>> release_26.4.5
 
 override_dh_auto_build:
 	# Print build env info to help debug builds on different platforms

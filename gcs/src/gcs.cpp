@@ -2406,7 +2406,6 @@ cleanup:
 long
 gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
 {
-<<<<<<< HEAD
 #ifdef PXC
     // Even when node is evicted from the cluster in middle of SST,
     // the SST may completes normally. After this, the node calls
@@ -2420,45 +2419,24 @@ gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
     // in the gcs_join() function to return from it immediately
     // if the node's communication channel was closed:
 
-    if (conn->state < GCS_CONN_CLOSED)
+    if (conn->state >= GCS_CONN_CLOSED) 
     {
-        conn->join_gtid    = gtid;
-        conn->join_code    = code;
-        conn->need_to_join = true;
-
-        return _join (conn, gtid, code);
+      return GCS_CLOSED_ERROR;
     }
+#endif /* PXC */
 
-    return GCS_CLOSED_ERROR;
-#else
-    conn->join_gtid    = gtid;
-    conn->join_code    = code;
-    conn->need_to_join = true;
-||||||| 88f3e29c
-    conn->join_gtid    = gtid;
-    conn->join_code    = code;
-    conn->need_to_join = true;
-=======
     if (code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
     {
         conn->join_gtid    = gtid;
         conn->join_code    = code;
         conn->need_to_join = true;
->>>>>>> release_26.4.5
 
-<<<<<<< HEAD
-    return _join (conn, gtid, code);
-#endif /* PXC */
-||||||| 88f3e29c
-    return _join (conn, gtid, code);
-=======
         return s_join (conn);
     }
 
     assert(0);
 
     return 0;
->>>>>>> release_26.4.5
 }
 
 gcs_seqno_t gcs_local_sequence(gcs_conn_t* conn)

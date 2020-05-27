@@ -456,7 +456,7 @@ namespace galera
             }
         }
         // Helpers for configuration change processing
-        void drain_monitors_for_local_conf_change();
+        void drain_monitors_for_local_conf_change(const gcs_act_cchange& cc);
         void process_non_prim_conf_change(void* recv_ctx,
                                           const gcs_act_cchange&,
                                           int my_index);
@@ -939,22 +939,18 @@ namespace galera
                                              const wsrep_uuid_t& group_uuid,
                                              wsrep_seqno_t       group_seqno);
 
-<<<<<<< HEAD
 #ifdef PXC
-        long send_state_request (const StateRequest* req, const bool unsafe);
+        long send_state_request (const StateRequest* req, int str_proto_ver, const bool unsafe);
 
         long request_state_transfer (void* recv_ctx,
+                                     int                 group_proto_ver,
                                      const wsrep_uuid_t& group_uuid,
                                      wsrep_seqno_t       group_seqno,
                                      const void*         sst_req,
                                      ssize_t             sst_req_len);
 #else
         void send_state_request (const StateRequest* req);
-||||||| 88f3e29c
-        void send_state_request (const StateRequest* req);
-=======
         void send_state_request (const StateRequest* req, int str_proto_ver);
->>>>>>> release_26.4.5
 
         void request_state_transfer (void* recv_ctx,
                                      int                 group_proto_ver,

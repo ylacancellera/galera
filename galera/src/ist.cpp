@@ -682,7 +682,7 @@ void galera::ist::Receiver::run()
             }
         }
 
-        progress->finish();
+        if(progress) progress->finish();
     }
     catch (asio::system_error& e)
     {

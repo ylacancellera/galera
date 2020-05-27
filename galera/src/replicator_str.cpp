@@ -61,50 +61,7 @@ ReplicatorSMM::state_transfer_required(const wsrep_view_info_t& view_info,
             if (str_proto_ver >= 3)
                 return (local_seqno + 1 < group_seqno); // this CC will add 1
             else
-<<<<<<< HEAD
-            {
-                if ((str_proto_ver_ >= 3 && local_seqno >= group_seqno) ||
-                    (str_proto_ver_ <  3 && local_seqno >  group_seqno))
-                {
-                    // Local state sequence number is greater than group
-                    // sequence number: states diverged on SST. We cannot
-                    // move server forward (with local_seqno > group_seqno)
-                    // to avoid potential data loss, and hence will have
-                    // to shut it down. User must to remove state file and
-                    // then restart server, if he/she wish to continue:
-                    close();
-                    gu_throw_fatal
-                        << "Local state seqno (" << local_seqno
-                        << ") is greater than group seqno (" <<group_seqno
-                        << "): states diverged. Aborting to avoid potential "
-                        << "data loss. Remove '" << state_file_
-                        << "' file and restart if you wish to continue.";
-#ifdef PXC
-                    abort();
-#endif /* PXC */
-                }
-
-                return (local_seqno != group_seqno);
-            }
-||||||| 88f3e29c
-            {
-                if ((str_proto_ver_ >= 3 && local_seqno >= group_seqno) ||
-                    (str_proto_ver_ <  3 && local_seqno >  group_seqno))
-                {
-                    close();
-                    gu_throw_fatal
-                        << "Local state seqno (" << local_seqno
-                        << ") is greater than group seqno (" <<group_seqno
-                        << "): states diverged. Aborting to avoid potential "
-                        << "data loss. Remove '" << state_file_
-                        << "' file and restart if you wish to continue.";
-                }
-
-                return (local_seqno != group_seqno);
-            }
-=======
                 return (local_seqno < group_seqno);
->>>>>>> release_26.4.5
         }
 
         return true;
@@ -509,13 +466,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
 
             try
             {
-<<<<<<< HEAD
-                log_info << "IST request: " << istr;
-
-                try
-                {
-                    gcache_.seqno_lock(istr.last_applied() + 1);
-
+                gcache_.seqno_lock(istr.last_applied() + 1);
 #ifdef PXC
                     // We can use Galera debugging facility to simulate
                     // unexpected shift of the donor seqno:
@@ -524,13 +475,12 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                     throw gu::NotFound(););
 #endif
 #endif /* PXC */
-                }
-                catch(gu::NotFound& nf)
-                {
-                    log_info << "IST first seqno " << istr.last_applied() + 1
-                             << " not found from cache, falling back to SST";
-                    // @todo: close IST channel explicitly
-
+            }
+            catch(gu::NotFound& nf)
+            {
+                log_info << "IST first seqno " << istr.last_applied() + 1
+                         << " not found from cache, falling back to SST";
+                // @todo: close IST channel explicitly
 #ifdef PXC
                     // When new node joining the cluster, it may trying to avoid
                     // unnecessary SST request. However, the heuristic algorithm,
@@ -553,33 +503,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     }
 #endif /* PXC */
 
-                    goto full_sst;
-                }
-||||||| 88f3e29c
-                log_info << "IST request: " << istr;
-
-                try
-                {
-                    gcache_.seqno_lock(istr.last_applied() + 1);
-                }
-                catch(gu::NotFound& nf)
-                {
-                    log_info << "IST first seqno " << istr.last_applied() + 1
-                             << " not found from cache, falling back to SST";
-                    // @todo: close IST channel explicitly
-                    goto full_sst;
-                }
-=======
-                gcache_.seqno_lock(istr.last_applied() + 1);
-            }
-            catch(gu::NotFound& nf)
-            {
-                log_info << "IST first seqno " << istr.last_applied() + 1
-                         << " not found from cache, falling back to SST";
-                // @todo: close IST channel explicitly
                 goto full_sst;
             }
->>>>>>> release_26.4.5
 
             if (streq->sst_len()) // if joiner is waiting for SST, notify it
             {
@@ -746,18 +671,12 @@ ReplicatorSMM::prepare_for_IST (void*& ptr, ssize_t& len,
     ist_event_queue_.reset();
     if (state_uuid_ != group_uuid)
     {
-<<<<<<< HEAD
 #ifdef PXC
         log_info << "Local UUID: " << state_uuid_
                  << " != Group UUID: " << group_uuid;
 #endif /* PXC */
 
-        if (str_proto_ver_ < 3)
-||||||| 88f3e29c
-        if (str_proto_ver_ < 3)
-=======
         if (str_proto_ver < 3)
->>>>>>> release_26.4.5
         {
             gu_throw_error (EPERM) << "Local state UUID (" << state_uuid_
                                    << ") does not match group state UUID ("
@@ -861,15 +780,11 @@ ReplicatorSMM::prepare_state_request (const void*         sst_req,
 
             try
             {
-<<<<<<< HEAD
 #ifdef PXC
                 log_info << "Check if state gap can be serviced using IST";
 #endif /* PXC */
 
-||||||| 88f3e29c
-=======
                 // Note: IST uses group protocol version.
->>>>>>> release_26.4.5
                 gu_trace(prepare_for_IST (ist_req, ist_req_len,
                                           group_proto_ver,
                                           str_proto_ver,
@@ -923,18 +838,13 @@ retry_str(int ret)
 #ifdef PXC
 long
 ReplicatorSMM::send_state_request (const StateRequest* const req,
+                                   int const str_proto_ver,
                                    const bool unsafe)
 #else
 void
-<<<<<<< HEAD
-ReplicatorSMM::send_state_request (const StateRequest* const req)
-#endif /* PXC */
-||||||| 88f3e29c
-ReplicatorSMM::send_state_request (const StateRequest* const req)
-=======
 ReplicatorSMM::send_state_request (const StateRequest* const req,
                                    int const str_proto_ver)
->>>>>>> release_26.4.5
+#endif
 {
     long ret;
     long tries = 0;
@@ -1154,7 +1064,7 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     // We should not wait for completion of the SST or to handle it
     // results if an error has occurred when sending the request:
 
-    long ret = send_state_request(req, unsafe);
+    long ret = send_state_request(req, str_proto_ver, unsafe);
     if (ret < 0)
     {
         // If the state transfer request failed, then
@@ -1183,12 +1093,9 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     state_.shift_to(S_JOINING);
     sst_state_ = SST_WAIT;
     sst_seqno_ = WSREP_SEQNO_UNDEFINED;
-<<<<<<< HEAD
 #endif /* PXC */
-||||||| 88f3e29c
-=======
+
     GU_DBUG_SYNC_WAIT("after_shift_to_joining");
->>>>>>> release_26.4.5
 
     /* There are two places where we may need to adjust GCache.
      * This is the first one, which we can do while waiting for SST to complete.
@@ -1238,11 +1145,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                  and commit_monitor_ are initialized with N which causes infinite
                  wait in commit_monitor_ when node joins cluster at GCS level
                  at the end of processing GCS_ACT_CCHANGE. */
-            log_info << " str_proto_ver_: " << str_proto_ver_
+            log_info << " str_proto_ver_: " << str_proto_ver
                      << " sst_seqno_: " << sst_seqno_
                      << " cc_seqno: " << cc_seqno
                      << " req->ist_len(): " << req->ist_len();
-            if (str_proto_ver_ < 3 && sst_seqno_ < cc_seqno &&
+            if (str_proto_ver < 3 && sst_seqno_ < cc_seqno &&
                 req->ist_len() == 0 ) {
                 log_warn << "Seqno received from SST is in the past. "
                          << "It should be equal to or greater than seqno received from cluster "
@@ -1313,7 +1220,6 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             update_state_uuid (sst_uuid_, sst_seqno_);
 #else
             update_state_uuid (sst_uuid_);
-<<<<<<< HEAD
 #endif /* PXC */
 
 #ifdef PXC
@@ -1324,16 +1230,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
             based on SST position it would create and issue certifying
             (append_trx) these write-sets post SST is done as
             position_ > trx->global_seqno_. */
-            if (str_proto_ver_ < 3 && (sst_seqno_ < cc_seqno))
+            if ((group_proto_ver < PROTO_VER_GALERA_3_MAX)
+                && (sst_seqno_ < cc_seqno))
 #else
-            if (str_proto_ver_ < 3)
-#endif /* PXC */
-||||||| 88f3e29c
-
-            if (str_proto_ver_ < 3)
-=======
-
             if (group_proto_ver < PROTO_VER_GALERA_3_MAX)
+#endif /* PXC */
             {
                 log_error << "Rolling upgrade from group protocol version "
                           << "earlier than "
@@ -1345,7 +1246,6 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                 abort();
             }
             else if (group_proto_ver == PROTO_VER_GALERA_3_MAX)
->>>>>>> release_26.4.5
             {
                 // Rolling upgrade from Galera 3 PROTO_VER_GALERA_3_MAX.
                 gu::GTID const cert_position
@@ -1416,22 +1316,16 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
 
         // IST is prepared only with str proto ver 1 and above
         // IST is *always* prepared at str proto ver 3 or higher
-<<<<<<< HEAD
 #ifdef PXC
         // We should not do the IST when we left S_JOINING state
         // (for example, if we have lost the connection to the
         // network or we were evicted from the cluster) or when
         // SST was failed or cancelled.
-        if ((last_committed() < cc_seqno || str_proto_ver_ >= 3)
+        if ((last_committed() < cc_seqno || str_proto_ver >= 3)
             && sst_state_ < SST_REQ_FAILED && state_() == S_JOINING)
 #else
-        if (last_committed() < cc_seqno || str_proto_ver_ >= 3)
-#endif /* PXC */
-||||||| 88f3e29c
-        if (last_committed() < cc_seqno || str_proto_ver_ >= 3)
-=======
         if (last_committed() < cc_seqno || str_proto_ver >= 3)
->>>>>>> release_26.4.5
+#endif /* PXC */
         {
             wsrep_seqno_t const ist_from(last_committed() + 1);
             wsrep_seqno_t const ist_to(cc_seqno);
@@ -1637,7 +1531,7 @@ void ReplicatorSMM::recv_IST(void* recv_ctx)
 
         /* If IST queue was EOF that suggest IST is not going to happen
         and DONOR (operating with old g-3 protocol) will directly send SST. */
-        if (ist_event_queue_.is_eof() && str_proto_ver_ < 3) {
+        if (ist_event_queue_.is_eof() && trx_proto_ver() < 3) {
             log_info << "IST loop interrupted. Likely cause: DONOR is running"
                      << " galera-3 or earlier protocol and has decided to"
                      << " skip IST in favor of complete SST";
@@ -1670,46 +1564,7 @@ void ReplicatorSMM::recv_IST(void* recv_ctx)
 void ReplicatorSMM::handle_ist_nbo(const TrxHandleSlavePtr& ts,
                                    bool must_apply, bool preload)
 {
-<<<<<<< HEAD
-    assert(tsp != 0);
-    TrxHandleSlave& ts(*tsp);
-
-    assert(ts.depends_seqno() >= 0 || ts.state() == TrxHandle::S_ABORTING ||
-           ts.nbo_end());
-    assert(ts.local_seqno() == WSREP_SEQNO_UNDEFINED);
-
-    ts.verify_checksum();
-    if (gu_unlikely(cert_.position() == WSREP_SEQNO_UNDEFINED))
-    {
-        // This is the first pre IST event for rebuilding cert index
-        log_info << "First IST (trx) event for rebuilding cert index";
-        cert_.assign_initial_position(
-            /* proper UUID will be installed by CC */
-            gu::GTID(gu::UUID(), ts.global_seqno() - 1), ts.version());
-    }
-
-    if (ts.nbo_start() || ts.nbo_end())
-||||||| 88f3e29c
-    assert(tsp != 0);
-    TrxHandleSlave& ts(*tsp);
-
-    assert(ts.depends_seqno() >= 0 || ts.state() == TrxHandle::S_ABORTING ||
-           ts.nbo_end());
-    assert(ts.local_seqno() == WSREP_SEQNO_UNDEFINED);
-
-    ts.verify_checksum();
-    if (gu_unlikely(cert_.position() == WSREP_SEQNO_UNDEFINED))
-    {
-        // This is the first pre IST event for rebuilding cert index
-        cert_.assign_initial_position(
-            /* proper UUID will be installed by CC */
-            gu::GTID(gu::UUID(), ts.global_seqno() - 1), ts.version());
-    }
-
-    if (ts.nbo_start() || ts.nbo_end())
-=======
     if (must_apply)
->>>>>>> release_26.4.5
     {
         ts->verify_checksum();
         Certification::TestResult result(cert_.append_trx(ts));

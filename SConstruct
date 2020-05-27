@@ -175,7 +175,6 @@ strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 static_ssl = ARGUMENTS.get('static_ssl', None)
 install = ARGUMENTS.get('install', None)
 
-<<<<<<< HEAD
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
@@ -183,13 +182,7 @@ if psi:
 
 opt_flags = opt_flags + ' -DPXC'
 
-GALERA_VER = ARGUMENTS.get('version', '4.3')
-||||||| 88f3e29c
-
-GALERA_VER = ARGUMENTS.get('version', '4.3')
-=======
 GALERA_VER = ARGUMENTS.get('version', '4.5')
->>>>>>> release_26.4.5
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -724,13 +717,7 @@ print('Global flags:')
 for f in ['CFLAGS', 'CXXFLAGS', 'CCFLAGS', 'CPPFLAGS']:
     print(f + ': ' + env[f].strip())
 
-<<<<<<< HEAD
-Export('x86', 'bits', 'env', 'sysname', 'machine', 'libboost_program_options')
-||||||| 88f3e29c
-Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options')
-=======
-Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options', 'install')
->>>>>>> release_26.4.5
+Export('x86', 'bits', 'env', 'sysname', 'machine', 'libboost_program_options', 'install')
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
