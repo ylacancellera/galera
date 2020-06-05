@@ -10,6 +10,8 @@
 #include <stdlib.h> // exit()
 #include <unistd.h> // setsid(), chdir()
 #include <fcntl.h>  // open()
+#include <thread>
+#include <chrono>
 
 namespace garb
 {
@@ -89,7 +91,7 @@ main (int argc, char* argv[])
     try
     {
         RecvLoop loop (config);
-        return 0;
+        return loop.returnCode();
     }
     catch (std::exception& e)
     {

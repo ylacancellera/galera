@@ -44,6 +44,7 @@ Config::Config (int argc, char* argv[])
       options_ (),
       log_     (),
       cfg_     (),
+      recv_script_ (),
       exit_    (false)
 {
     po::options_description other ("Other options");
@@ -56,13 +57,14 @@ Config::Config (int argc, char* argv[])
     po::options_description config ("Configuration");
     config.add_options()
         ("daemon,d", "Become daemon")
-        ("name,n",   po::value<std::string>(&name_),    "Node name")
-        ("address,a",po::value<std::string>(&address_), "Group address")
-        ("group,g",  po::value<std::string>(&group_),   "Group name")
-        ("sst",      po::value<std::string>(&sst_),     "SST request string")
-        ("donor",    po::value<std::string>(&donor_),   "SST donor name")
-        ("options,o",po::value<std::string>(&options_), "GCS/GCOMM option list")
-        ("log,l",    po::value<std::string>(&log_),     "Log file")
+        ("name,n",      po::value<std::string>(&name_),        "Node name")
+        ("address,a",   po::value<std::string>(&address_),     "Group address")
+        ("group,g",     po::value<std::string>(&group_),       "Group name")
+        ("sst",         po::value<std::string>(&sst_),         "SST request string")
+        ("donor",       po::value<std::string>(&donor_),       "SST donor name")
+        ("options,o",   po::value<std::string>(&options_),     "GCS/GCOMM option list")
+        ("log,l",       po::value<std::string>(&log_),         "Log file")
+        ("recv-script", po::value<std::string>(&recv_script_), "SST request receive script")
         ;
 
     po::options_description cfg_opt;
@@ -140,6 +142,7 @@ Config::Config (int argc, char* argv[])
     strip_quotes(address_);
     strip_quotes(group_);
     strip_quotes(sst_);
+    strip_quotes(recv_script_);
     strip_quotes(donor_);
     strip_quotes(options_);
     strip_quotes(log_);
@@ -166,15 +169,16 @@ Config::Config (int argc, char* argv[])
 
 std::ostream& operator << (std::ostream& os, const Config& c)
 {
-    os << "\n\tdaemon:  " << c.daemon()
-       << "\n\tname:    " << c.name()
-       << "\n\taddress: " << c.address()
-       << "\n\tgroup:   " << c.group()
-       << "\n\tsst:     " << c.sst()
-       << "\n\tdonor:   " << c.donor()
-       << "\n\toptions: " << c.options()
-       << "\n\tcfg:     " << c.cfg()
-       << "\n\tlog:     " << c.log();
+    os << "\n\tdaemon:      " << c.daemon()
+       << "\n\tname:        " << c.name()
+       << "\n\taddress:     " << c.address()
+       << "\n\tgroup:       " << c.group()
+       << "\n\tsst:         " << c.sst()
+       << "\n\tdonor:       " << c.donor()
+       << "\n\toptions:     " << c.options()
+       << "\n\tcfg:         " << c.cfg()
+       << "\n\tlog:         " << c.log()
+       << "\n\trecv_script: " << c.recv_script();
     return os;
 }
 

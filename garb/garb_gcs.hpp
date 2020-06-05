@@ -6,6 +6,8 @@
 #include <gcs.hpp>
 #include <gu_config.hpp>
 
+#define GCS_CLOSED_ERROR -EBADFD
+
 namespace garb
 {
 
@@ -20,7 +22,7 @@ public:
 
     ~Gcs ();
 
-    void recv (gcs_action& act);
+    long recv (gcs_action& act);
 
     void request_state_transfer (const std::string& request,
                                  const std::string& donor);

@@ -3,6 +3,8 @@
 #include "garb_recv_loop.hpp"
 
 #include <signal.h>
+#include <thread> 
+#include "process.h"
 
 namespace garb
 {
@@ -27,7 +29,8 @@ RecvLoop::RecvLoop (const Config& config)
     gcs_   (gconf_, config_.name(), config_.address(), config_.group()),
     uuid_  (GU_UUID_NIL),
     seqno_ (GCS_SEQNO_ILL),
-    proto_ (0)
+    proto_ (0),
+    rcode_ (0)
 {
     /* set up signal handlers */
     global_gcs = &gcs_;
@@ -52,12 +55,25 @@ RecvLoop::RecvLoop (const Config& config)
                               << "SIGINT";
     }
 
-    loop();
+    rcode_ = loop();
 }
 
-void
+void pipe_to_log(FILE* pipe) {
+    const int out_len = 1024;
+    char out_buf[out_len];
+    char* p;
+    while ((p = fgets(out_buf, out_len, pipe)) != NULL) {
+        log_info << "[SST script] " << out_buf;
+    }
+}
+
+int
 RecvLoop::loop()
 {
+    process p(config_.recv_script().c_str(), "rw", NULL, false);
+    std::thread sst_out_log;
+    std::thread sst_err_log;
+    bool sst_ended = false;
     while (1)
     {
         gcs_action act;
@@ -96,7 +112,23 @@ RecvLoop::loop()
                     uuid_  = cc.uuid;
                     seqno_ = cc.seqno;
                     gcs_.request_state_transfer (config_.sst(),config_.donor());
-                    gcs_.join(gu::GTID(cc.uuid, cc.seqno), 0);
+                    if(config_.recv_script().empty()) {
+                        gcs_.join(gu::GTID(cc.uuid, cc.seqno), 0);
+                    } else {
+                        log_info << "Starting SST script";
+                        p.execute("rw", NULL);
+
+                        sst_err_log = std::thread([&](){
+                            pipe_to_log(p.err_pipe());
+                            log_info << "SST script ended";
+                            sst_ended = true;
+                            gcs_.close();
+                        });
+
+                        sst_out_log = std::thread([&](){
+                            pipe_to_log(p.pipe());
+                        });
+                    }
                 }
 
                 proto_ = gcs_.proto_ver();
@@ -105,8 +137,33 @@ RecvLoop::loop()
             {
                 if (cc.memb.size() == 0) // SELF-LEAVE after closing connection
                 {
-                    log_info << "Exiting main loop";
-                    return;
+                    if(!config_.recv_script().empty()) {
+                        if(sst_ended) {
+                            // Good path: we decided to close the connection after the receiver script closed its
+                            // standard output. We wait for it to exit and return its error code.
+                            log_info << "Waiting for SST script to stop";
+                            const auto ret = p.wait();
+                            log_info << "SST script stopped";
+                            sst_err_log.join();
+                            sst_out_log.join();
+                            log_info << "Exiting main loop";
+                            return ret;
+                        } else {
+                            // Error path: we are closing the connection because there is an SST error,
+                            // such as a non existent donor side SST script was specified
+                            // As the receiver side script is already running, and is most likely waiting for a TCP
+                            // connection, we terminate it and report an error.
+                            log_info << "Terminating SST script";
+                            p.terminate();
+                            sst_err_log.join();
+                            sst_out_log.join();
+                            log_info << "Exiting main loop";
+                            return 1;
+                        }
+                    } else {
+                            log_info << "Exiting main loop";
+                            return 0;
+                    }
                 }
                 uuid_  = GU_UUID_NIL;
                 seqno_ = GCS_SEQNO_ILL;
@@ -115,7 +172,9 @@ RecvLoop::loop()
             if (config_.sst() != Config::DEFAULT_SST)
             {
                 // we requested custom SST, so we're done here
-                gcs_.close();
+                if(config_.recv_script().empty()) {
+                    gcs_.close();
+                }
             }
 
             break;
@@ -135,6 +194,7 @@ RecvLoop::loop()
             ::free(const_cast<void*>(act.buf));
         }
     }
+    return 0;
 }
 
 } /* namespace garb */
