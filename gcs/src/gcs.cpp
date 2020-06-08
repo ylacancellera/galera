@@ -234,6 +234,12 @@ struct gcs_conn
     int outer_close_count; // how many times gcs_close has been called.
 };
 
+gcs_node_state_t gcs_get_state_for_idx(gcs_conn_t* conn, ssize_t idx) {
+  auto group = gcs_core_get_group(conn->core);
+  auto& node = group->nodes[idx];
+  return node.status;
+}
+
 // Oh C++, where art thou?
 struct gcs_recv_act
 {
