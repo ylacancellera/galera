@@ -34,6 +34,7 @@ namespace gcache
 
         size_free_ = size_cache_;
         size_used_ = 0;
+        size_rnd_ = 0;
         size_trail_= 0;
 
         /* When doing complete/full reset ensure that gcache is cleared too.
@@ -93,6 +94,7 @@ namespace gcache
         size_cache_(end_ - start_ - sizeof(BufferHeader)),
         size_free_ (size_cache_),
         size_used_ (0),
+        size_rnd_ (0),
         size_trail_(0),
 //        mallocs_   (0),
 //        reallocs_  (0),
@@ -147,6 +149,8 @@ namespace gcache
                 switch (bh->store)
                 {
                 case BUFFER_IN_RB:
+                    // buffer is already released. discard() will return it
+                    // to size_free_ and if needed wil remove it from size_rnd_
                     discard(bh);
                     break;
                 case BUFFER_IN_MEM:
@@ -335,13 +339,21 @@ namespace gcache
         assert(BH_is_released(bh));
 
         assert(size_used_ >= bh->size);
-        size_used_ -= bh->size;
 
+        // Release used buffer. Move size_used_ -> size_rnd_
+        size_used_ -= bh->size;
+        size_rnd_ += bh->size;
+
+        // Free just allocated, never used buffer. 
+        // Discard it after releasing.
+        // (move from size_rnd_ -> size_free_)
         if (SEQNO_NONE == bh->seqno_g)
         {
-            empty_buffer(bh);
+            // move it as it was really released prior to discard.
             discard (bh);
+            empty_buffer(bh);
         }
+        assert_size_free();
     }
 
     void*
@@ -411,6 +423,8 @@ namespace gcache
     void
     RingBuffer::estimate_space(bool zero_out)
     {
+        assert(size_rnd_ == 0);
+
         /* Estimate how much space remains */
         if (first_ < next_)
         {
@@ -521,6 +535,14 @@ namespace gcache
         assert ((BH_cast(first_))->seqno_g == SEQNO_NONE);
         assert (!BH_is_released(BH_cast(first_)));
 
+        // The first of above while loops just jumped over released buffers
+        // so we lost the information how much we discarded 
+        // (how much we moved from size_rnd_ -> size_free_)
+        // If we were forward iterating we would adjust size_rnd_ and size_free_
+        // on each iteration, but we just jumped it over.
+        // At this point anyway first_ points to the first active buffer
+        // and we do not have released but not discarded buffers.
+        size_rnd_ = 0;
         estimate_space(zero_out);
 
         log_info << "GCache DEBUG: RingBuffer::seqno_reset(): discarded "
@@ -544,12 +566,12 @@ namespace gcache
             {
                 total++;
 
-                if (bh->seqno_g != SEQNO_NONE)
+                if (bh->seqno_g != SEQNO_ILL)
                 {
                     // either released or already discarded buffer
                     assert (BH_is_released(bh));
-                    empty_buffer(bh);
                     discard (bh);
+                    empty_buffer(bh);
                     locked++;
                 }
                 else
@@ -591,6 +613,7 @@ namespace gcache
             << "\nnext   : " << next_  - start_
             << "\nsize   : " << size_cache_
             << "\nfree   : " << size_free_
+            << "\nrnd    : " << size_rnd_
             << "\nused   : " << size_used_;
     }
 
@@ -1107,8 +1130,24 @@ namespace gcache
                     if (gu_unlikely(SEQNO_ILL == bh->seqno_g))
                     {
                         locked++;
+                        // Above we marked buffers that we want discard with SEQNO_ILL
+                        // We move buffer from size_used_ -> size_free_
                         discard(bh);
+                        size_used_ -= bh->size;
                     }
+                    else
+                    {
+                        if(BH_is_released(bh)) 
+                        {
+                            // All buffers are marked as BUFFER_RELEASED in scan()
+                            // so if we are not discarding this buffer, it means that 
+                            // it goes to size_rnd_
+                            // We move buffer from size_used_ -> size_rnd_
+                            size_rnd_ += bh->size;
+                            size_used_ -= bh->size;
+                        }
+                    }
+                    assert_size_free();                    
 
                     bh = BH_next(bh);
                 }
