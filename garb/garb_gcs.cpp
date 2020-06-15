@@ -71,7 +71,7 @@ again:
     return ret;
 }
 
-void
+ssize_t
 Gcs::request_state_transfer (const std::string& request,
                              const std::string& donor)
 {
@@ -125,6 +125,8 @@ Gcs::request_state_transfer (const std::string& request,
                   << " (" << strerror(-ret) << ")";
         gu_throw_error(-ret) << "State transfer request failed";
     }
+
+    return ret;
 }
 
 void
@@ -166,6 +168,10 @@ Gcs::close ()
     {
         log_warn << "Attempt to close a closed connection";
     }
+}
+
+gcs_node_state_t Gcs::state_for(ssize_t idx) {
+  return gcs_get_state_for_idx(gcs_, idx);
 }
 
 } /* namespace garb */

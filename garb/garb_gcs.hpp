@@ -24,7 +24,7 @@ public:
 
     long recv (gcs_action& act);
 
-    void request_state_transfer (const std::string& request,
+    ssize_t request_state_transfer (const std::string& request,
                                  const std::string& donor);
 
     void join (const gu::GTID&, int code);
@@ -32,6 +32,8 @@ public:
     void set_last_applied(const gu::GTID&);
 
     int  proto_ver() const { return gcs_proto_ver(gcs_); }
+
+    gcs_node_state_t state_for(ssize_t idx);
 
     void close ();
 

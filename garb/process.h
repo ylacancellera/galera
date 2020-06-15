@@ -85,6 +85,7 @@ class process {
   int wait();
   const char *cmd() { return str_; }
   void terminate();
+  void interrupt();
 };
 
 #endif /* PROCASS_H */

@@ -4,6 +4,7 @@
 
 #include <signal.h>
 #include <thread> 
+#include <atomic> 
 #include "process.h"
 
 namespace garb
@@ -73,6 +74,11 @@ RecvLoop::loop()
     process p(config_.recv_script().c_str(), "rw", NULL, false);
     std::thread sst_out_log;
     std::thread sst_err_log;
+
+    ssize_t sst_source = 0;
+    std::atomic_bool sst_status_keep_running{true};
+    std::thread sst_status_thread;
+
     bool sst_ended = false;
     while (1)
     {
@@ -111,7 +117,7 @@ RecvLoop::loop()
                 {
                     uuid_  = cc.uuid;
                     seqno_ = cc.seqno;
-                    gcs_.request_state_transfer (config_.sst(),config_.donor());
+                    sst_source =  gcs_.request_state_transfer (config_.sst(),config_.donor());
                     if(config_.recv_script().empty()) {
                         gcs_.join(gu::GTID(cc.uuid, cc.seqno), 0);
                     } else {
@@ -127,6 +133,20 @@ RecvLoop::loop()
 
                         sst_out_log = std::thread([&](){
                             pipe_to_log(p.pipe());
+                        });
+
+                        sst_status_thread = std::thread([&](){
+                            while(sst_status_keep_running) {
+                              auto st = gcs_.state_for(sst_source);
+                              if(st != GCS_NODE_STATE_DONOR) {
+                                  // The donor is going back to SYNCED. If SST streaming didn't start yet,
+                                  // it won't.
+                                  // Send SIGINT to the script and let it handle this situation.
+                                  p.interrupt();
+                                  break;
+                              }
+                              std::this_thread::sleep_for(std::chrono::seconds(1));
+                            }
                         });
                     }
                 }
@@ -146,6 +166,8 @@ RecvLoop::loop()
                             log_info << "SST script stopped";
                             sst_err_log.join();
                             sst_out_log.join();
+                            sst_status_keep_running = false;
+                            sst_status_thread.join();
                             log_info << "Exiting main loop";
                             return ret;
                         } else {
@@ -157,6 +179,8 @@ RecvLoop::loop()
                             p.terminate();
                             sst_err_log.join();
                             sst_out_log.join();
+                            sst_status_keep_running = false;
+                            sst_status_thread.join();
                             log_info << "Exiting main loop";
                             return 1;
                         }
