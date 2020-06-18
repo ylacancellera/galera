@@ -619,9 +619,15 @@ if strict_build_flags == 1:
         # CXX may be something like "ccache clang++"
         if 'ccache' in conf.env['CXX'] or 'ccache' in conf.env['CC']:
             conf.env.Append(CCFLAGS = ' -Qunused-arguments')
+
 # Enable libstdc++ assertions in debug build.
 if int(debug) >= 0:
-    conf.env.Append(CXXFLAGS = " -D_GLIBCXX_ASSERTIONS")
+    # Skip this flag for CentOS-6 and CentOS-7
+    plat = platform.platform().lower()
+    if 'centos-6' in plat or 'centos-7' in plat:
+        print('Skipping flag _GLIBCXX_ASSERTIONS for ' + plat)
+    else:
+        conf.env.Append(CXXFLAGS = " -D_GLIBCXX_ASSERTIONS")
 
 if conf.CheckWeffcpp():
     conf.env.Prepend(CXXFLAGS = '-Weffc++ ')
