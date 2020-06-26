@@ -1660,14 +1660,8 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 
     if (view_info.view >= 0) // Primary configuration
     {
-<<<<<<< HEAD
-||||||| merged common ancestors
-        establish_protocol_versions (repl_proto);
-
-=======
         GU_DBUG_SYNC_WAIT("process_primary_configuration");
 
->>>>>>> release_25.3.30
         // we have to reset cert initial position here, SST does not contain
         // cert index yet (see #197).
         // Also this must be done before releasing GCache buffers.
@@ -2011,41 +2005,7 @@ wsrep_status_t galera::ReplicatorSMM::cert(TrxHandle* trx)
             }
             break;
         case Certification::TEST_FAILED:
-<<<<<<< HEAD
-#if 0
-            if (gu_unlikely(trx->is_toi() && applicable)) // small sanity check
-||||||| merged common ancestors
-            if (gu_unlikely(trx->is_toi() && applicable)) // small sanity check
-=======
             if (gu_unlikely(trx->is_toi())) // small sanity check
->>>>>>> release_25.3.30
-            {
-                // In some rare scenarios (e.g., when we have multiple
-                // transactions awaiting certification, and the last
-                // node remaining in the cluster becomes PRIMARY due
-                // to the failure of the previous primary node and
-                // the assign_initial_position() was called), sequence
-                // number mismatch occurs on configuration change and
-                // then certification was failed. We cannot move server
-                // forward (with last_seen_seqno < initial_position,
-                // see galera::Certification::do_test() for details)
-                // to avoid potential data loss, and hence will have
-                // to shut it down. Before shutting it down, we need
-                // to mark state as unsafe to trigger SST at next
-                // server restart.
-                log_fatal << "Certification failed for TO isolated action: "
-                          << *trx;
-                st_.mark_unsafe();
-                local_monitor_.leave(lo);
-                abort();
-            }
-#endif
-            /* Code above fails to handle TOI (read DDL) transaction
-            as DDL are non-atomic and so can't be rolled back in case of
-            certification failure. But given the TOI flow, certification
-            checks are done well before the real-action starts and so
-            error returned at stage shouldn't cause any rollback for TOI/DDL. */
-            if (gu_unlikely(trx->is_toi() && applicable))
                 log_info << "Certification failed for TO isolated action: "
                           << *trx;
             else

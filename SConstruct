@@ -76,12 +76,8 @@ Commandline Options:
     static_ssl=path     a path to static SSL libraries
     extra_sysroot=path  a path to extra development environment (Fink, Homebrew, MacPorts, MinGW)
     bits=[32bit|64bit]
-<<<<<<< HEAD
     psi=[0|1]           instrument galera mutexes/cond-vars using mysql psi (only with pxc-5.7+)
-||||||| merged common ancestors
-=======
     install=path        install files under path
->>>>>>> release_25.3.30
 ''')
 # bpostatic option added on Percona request
 
@@ -163,19 +159,12 @@ strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 static_ssl = ARGUMENTS.get('static_ssl', None)
 install = ARGUMENTS.get('install', None)
 
-<<<<<<< HEAD
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
     opt_flags = opt_flags + ' -DHAVE_PSI_INTERFACE'
 
-GALERA_VER = ARGUMENTS.get('version', '3.43')
-||||||| merged common ancestors
-
-GALERA_VER = ARGUMENTS.get('version', '3.29')
-=======
-GALERA_VER = ARGUMENTS.get('version', '3.30')
->>>>>>> release_25.3.30
+GALERA_VER = ARGUMENTS.get('version', '3.45')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given

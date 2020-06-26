@@ -176,15 +176,7 @@ struct gcs_conn
 
     /* #603, #606 join control */
     gcs_seqno_t volatile join_seqno;
-<<<<<<< HEAD
-    void        join_notification()
-    {
-        need_to_join = true;
-    }
-||||||| merged common ancestors
-=======
     bool        volatile need_to_join;
->>>>>>> release_25.3.30
 
     /* sync control */
     bool         sync_sent_;
@@ -2079,7 +2071,6 @@ gcs_set_last_applied (gcs_conn_t* conn, gcs_seqno_t seqno)
 long
 gcs_join (gcs_conn_t* conn, gcs_seqno_t const seqno)
 {
-<<<<<<< HEAD
     // Even when node is evicted from the cluster in middle of SST,
     // the SST may completes normally. After this, the node calls
     // the gcs_join function and tries to join the cluster. However,
@@ -2091,10 +2082,10 @@ gcs_join (gcs_conn_t* conn, gcs_seqno_t const seqno)
     // To do this, we should check the current connection state
     // in the gcs_join() function to return from it immediately
     // if the node's communication channel was closed:
-||||||| merged common ancestors
-    conn->join_seqno   = seqno;
-    conn->need_to_join = true;
-=======
+    if (conn->state >= GCS_CONN_CLOSED) {
+        return GCS_CLOSED_ERROR;
+    }
+
     assert(conn->join_seqno <= seqno || seqno < 0);
 
     if (seqno < 0 || seqno >= conn->join_seqno)
@@ -2103,24 +2094,8 @@ gcs_join (gcs_conn_t* conn, gcs_seqno_t const seqno)
         conn->need_to_join = true;
         return s_join (conn);
     }
->>>>>>> release_25.3.30
 
-<<<<<<< HEAD
-    if (conn->state < GCS_CONN_CLOSED)
-    {
-        conn->join_seqno   = seqno;
-        conn->need_to_join = true;
-        return _join (conn, seqno);
-    }
-    else
-    {
-        return GCS_CLOSED_ERROR;
-    }
-||||||| merged common ancestors
-    return _join (conn, seqno);
-=======
     return 0;
->>>>>>> release_25.3.30
 }
 
 gcs_seqno_t gcs_local_sequence(gcs_conn_t* conn)

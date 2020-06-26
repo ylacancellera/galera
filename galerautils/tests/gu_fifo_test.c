@@ -33,17 +33,13 @@ START_TEST (gu_fifo_test)
     fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for an empty FIFO",
              gu_fifo_length(fifo));
 
-<<<<<<< HEAD
     fail_if (gu_fifo_max_length(fifo) < FIFO_LENGTH);
 
-||||||| merged common ancestors
-=======
     mark_point();
     gu_fifo_clear(fifo); // clear empty fifo
     fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for a cleared FIFO",
              gu_fifo_length(fifo));
 
->>>>>>> release_25.3.30
     // fill FIFO
     for (i = 0; i < FIFO_LENGTH; i++) {
         item = gu_fifo_get_tail (fifo);
@@ -315,12 +311,7 @@ Suite *gu_fifo_suite(void)
     suite_add_tcase (s, tc);
     tcase_add_test  (tc, gu_fifo_test);
     tcase_add_test  (tc, gu_fifo_cancel_test);
-<<<<<<< HEAD
     tcase_add_test  (tc, gu_fifo_wrap_around_test);
-||||||| merged common ancestors
-=======
-
->>>>>>> release_25.3.30
     return s;
 }
 

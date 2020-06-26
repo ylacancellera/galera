@@ -20,7 +20,6 @@ ReplicatorSMM::state_transfer_required(const wsrep_view_info_t& view_info)
             wsrep_seqno_t const group_seqno(view_info.state_id.seqno);
             wsrep_seqno_t const local_seqno(STATE_SEQNO());
 
-<<<<<<< HEAD
             if (state_() >= S_JOINING) /* See #442 - S_JOINING should be
                                           a valid state here */
             {
@@ -46,32 +45,8 @@ ReplicatorSMM::state_transfer_required(const wsrep_view_info_t& view_info)
                     abort();
                 }
 
-                return (local_seqno != group_seqno);
-            }
-||||||| merged common ancestors
-            if (state_() >= S_JOINING) /* See #442 - S_JOINING should be
-                                          a valid state here */
-            {
                 return (local_seqno < group_seqno);
             }
-            else
-            {
-                if (local_seqno > group_seqno)
-                {
-                    close();
-                    gu_throw_fatal
-                        << "Local state seqno (" << local_seqno
-                        << ") is greater than group seqno (" <<group_seqno
-                        << "): states diverged. Aborting to avoid potential "
-                        << "data loss. Remove '" << state_file_
-                        << "' file and restart if you wish to continue.";
-                }
-
-                return (local_seqno != group_seqno);
-            }
-=======
-            return (local_seqno < group_seqno);
->>>>>>> release_25.3.30
         }
 
         return true;
@@ -839,19 +814,12 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
         st_.mark_unsafe();
     }
 
-<<<<<<< HEAD
+    GU_DBUG_SYNC_WAIT("before_send_state_request");
+
     // We must set SST state to "wait" before
     // sending request, to avoid racing condition
     // in the sst_received.
-||||||| merged common ancestors
-    send_state_request (req);
-=======
-    GU_DBUG_SYNC_WAIT("before_send_state_request");
-    send_state_request (req);
->>>>>>> release_25.3.30
-
     sst_state_ = SST_WAIT;
-<<<<<<< HEAD
 
     // We should not wait for completion of the SST or to handle it
     // results if an error has occurred when sending the request:
@@ -873,11 +841,9 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     GU_DBUG_SYNC_WAIT("after_send_state_request");
 
     state_.shift_to(S_JOINING);
-||||||| merged common ancestors
-=======
+
     GU_DBUG_SYNC_WAIT("after_shift_to_joining");
 
->>>>>>> release_25.3.30
     /* while waiting for state transfer to complete is a good point
      * to reset gcache, since it may involve some IO too */
     gcache_.seqno_reset(to_gu_uuid(group_uuid), group_seqno);
