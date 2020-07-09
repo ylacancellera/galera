@@ -1,4 +1,4 @@
-// Copyright (C) 2007-2017 Codership Oy <info@codership.com>
+// Copyright (C) 2007-2020 Codership Oy <info@codership.com>
 
 // $Id$
 
@@ -35,6 +35,11 @@ START_TEST (gu_fifo_test)
 
     fail_if (gu_fifo_max_length(fifo) < FIFO_LENGTH);
 
+    mark_point();
+    gu_fifo_clear(fifo); // clear empty fifo
+    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for a cleared FIFO",
+             gu_fifo_length(fifo));
+
     // fill FIFO
     for (i = 0; i < FIFO_LENGTH; i++) {
         item = gu_fifo_get_tail (fifo);
@@ -44,7 +49,24 @@ START_TEST (gu_fifo_test)
     }
 
     used = i;
-    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu", 
+    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu",
+             used, gu_fifo_length(fifo));
+
+    mark_point();
+    gu_fifo_clear(fifo); // clear filled fifo
+    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for a cleared FIFO",
+             gu_fifo_length(fifo));
+
+    // fill FIFO again
+    for (i = 0; i < FIFO_LENGTH; i++) {
+        item = gu_fifo_get_tail (fifo);
+        fail_if (item == NULL, "could not get item %ld", i);
+        *item = i;
+        gu_fifo_push_tail (fifo);
+    }
+
+    used = i;
+    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu",
              used, gu_fifo_length(fifo));
 
     // test pop
