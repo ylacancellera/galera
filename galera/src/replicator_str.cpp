@@ -70,7 +70,7 @@ ReplicatorSMM::sst_received(const wsrep_gtid_t& state_id,
                             int                const rcode)
 {
 #ifdef PXC
-    if (rcode != -ECANCELED)
+    if (rcode != -ECANCELED && rcode != -EPIPE)
     {
         log_info << "SST received: " << state_id.uuid << ':' << state_id.seqno;
     }
@@ -105,6 +105,19 @@ ReplicatorSMM::sst_received(const wsrep_gtid_t& state_id,
     sst_cond_.signal();
 
 #ifdef PXC
+    // If the donor server crashed while SST is in progress, then SST script
+    // aborts with error 32 (Broken pipe) after the timeout is exceeded.  When
+    // this happens there is nothing that we can to do recover. So, we must
+    // abort.
+    if (rcode == -EPIPE)
+    {
+        log_fatal << "State transfer request failed unrecoverably: "
+                  << -rcode << " (" << strerror(-rcode) << "). Most likely "
+                  << "it is due to inability to communicate with the "
+                  << "cluster primary component. Restart required.";
+        abort();
+    }
+
     // We need to check the state only after we signalized about completion
     // of the SST - otherwise the request_state_transfer() function will be
     // infinitely wait on the sst_cond_ condition variable, for which no one
@@ -960,7 +973,11 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
 
     StateRequest* const req(prepare_state_request(sst_req, sst_req_len,
                                                   group_uuid, cc_seqno));
+#ifdef PXC
+    sst_mutex_.lock();
+#else
     gu::Lock sst_lock(sst_mutex_);
+#endif /* PXC */
     sst_received_ = false;
 
 #ifdef PXC
@@ -994,6 +1011,19 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     // in the sst_received.
     sst_state_ = SST_WAIT;
 
+    // We need to release the mutex before sending the request. This is
+    // necessary to avoid the server hang in case of a failure during the
+    // initial stage of SST.
+    //
+    // Server hang is possible in below case
+    //
+    // - When donor is killed during the initial stage of SST (during metadata
+    //   transfer), the sst_joiner_thread shall be waiting for the sst_mutex_
+    //   in sst_recieved().
+    // - Applier thread shall be holding the sst_mutex_ and be waiting
+    //   for the state transfer to finish.
+    sst_mutex_.unlock();
+
     // We should not wait for completion of the SST or to handle it
     // results if an error has occurred when sending the request:
 
@@ -1012,6 +1042,9 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     }
 
     GU_DBUG_SYNC_WAIT("after_send_state_request");
+    // Re-acquire the mutex till the end.
+    gu::Lock sst_lock(sst_mutex_);
+
     state_.shift_to(S_JOINING);
     sst_seqno_ = WSREP_SEQNO_UNDEFINED;
 #else
