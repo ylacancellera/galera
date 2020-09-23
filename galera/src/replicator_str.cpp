@@ -342,6 +342,35 @@ ReplicatorSMM::donate_sst(void* const         recv_ctx,
     /* The fix to codership/galera#284 may break backward comatibility due to
      * different (now correct) interpretation of retrun value. Default to old
      * interpretation which is forward compatible with the new one. */
+
+    /* Backward compatibility means: WSREP API v25 + API client
+     * (sst_donate_cb) that returns positive values in case of success.
+     * Before commit 3fd754250bc1ef4e0459848d4a390609f311c45a (galera),
+     * results >= 0 returned by API client were considered to be success.
+     * Before commit 6d1e77ad1399e9558462f56fa9e36a3217622bb1 (API client),
+     * wsrep_sst_donate_cb() returned WSREP_CB_FAILURE (1) also in case of
+     * success.
+     * So both above fit.
+     *
+     * Commit  3fd754250bc1ef4e0459848d4a390609f311c45a (galera) fixed
+     * handling of errors returned by API client. Values > 0
+     * (WSREP_CB_FAILURE) are considered to be failure and 0
+     * (WSREP_CB_SUCCESS) is considered to be success.
+     * Commit 6d1e77ad1399e9558462f56fa9e36a3217622bb1 (API client) fixed
+     * return code returned by wsrep_sst_donate_cb(). It returns
+     * WSREP_CB_SUCCESS(0) or WSREP_CB_FAILURE (1).
+     * So both above fit again.
+     *
+     * However, everything happened without increasing wsrep API version.
+     * If we use client without the fix and galera with fix, both don't fit
+     * as client returns 1 (WSREP_CB_FAILURE) in case of success, and galera
+     * considers it as failure.
+     *
+     * Then we bumped wsrep API version
+     * (commit 89b9ad07dc92eae89b6d3746e40f6044da024ccd (wsrep-API))
+     * We have the client with the fix and it expects fixed galera,
+     * so we can safely enable the following fix. */
+#define NO_BACKWARD_COMPATIBILITY 1
 #if NO_BACKWARD_COMPATIBILITY
     wsrep_seqno_t const ret
         (WSREP_CB_SUCCESS == err ? state_id.seqno : -ECANCELED);
