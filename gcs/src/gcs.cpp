@@ -1306,6 +1306,14 @@ GCS_FIFO_PUSH_TAIL (gcs_conn_t* conn, ssize_t size)
     gu_fifo_push_tail(conn->recv_q);
 }
 
+static inline void
+GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
+{
+    assert (conn->recv_q_size >= size);
+    conn->recv_q_size -= size;
+    gu_fifo_pop_head (conn->recv_q);
+}
+
 /* Returns true if timeout was handled and false otherwise */
 static bool
 _handle_timeout (gcs_conn_t* conn)
@@ -1434,11 +1442,21 @@ _close(gcs_conn_t* conn, bool join_recv_thread)
 #ifdef GCS_FOR_GARB
         // We are at a state where both the gcomm thread and the receiver
         // thread are no longer running. Empty the contents of the receiver
-        // queue before we destroy the gcs object in gcs_destroy().
+        // queue and release the buffer before we destroy the gcs object in
+        // gcs_destroy().
         if (GCS_CONN_CLOSED == conn->state) {
-            while (gu_fifo_length(conn->recv_q) != 0) {
-                gu_fifo_lock(conn->recv_q);
-                gu_fifo_pop_head(conn->recv_q);
+            int err = 0;
+            struct gcs_recv_act* recv_act = nullptr;
+
+            // Reopen the queue if it is either in closed or in cancelled state (for getters).
+            gu_fifo_open(conn->recv_q);
+            while (gu_fifo_length(conn->recv_q) != 0 &&
+                   (recv_act = static_cast<gcs_recv_act*>
+                    (gu_fifo_get_head (conn->recv_q, &err))))
+            {
+                ::free(const_cast<void*>(recv_act->rcvd.act.buf));
+                recv_act->rcvd.act.buf = nullptr;
+                GCS_FIFO_POP_HEAD (conn, recv_act->rcvd.act.buf_len); // release the queue
             }
         }
 #endif /* GCS_FOR_GARB */
@@ -2111,14 +2129,6 @@ long gcs_desync (gcs_conn_t* conn, gcs_seqno_t& order)
     else {
         return ret;
     }
-}
-
-static inline void
-GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
-{
-    assert (conn->recv_q_size >= size);
-    conn->recv_q_size -= size;
-    gu_fifo_pop_head (conn->recv_q);
 }
 
 /* Returns when an action from another process is received */
