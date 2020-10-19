@@ -230,6 +230,29 @@ public:
 
     ~GCommConn()
     {
+        // We cannot call gcs_close() to perform cleanup if there is an
+        // exception. So, we need to explicity free the objects in the
+        // destructor.
+        if (tp_ != nullptr)
+        {
+            delete tp_;
+        }
+
+        mutex_.lock();
+        if (!terminated_)
+        {
+            {
+                gcomm::Critical<Protonet> crit(*net_);
+                log_info << "gcomm: terminating thread";
+                terminated_ = true;
+                notify();
+            }
+            mutex_.unlock();
+            log_info << "gcomm: joining thread";
+            gu_thread_join(thd_, 0);
+            mutex_.lock();
+        }
+        mutex_.unlock();
         delete net_;
     }
 

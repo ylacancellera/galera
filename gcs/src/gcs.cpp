@@ -1750,7 +1750,7 @@ long gcs_close (gcs_conn_t *conn)
 /* Frees resources associated with GCS connection handle */
 long gcs_destroy (gcs_conn_t *conn)
 {
-    long err;
+    long err = 0;
 
     gu_cond_t tmp_cond;
     gu_cond_init (&tmp_cond, NULL);
@@ -1762,14 +1762,8 @@ long gcs_destroy (gcs_conn_t *conn)
             if (GCS_CONN_CLOSED > conn->state)
                 gu_error ("Attempt to call gcs_destroy() before gcs_close(): "
                           "state = %d", conn->state);
-
-            gu_cond_destroy (&tmp_cond);
-
-            return -EBADFD;
+            err = -EBADFD;
         }
-
-        /* this should cancel all recv calls */
-        gu_fifo_destroy (conn->recv_q);
 
         gcs_shift_state (conn, GCS_CONN_DESTROYED);
         /* we must unlock the mutex here to allow unfortunate threads
@@ -1777,24 +1771,32 @@ long gcs_destroy (gcs_conn_t *conn)
     }
     else {
         gcs_sm_leave (conn->sm);
-        gu_cond_destroy (&tmp_cond);
         err = -EBADFD;
-        return err;
     }
 
     gu_cond_destroy (&tmp_cond);
     gcs_sm_destroy (conn->sm);
 
-    if ((err = gcs_fifo_lite_destroy (conn->repl_q))) {
-        gu_debug ("Error destroying repl FIFO: %d (%s)", err, strerror(-err));
-        return err;
+    /* this should cancel all recv calls */
+    gu_fifo_destroy (conn->recv_q);
+
+    if ((err = gcs_fifo_lite_destroy (conn->repl_q)))
+    {
+        gu_debug ("Error destroying repl FIFO: %ld (%s)", err, strerror(-err));
     }
 
-    if ((err = gcs_core_destroy (conn->core))) {
-        gu_debug ("Error destroying core: %d (%s)", err, strerror(-err));
-        return err;
+    if ((err = gcs_core_close(conn->core)))
+    {
+        gu_debug ("Failed to close GCS: error: %ld (%s)",-err, strerror(-err));
     }
 
+    /* gcs_core_destory() cleans up many other things along with destroying the
+     * gcs backend(GCommConn). So, it is still worth calling gcs_core_destroy()
+     * even after a failure in gcs_core_close() */
+    if ((err = gcs_core_destroy (conn->core)))
+    {
+        gu_debug ("Error destroying core: %ld (%s)", err, strerror(-err));
+    }
     /* This must not last for long */
     while (gu_mutex_destroy (&conn->fc_lock));
 
@@ -1802,7 +1804,7 @@ long gcs_destroy (gcs_conn_t *conn)
 
     gu_free (conn);
 
-    return 0;
+    return err;
 }
 
 /* Puts action in the send queue and returns */
