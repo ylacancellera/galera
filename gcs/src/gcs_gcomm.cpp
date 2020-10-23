@@ -238,6 +238,7 @@ public:
             delete tp_;
         }
 
+        bool unlock_needed = true;
         mutex_.lock();
         if (!terminated_)
         {
@@ -248,11 +249,14 @@ public:
                 notify();
             }
             mutex_.unlock();
+            unlock_needed = false;
             log_info << "gcomm: joining thread";
             gu_thread_join(thd_, 0);
-            mutex_.lock();
         }
-        mutex_.unlock();
+        if (unlock_needed)
+        {
+            mutex_.unlock();
+        }
         delete net_;
     }
 
