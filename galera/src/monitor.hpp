@@ -8,6 +8,7 @@
 #include "trx_handle.hpp"
 #include <gu_lock.hpp> // for gu::Mutex and gu::Cond
 #include <gu_limits.h>
+#include <gu_dbug.h>
 
 #include <vector>
 
@@ -175,7 +176,8 @@ namespace galera
 
             assert(obj_seqno > last_left_);
 
-            while (obj_seqno - last_left_ >= process_size_)
+            while (obj_seqno - last_left_ >= process_size_
+                  || GU_DBUG_EVALUATE_IF ("simulate_low_process_size", 1, 0))
                 // TODO: exit on error
             {
                 log_warn << "Trying to self-cancel seqno out of process "
