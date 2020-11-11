@@ -197,7 +197,7 @@ IST_determine_recv_addr (gu::Config& conf)
     {
         recv_addr = conf.get(galera::ist::Receiver::RECV_ADDR);
     }
-    catch (gu::NotFound&)
+    catch (gu::NotSet&)
     {
         try
         {
@@ -206,7 +206,7 @@ IST_determine_recv_addr (gu::Config& conf)
         catch (gu::NotSet&)
         {
             gu_throw_error(EINVAL)
-                << "Could not determine IST receinve address: '"
+                << "Could not determine IST receive address: '"
                 << galera::ist::Receiver::RECV_ADDR << "' not set.";
         }
     }
@@ -664,7 +664,7 @@ void galera::ist::Receiver::run()
                 else
                 {
                     ts->set_global_seqno(act.seqno_g);
-                    ts->mark_dummy(__LINE__);
+                    ts->mark_dummy_with_action(act.buf);
                 }
 
                 //log_info << "####### Passing WS " << act.seqno_g;
@@ -1063,7 +1063,8 @@ void* run_async_sender(void* arg)
 #endif /* PXC */
 
     log_info << "async IST sender starting to serve " << as->peer().c_str()
-             << " sending " << as->first() << "-" << as->last();
+             << " sending " << as->first() << "-" << as->last()
+             << ", preload starts from " << as->preload_start();
 
     wsrep_seqno_t join_seqno;
 
