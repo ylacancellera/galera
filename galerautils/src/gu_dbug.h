@@ -141,6 +141,10 @@ extern "C"
 
 #define GU_DBUG_EXECUTE(keyword,a1) \
         {if (_gu_db_on_) {if (_gu_db_keyword_ (keyword)) { a1 }}}
+#define GU_DBUG_EVALUATE(keyword,a1,a2) \
+        ((_gu_db_on_)? (_gu_db_keyword_ (keyword)? (a1) : (a2)) : false )
+#define GU_DBUG_EVALUATE_IF(keyword,a1,a2) \
+        ((_gu_db_on_)? (_gu_db_keyword_ (keyword)? (a1) : (a2)) : false )
 
 #define GU_DBUG_PRINT(keyword,arglist) \
         {if (_gu_db_on_) {_gu_db_pargs_(__LINE__,keyword); \
