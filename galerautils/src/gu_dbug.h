@@ -172,6 +172,8 @@ extern "C"
 #define GU_DBUG_RETURN(a1) return(a1)
 #define GU_DBUG_VOID_RETURN return
 #define GU_DBUG_EXECUTE(keyword,a1) {}
+#define GU_DBUG_EVALUATE(keyword,a1,a2) (a2)
+#define GU_DBUG_EVALUATE_IF(keyword,a1,a2) (a2)
 #define GU_DBUG_PRINT(keyword,arglist) {}
 #define GU_DBUG_PUSH(a1) {}
 #define GU_DBUG_POP() {}
