@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2016 Codership Oy <info@codership.com> */
+/* Copyright (C) 2011-2020 Codership Oy <info@codership.com> */
 
 #include "garb_recv_loop.hpp"
 
@@ -205,6 +205,10 @@ RecvLoop::loop()
 
             break;
         }
+        case GCS_ACT_INCONSISTENCY:
+            // something went terribly wrong, restart needed
+            gcs_.close();
+            return 2;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
         case GCS_ACT_FLOW:

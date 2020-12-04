@@ -11,14 +11,12 @@ namespace gcache
     void
     GCache::discard_buffer (BufferHeader* bh)
     {
-        // MEM and PAGE storage expect seqno_g to be SEQNO_ILL
-        // Do not set SEQNO_ILL for RB and allow it detecting released, but not discarded
-        // buffer. seqno_g will be set internally to SEQNO_ILL when the buffer is discarded.
+        bh->seqno_g = SEQNO_ILL; // will never be reused
         switch (bh->store)
         {
-        case BUFFER_IN_MEM:  bh->seqno_g = SEQNO_ILL; mem.discard (bh); break;
+        case BUFFER_IN_MEM:  mem.discard (bh); break;
         case BUFFER_IN_RB:   rb.discard  (bh); break;
-        case BUFFER_IN_PAGE: bh->seqno_g = SEQNO_ILL; ps.discard  (bh); break;
+        case BUFFER_IN_PAGE: ps.discard  (bh); break;
         default:
             log_fatal << "Corrupt buffer header: " << bh;
             abort();

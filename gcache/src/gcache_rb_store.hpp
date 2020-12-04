@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2020 Codership Oy <info@codership.com>
  */
 
 /*! @file ring buffer storage class */
@@ -42,16 +42,12 @@ namespace gcache
         {
             assert(bh->size > 0);
             assert(bh->seqno_g != SEQNO_NONE);
-            assert(bh->seqno_g != SEQNO_ILL);
             assert(bh->store == BUFFER_IN_RB);
             assert(bh->ctx == reinterpret_cast<BH_ctx_t>(this));
             assert(BH_is_released(bh)); // will be marked unreleased by caller
 
-            // Buffer goes from size_rnd_ -> size_used_
             size_used_ += bh->size;
-            size_rnd_ -= bh->size;
             assert(size_used_ <= size_cache_);
-            assert_size_free();
         }
 
         void  discard (BufferHeader* const bh)
@@ -59,20 +55,7 @@ namespace gcache
             assert (BH_is_released(bh));
             assert (BUFFER_IN_RB == bh->store);
 
-            // In general buffer should be released and then discarded,
-            // so seqno_g should be != SEQNO_ILL. During releasing, the buffer
-            // should have been marked as released and moved to size_rnd_.
-            // However, recover() marks buffers to be discarded with SEQNO_ILL
-            // leaving them in size_used_ not in size_rnd_.
-
-            // return this buffer to size_free_ pool
             size_free_ += bh->size;
-            if (bh->seqno_g != SEQNO_ILL){
-              // it was released, but not discarded so it was in size_rnd_
-              assert(size_rnd_ >= bh->size);
-              size_rnd_ -= bh->size;
-            }
-
             assert (size_free_ <= size_cache_);
 
             bh->seqno_g = SEQNO_ILL;
@@ -112,7 +95,6 @@ namespace gcache
         void assert_size_free() const
         {
 #ifndef NDEBUG
-            assert(size_used_ + size_free_ + size_rnd_ == size_cache_);
             if (next_ >= first_)
             {
                 /* start_  first_      next_    end_
@@ -162,6 +144,13 @@ namespace gcache
 
         void set_debug(int const dbg) { debug_ = dbg & DEBUG; }
 
+#ifdef GCACHE_RB_UNIT_TEST
+        ptrdiff_t offset(const void* const ptr) const
+        {
+            return static_cast<const uint8_t*>(ptr) - start_;
+        }
+#endif
+
     private:
 
         static size_t const PREAMBLE_LEN = 1024;
@@ -191,35 +180,9 @@ namespace gcache
         seqno_t            freeze_purge_at_seqno_;
 #endif /* PXC */
 
-        /*
-          Buffer can be in one of the following states:
-          active    - holds data
-          released  - holds data, however application is not interested with it right now.
-                      Can be discarded if application needs to store new data, but if not
-                      discarded yet, it can be repossesed and became 'active' 
-          discarded - application explicite claimed that will never be interested with this
-                      buffer again, so will never try to reposses it.
-
-          Cache buffer consists of the following 'areas':
-          (note that these are not real areas and nothing is moved. We just keep track
-          of counters that track how much memory is used to keep buffers in particular state)
-          size_free_  - memory that is not occupied by any buffer
-          size_used_  - 'active' buffers
-          size_rnd_   - 'released' but not 'discarded' buffers
-
-          size_trail_ - chunk of memory at the end of RB that is not large enough to hold
-                        the buffer. This size is includded in size_free_ calculation.
-
-          Buffer can be 'moved' between blocks like:
-          size_free_ -> size_used_ -> size_rnd_ -> size_free_
-                                                -> size_used_
-
-          size_cache_ = size_free_ + size_used_ + size_rnd_
-        */
         size_t       const size_cache_;
         size_t             size_free_;
         size_t             size_used_;
-        size_t             size_rnd_;
         size_t             size_trail_;
 
         int                debug_;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2010-2020 Codership Oy <info@codership.com>
  */
 
 #include "gcache_rb_store.hpp"
@@ -34,7 +34,6 @@ namespace gcache
 
         size_free_ = size_cache_;
         size_used_ = 0;
-        size_rnd_ = 0;
         size_trail_= 0;
 
         /* When doing complete/full reset ensure that gcache is cleared too.
@@ -94,7 +93,6 @@ namespace gcache
         size_cache_(end_ - start_ - sizeof(BufferHeader)),
         size_free_ (size_cache_),
         size_used_ (0),
-        size_rnd_ (0),
         size_trail_(0),
 //        mallocs_   (0),
 //        reallocs_  (0),
@@ -149,8 +147,6 @@ namespace gcache
                 switch (bh->store)
                 {
                 case BUFFER_IN_RB:
-                    // buffer is already released. discard() will return it
-                    // to size_free_ and if needed wil remove it from size_rnd_
                     discard(bh);
                     break;
                 case BUFFER_IN_MEM:
@@ -339,21 +335,13 @@ namespace gcache
         assert(BH_is_released(bh));
 
         assert(size_used_ >= bh->size);
-
-        // Release used buffer. Move size_used_ -> size_rnd_
         size_used_ -= bh->size;
-        size_rnd_ += bh->size;
 
-        // Free just allocated, never used buffer. 
-        // Discard it after releasing.
-        // (move from size_rnd_ -> size_free_)
         if (SEQNO_NONE == bh->seqno_g)
         {
-            // move it as it was really released prior to discard.
-            discard (bh);
             empty_buffer(bh);
+            discard (bh);
         }
-        assert_size_free();
     }
 
     void*
@@ -423,8 +411,6 @@ namespace gcache
     void
     RingBuffer::estimate_space(bool zero_out)
     {
-        assert(size_rnd_ == 0);
-
         /* Estimate how much space remains */
         if (first_ < next_)
         {
@@ -466,28 +452,25 @@ namespace gcache
 
         if (size_cache_ == size_free_) return;
 
-        /* Find the last seqno'd RB buffer. It is likely to be close to the
-         * end of released buffers chain. */
+        /* Invalidate seqnos for all ordered buffers (so that they can't be
+         * recovered on restart. Also find the last seqno'd RB buffer. */
         BufferHeader* bh(0);
 
-        for (seqno2ptr_t::reverse_iterator r(seqno2ptr_.rbegin());
-             r != seqno2ptr_.rend(); ++r)
+        for (seqno2ptr_t::iterator i(seqno2ptr_.begin());
+             i != seqno2ptr_.end(); ++i)
         {
-            BufferHeader* const b(ptr2BH(r->second));
+            BufferHeader* const b(ptr2BH(i->second));
             if (BUFFER_IN_RB == b->store)
             {
 #ifndef NDEBUG
                 if (!BH_is_released(b))
                 {
-                    log_fatal << "Buffer "
-                              << reinterpret_cast<const void*>(r->second)
-                              << ", seqno_g " << b->seqno_g
-                              << " is not released.";
+                    log_fatal << "Buffer " << b << " is not released.";
                     assert(0);
                 }
 #endif
+                b->seqno_g = SEQNO_NONE;
                 bh = b;
-                break;
             }
         }
 
@@ -535,14 +518,6 @@ namespace gcache
         assert ((BH_cast(first_))->seqno_g == SEQNO_NONE);
         assert (!BH_is_released(BH_cast(first_)));
 
-        // The first of above while loops just jumped over released buffers
-        // so we lost the information how much we discarded 
-        // (how much we moved from size_rnd_ -> size_free_)
-        // If we were forward iterating we would adjust size_rnd_ and size_free_
-        // on each iteration, but we just jumped it over.
-        // At this point anyway first_ points to the first active buffer
-        // and we do not have released but not discarded buffers.
-        size_rnd_ = 0;
         estimate_space(zero_out);
 
         log_info << "GCache DEBUG: RingBuffer::seqno_reset(): discarded "
@@ -566,12 +541,12 @@ namespace gcache
             {
                 total++;
 
-                if (bh->seqno_g != SEQNO_ILL)
+                if (bh->seqno_g != SEQNO_NONE)
                 {
                     // either released or already discarded buffer
                     assert (BH_is_released(bh));
-                    discard (bh);
                     empty_buffer(bh);
+                    discard (bh);
                     locked++;
                 }
                 else
@@ -613,7 +588,6 @@ namespace gcache
             << "\nnext   : " << next_  - start_
             << "\nsize   : " << size_cache_
             << "\nfree   : " << size_free_
-            << "\nrnd    : " << size_rnd_
             << "\nused   : " << size_used_;
     }
 
@@ -1127,27 +1101,22 @@ namespace gcache
                 if (gu_likely(bh->size > 0))
                 {
                     total++;
-                    if (gu_unlikely(SEQNO_ILL == bh->seqno_g))
+
+                    if (gu_likely(bh->seqno_g > 0))
                     {
-                        locked++;
-                        // Above we marked buffers that we want discard with SEQNO_ILL
-                        // We move buffer from size_used_ -> size_free_
-                        discard(bh);
-                        size_used_ -= bh->size;
+                        free(bh); // on recovery no buffer is used
                     }
                     else
                     {
-                        if(BH_is_released(bh)) 
-                        {
-                            // All buffers are marked as BUFFER_RELEASED in scan()
-                            // so if we are not discarding this buffer, it means that 
-                            // it goes to size_rnd_
-                            // We move buffer from size_used_ -> size_rnd_
-                            size_rnd_ += bh->size;
-                            size_used_ -= bh->size;
-                        }
+                        /* anything that is not ordered must be discarded */
+                        assert(SEQNO_NONE == bh->seqno_g ||
+                               SEQNO_ILL  == bh->seqno_g);
+                        locked++;
+                        empty_buffer(bh);
+                        discard(bh);
+                        size_used_ -= bh->size;
+                        // size_free_ is taken care of in discard()
                     }
-                    assert_size_free();                    
 
                     bh = BH_next(bh);
                 }
@@ -1161,10 +1130,13 @@ namespace gcache
 
             progress.finish();
 
+            /* No buffers on recovery should be in used state */
+            assert(0 == size_used_);
+
             log_info << "GCache DEBUG: RingBuffer::recover(): found "
                      << locked << '/' << total << " locked buffers";
-            log_info << "GCache DEBUG: RingBuffer::recover(): used space: "
-                     << size_used_ << '/' << size_cache_;
+            log_info << "GCache DEBUG: RingBuffer::recover(): free space: "
+                     << size_free_ << '/' << size_cache_;
 
             assert_sizes();
         }
