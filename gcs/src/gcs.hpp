@@ -423,14 +423,6 @@ typedef struct gcs_act_conf {
                                 *  incoming address, 8-byte cached seqno) */
 } gcs_act_conf_t;
 
-typedef struct gcs_backend_stats {
-    struct stats_t {
-        const char* key;
-        const char* value;
-    }* stats;
-    void* ctx;
-} gcs_backend_stats_t;
-
 struct gcs_stats
 {
     double    send_q_len_avg; //! average send queue length per send call
@@ -447,10 +439,17 @@ struct gcs_stats
     int       send_q_len;     //! current send queue length
     int       send_q_len_max; //! maximum send queue length
     int       send_q_len_min; //! minimum send queue length
+<<<<<<< HEAD
     long      fc_lower_limit; //! Flow-control interval lower limit
     long      fc_upper_limit; //! Flow-control interval upper limit
     int       fc_status;      //! Flow-control status (ON=1/OFF=0)
     gcs_backend_stats_t backend_stats; //! backend stats.
+||||||| 4e1a604e
+    gcs_backend_stats_t backend_stats; //! backend stats.
+=======
+    bool      fc_active;      //! flow control is currently active
+    bool      fc_requested;   //! flow control is requested by this node
+>>>>>>> release_25.3.31
 };
 
 /*! Fills stats struct */

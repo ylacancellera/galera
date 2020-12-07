@@ -338,6 +338,7 @@ ReplicatorSMM::donate_sst(void* const         recv_ctx,
     wsrep_cb_status const err(sst_donate_cb_(app_ctx_, recv_ctx,
                                              streq.sst_req(), streq.sst_len(),
                                              &state_id, 0, 0, bypass));
+<<<<<<< HEAD
 
     /* The fix to codership/galera#284 may break backward comatibility due to
      * different (now correct) interpretation of retrun value. Default to old
@@ -372,13 +373,16 @@ ReplicatorSMM::donate_sst(void* const         recv_ctx,
      * so we can safely enable the following fix. */
 #define NO_BACKWARD_COMPATIBILITY 1
 #if NO_BACKWARD_COMPATIBILITY
+||||||| 4e1a604e
+
+    /* The fix to codership/galera#284 may break backward comatibility due to
+     * different (now correct) interpretation of retrun value. Default to old
+     * interpretation which is forward compatible with the new one. */
+#if NO_BACKWARD_COMPATIBILITY
+=======
+>>>>>>> release_25.3.31
     wsrep_seqno_t const ret
         (WSREP_CB_SUCCESS == err ? state_id.seqno : -ECANCELED);
-#else
-    wsrep_seqno_t const ret
-        (int(err) >= 0 ? state_id.seqno : int(err));
-#endif /* NO_BACKWARD_COMPATIBILITY */
-
     if (ret < 0)
     {
         log_error << "SST " << (bypass ? "bypass " : "") << "failed: " << err;
@@ -440,9 +444,20 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
             {
                 log_info << "IST request: " << istr;
 
+                struct sgl
+                {
+                    gcache::GCache& gcache_;
+                    bool            unlock_;
+
+                    sgl(gcache::GCache& cache) : gcache_(cache), unlock_(false){}
+                    ~sgl() { if (unlock_) gcache_.seqno_unlock(); }
+                }
+                seqno_lock_guard(gcache_);
+
                 try
                 {
                     gcache_.seqno_lock(istr.last_applied() + 1);
+<<<<<<< HEAD
 
                     // We can use Galera debugging facility to simulate
                     // unexpected shift of the donor seqno:
@@ -450,6 +465,10 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     GU_DBUG_EXECUTE("simulate_seqno_shift",
                                     throw gu::NotFound(););
 #endif
+||||||| 4e1a604e
+=======
+                    seqno_lock_guard.unlock_ = true;
+>>>>>>> release_25.3.31
                 }
                 catch(gu::NotFound& nf)
                 {
@@ -506,6 +525,9 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                          istr.last_applied() + 1,
                                          cc_seqno_,
                                          protocol_version_);
+
+                        // seqno will be unlocked when sender exists
+                        seqno_lock_guard.unlock_ = false;
                     }
                     catch (gu::Exception& e)
                     {
