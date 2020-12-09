@@ -244,18 +244,9 @@ namespace gcache
 
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS mtx;
-        gu::CondWithPFS  cond;
 #else
         gu::Mutex       mtx;
-<<<<<<< HEAD
-        gu::Cond        cond;
 #endif /* HAVE_PSI_INTERFACE */
-
-||||||| 4e1a604e
-        gu::Cond        cond;
-=======
->>>>>>> release_25.3.31
-
         seqno2ptr_t     seqno2ptr;
         gu::UUID        gid;
 

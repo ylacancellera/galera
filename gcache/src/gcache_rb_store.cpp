@@ -108,24 +108,16 @@ namespace gcache
     {
         for (seqno2ptr_t::iterator i(i_begin); i != i_end;)
         {
-<<<<<<< HEAD
             /* Skip purge from this seqno onwards. */
-            if (skip_purge(i->first))
+            if (skip_purge(seqno2ptr_.index(i)))
                 return false;
 
-            seqno2ptr_t::iterator j(i); ++i;
-            BufferHeader* const bh (ptr2BH (j->second));
-||||||| 4e1a604e
-            seqno2ptr_t::iterator j(i); ++i;
-            BufferHeader* const bh (ptr2BH (j->second));
-=======
             seqno2ptr_t::iterator j(i);
 
             /* advance i to next set element skipping holes */
             do { ++i; } while ( i != i_end && !*i);
 
             BufferHeader* const bh(ptr2BH(*j));
->>>>>>> release_25.3.31
 
             if (gu_likely (BH_is_released(bh)))
             {

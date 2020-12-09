@@ -41,17 +41,11 @@ namespace gcache
 #endif
         while (seqno2ptr.index_begin() <= seqno && !seqno2ptr.empty())
         {
-<<<<<<< HEAD
             /* Skip purge from this seqno onwards. */
-            if (params.skip_purge(i->first))
+            if (params.skip_purge(seqno2ptr.index_begin()))
                 return false;
 
-            BufferHeader* bh(ptr2BH (i->second));
-||||||| 4e1a604e
-            BufferHeader* bh(ptr2BH (i->second));
-=======
             BufferHeader* const bh(ptr2BH(seqno2ptr.front()));
->>>>>>> release_25.3.31
 
             if (gu_likely(BH_is_released(bh)))
             {

@@ -42,19 +42,10 @@ namespace gcache
         params    (config, data_dir),
 #ifdef HAVE_PSI_INTERFACE
         mtx       (WSREP_PFS_INSTR_TAG_GCACHE_MUTEX),
-        cond      (WSREP_PFS_INSTR_TAG_GCACHE_CONDVAR),
 #else
         mtx       (),
-<<<<<<< HEAD
-        cond      (),
 #endif /* HAVE_PSI_INTERFACE */
-        seqno2ptr (),
-||||||| 4e1a604e
-        cond      (),
-        seqno2ptr (),
-=======
         seqno2ptr (SEQNO_NONE),
->>>>>>> release_25.3.31
         gid       (),
         mem       (params.mem_size(), seqno2ptr, params.debug()),
         rb        (params.rb_name(), params.rb_size(), seqno2ptr, gid,
