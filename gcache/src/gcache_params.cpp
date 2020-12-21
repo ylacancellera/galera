@@ -174,7 +174,7 @@ gcache::GCache::param_set (const std::string& key, const std::string& val)
          * and params. */
 
         if (val.compare("now") == 0)
-            seqno = (seqno2ptr.empty() ? 1 : seqno2ptr.begin()->first);
+            seqno = (seqno2ptr.empty() ? 1 : seqno2ptr.index_begin());
         else
         {
             seqno = gu::Config::from_config<seqno_t>(val);

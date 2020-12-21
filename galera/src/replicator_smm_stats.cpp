@@ -107,6 +107,8 @@ typedef enum status_vars
     STATS_FC_INTERVAL_LOW,
     STATS_FC_INTERVAL_HIGH,
     STATS_FC_STATUS,
+    STATS_FC_ACTIVE,
+    STATS_FC_REQUESTED,
     STATS_CERT_DEPS_DISTANCE,
     STATS_APPLY_OOOE,
     STATS_APPLY_OOOL,
@@ -166,6 +168,8 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
     { "flow_control_interval_low",WSREP_VAR_INT64,  { 0 }  },
     { "flow_control_interval_high",WSREP_VAR_INT64,  { 0 }, },
     { "flow_control_status",      WSREP_VAR_STRING, { 0 }  },
+    { "flow_control_active",      WSREP_VAR_STRING, { 0 }  },
+    { "flow_control_requested",   WSREP_VAR_STRING, { 0 }  },
     { "cert_deps_distance",       WSREP_VAR_DOUBLE, { 0 }  },
     { "apply_oooe",               WSREP_VAR_DOUBLE, { 0 }  },
     { "apply_oool",               WSREP_VAR_DOUBLE, { 0 }  },
@@ -255,6 +259,10 @@ galera::ReplicatorSMM::stats_get()
     sv[STATS_FC_INTERVAL_LOW     ].value._int64 = stats.fc_lower_limit;
     sv[STATS_FC_INTERVAL_HIGH    ].value._int64 = stats.fc_upper_limit;
     sv[STATS_FC_STATUS           ].value._string = (stats.fc_status ? "ON" : "OFF");
+    sv[STATS_FC_ACTIVE           ].value._string = stats.fc_active    ?
+        "true" : "false";
+    sv[STATS_FC_REQUESTED        ].value._string = stats.fc_requested ?
+        "true" : "false";
 
     double avg_cert_interval(0);
     double avg_deps_dist(0);

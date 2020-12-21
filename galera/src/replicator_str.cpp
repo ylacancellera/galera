@@ -20,33 +20,7 @@ ReplicatorSMM::state_transfer_required(const wsrep_view_info_t& view_info)
             wsrep_seqno_t const group_seqno(view_info.state_id.seqno);
             wsrep_seqno_t const local_seqno(STATE_SEQNO());
 
-            if (state_() >= S_JOINING) /* See #442 - S_JOINING should be
-                                          a valid state here */
-            {
-                return (local_seqno < group_seqno);
-            }
-            else
-            {
-                if (local_seqno > group_seqno)
-                {
-                    // Local state sequence number is greater than group
-                    // sequence number: states diverged on SST. We cannot
-                    // move server forward (with local_seqno > group_seqno)
-                    // to avoid potential data loss, and hence will have
-                    // to shut it down. User must to remove state file and
-                    // then restart server, if he/she wish to continue:
-                    close();
-                    gu_throw_fatal
-                        << "Local state seqno (" << local_seqno
-                        << ") is greater than group seqno (" <<group_seqno
-                        << "): states diverged. Aborting to avoid potential "
-                        << "data loss. Remove '" << state_file_
-                        << "' file and restart if you wish to continue.";
-                    abort();
-                }
-
-                return (local_seqno < group_seqno);
-            }
+            return (local_seqno < group_seqno);
         }
 
         return true;
@@ -338,47 +312,8 @@ ReplicatorSMM::donate_sst(void* const         recv_ctx,
     wsrep_cb_status const err(sst_donate_cb_(app_ctx_, recv_ctx,
                                              streq.sst_req(), streq.sst_len(),
                                              &state_id, 0, 0, bypass));
-
-    /* The fix to codership/galera#284 may break backward comatibility due to
-     * different (now correct) interpretation of retrun value. Default to old
-     * interpretation which is forward compatible with the new one. */
-
-    /* Backward compatibility means: WSREP API v25 + API client
-     * (sst_donate_cb) that returns positive values in case of success.
-     * Before commit 3fd754250bc1ef4e0459848d4a390609f311c45a (galera),
-     * results >= 0 returned by API client were considered to be success.
-     * Before commit 6d1e77ad1399e9558462f56fa9e36a3217622bb1 (API client),
-     * wsrep_sst_donate_cb() returned WSREP_CB_FAILURE (1) also in case of
-     * success.
-     * So both above fit.
-     *
-     * Commit  3fd754250bc1ef4e0459848d4a390609f311c45a (galera) fixed
-     * handling of errors returned by API client. Values > 0
-     * (WSREP_CB_FAILURE) are considered to be failure and 0
-     * (WSREP_CB_SUCCESS) is considered to be success.
-     * Commit 6d1e77ad1399e9558462f56fa9e36a3217622bb1 (API client) fixed
-     * return code returned by wsrep_sst_donate_cb(). It returns
-     * WSREP_CB_SUCCESS(0) or WSREP_CB_FAILURE (1).
-     * So both above fit again.
-     *
-     * However, everything happened without increasing wsrep API version.
-     * If we use client without the fix and galera with fix, both don't fit
-     * as client returns 1 (WSREP_CB_FAILURE) in case of success, and galera
-     * considers it as failure.
-     *
-     * Then we bumped wsrep API version
-     * (commit 89b9ad07dc92eae89b6d3746e40f6044da024ccd (wsrep-API))
-     * We have the client with the fix and it expects fixed galera,
-     * so we can safely enable the following fix. */
-#define NO_BACKWARD_COMPATIBILITY 1
-#if NO_BACKWARD_COMPATIBILITY
     wsrep_seqno_t const ret
         (WSREP_CB_SUCCESS == err ? state_id.seqno : -ECANCELED);
-#else
-    wsrep_seqno_t const ret
-        (int(err) >= 0 ? state_id.seqno : int(err));
-#endif /* NO_BACKWARD_COMPATIBILITY */
-
     if (ret < 0)
     {
         log_error << "SST " << (bypass ? "bypass " : "") << "failed: " << err;
@@ -440,6 +375,16 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
             {
                 log_info << "IST request: " << istr;
 
+                struct sgl
+                {
+                    gcache::GCache& gcache_;
+                    bool            unlock_;
+
+                    sgl(gcache::GCache& cache) : gcache_(cache), unlock_(false){}
+                    ~sgl() { if (unlock_) gcache_.seqno_unlock(); }
+                }
+                seqno_lock_guard(gcache_);
+
                 try
                 {
                     gcache_.seqno_lock(istr.last_applied() + 1);
@@ -450,6 +395,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     GU_DBUG_EXECUTE("simulate_seqno_shift",
                                     throw gu::NotFound(););
 #endif
+                    seqno_lock_guard.unlock_ = true;
                 }
                 catch(gu::NotFound& nf)
                 {
@@ -506,6 +452,9 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                          istr.last_applied() + 1,
                                          cc_seqno_,
                                          protocol_version_);
+
+                        // seqno will be unlocked when sender exists
+                        seqno_lock_guard.unlock_ = false;
                     }
                     catch (gu::Exception& e)
                     {

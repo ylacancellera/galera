@@ -16,78 +16,81 @@ START_TEST (gu_fifo_test)
     long used;
 
     fifo = gu_fifo_create (0, 1);
-    fail_if (fifo != NULL);
+    ck_assert(fifo == NULL);
 
     fifo = gu_fifo_create (1, 0);
-    fail_if (fifo != NULL);
+    ck_assert(fifo == NULL);
 
     fifo = gu_fifo_create (1, 1);
-    fail_if (fifo == NULL);
+    ck_assert(fifo != NULL);
     gu_fifo_close   (fifo);
     mark_point();
     gu_fifo_destroy (fifo);
     mark_point();
 
     fifo = gu_fifo_create (FIFO_LENGTH, sizeof(i));
-    fail_if (fifo == NULL);
-    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for an empty FIFO",
-             gu_fifo_length(fifo));
+    ck_assert(fifo != NULL);
+    ck_assert_msg(gu_fifo_length(fifo) == 0,
+                  "fifo->used is %lu for an empty FIFO",
+                  gu_fifo_length(fifo));
 
-    fail_if (gu_fifo_max_length(fifo) < FIFO_LENGTH);
+    ck_assert(gu_fifo_max_length(fifo) >= FIFO_LENGTH);
 
     mark_point();
     gu_fifo_clear(fifo); // clear empty fifo
-    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for a cleared FIFO",
-             gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == 0,
+                  "fifo->used is %lu for a cleared FIFO",
+                  gu_fifo_length(fifo));
 
     // fill FIFO
     for (i = 0; i < FIFO_LENGTH; i++) {
         item = gu_fifo_get_tail (fifo);
-        fail_if (item == NULL, "could not get item %ld", i);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
         *item = i;
         gu_fifo_push_tail (fifo);
     }
 
     used = i;
-    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu",
-             used, gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == used, "used is %zu, expected %zu",
+                  used, gu_fifo_length(fifo));
 
     mark_point();
     gu_fifo_clear(fifo); // clear filled fifo
-    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for a cleared FIFO",
-             gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == 0,
+                  "fifo->used is %lu for a cleared FIFO",
+                  gu_fifo_length(fifo));
 
     // fill FIFO again
     for (i = 0; i < FIFO_LENGTH; i++) {
         item = gu_fifo_get_tail (fifo);
-        fail_if (item == NULL, "could not get item %ld", i);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
         *item = i;
         gu_fifo_push_tail (fifo);
     }
 
     used = i;
-    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu",
-             used, gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == used, "used is %zu, expected %zu",
+                  used, gu_fifo_length(fifo));
 
     // test pop
     for (i = 0; i < used; i++) {
         int err;
         item = gu_fifo_get_head (fifo, &err);
-        fail_if (item == NULL, "could not get item %ld", i);
-        fail_if (*item != (ulong)i, "got %ld, expected %ld", *item, i);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
+        ck_assert_msg(*item == (ulong)i, "got %ld, expected %ld", *item, i);
         gu_fifo_pop_head (fifo);
     }
 
-    fail_if (gu_fifo_length(fifo) != 0,
-             "gu_fifo_length() for empty queue is %ld",
-             gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == 0,
+                  "gu_fifo_length() for empty queue is %ld",
+                  gu_fifo_length(fifo));
 
     gu_fifo_close (fifo);
 
     int err;
     item = gu_fifo_get_head (fifo, &err);
-    fail_if (item != NULL);
-    fail_if (err  != -ENODATA);
+    ck_assert(item == NULL);
+    ck_assert(err  == -ENODATA);
 
     gu_fifo_destroy (fifo);
 }
@@ -116,8 +119,8 @@ cancel_thread (void* arg)
 
     /* try to get from non-empty queue */
     item = gu_fifo_get_head (q, &err);
-    fail_if (NULL != item, "Got item %p: %zu", item, item ? *item : 0);
-    fail_if (-ECANCELED != err);
+    ck_assert_msg(NULL == item, "Got item %p: %zu", item, item ? *item : 0);
+    ck_assert(-ECANCELED == err);
 
     /* signal end of the first gu_fifo_get_head() */
     gu_mutex_lock (&sync_mtx);
@@ -126,8 +129,8 @@ cancel_thread (void* arg)
     gu_cond_wait (&sync_cond, &sync_mtx);
 
     item = gu_fifo_get_head (q, &err);
-    fail_if (NULL == item);
-    fail_if (ITEM != *item);
+    ck_assert(NULL != item);
+    ck_assert(ITEM == *item);
     gu_fifo_pop_head (q);
 
     /* signal end of the 2nd gu_fifo_get_head() */
@@ -136,8 +139,8 @@ cancel_thread (void* arg)
 
     /* try to get from empty queue (should block) */
     item = gu_fifo_get_head (q, &err);
-    fail_if (NULL != item);
-    fail_if (-ECANCELED != err);
+    ck_assert(NULL == item);
+    ck_assert(-ECANCELED == err);
 
     /* signal end of the 3rd gu_fifo_get_head() */
     gu_mutex_lock (&sync_mtx);
@@ -146,8 +149,8 @@ cancel_thread (void* arg)
     gu_cond_wait (&sync_cond, &sync_mtx);
 
     item = gu_fifo_get_head (q, &err);
-    fail_if (NULL != item);
-    fail_if (-ECANCELED != err);
+    ck_assert(NULL == item);
+    ck_assert(-ECANCELED == err);
 
     /* signal end of the 4th gu_fifo_get_head() */
     gu_cond_signal (&sync_cond);
@@ -156,8 +159,8 @@ cancel_thread (void* arg)
     gu_mutex_unlock (&sync_mtx);
 
     item = gu_fifo_get_head (q, &err);
-    fail_if (NULL != item);
-    fail_if (-ENODATA != err);
+    ck_assert(NULL == item);
+    ck_assert(-ENODATA == err);
 
     return NULL;
 }
@@ -167,7 +170,7 @@ START_TEST(gu_fifo_cancel_test)
     gu_fifo_t* q = gu_fifo_create (FIFO_LENGTH, sizeof(size_t));
 
     size_t* item = gu_fifo_get_tail (q);
-    fail_if (item == NULL);
+    ck_assert(item != NULL);
     *item = ITEM;
     gu_fifo_push_tail (q);
 
@@ -182,9 +185,9 @@ START_TEST(gu_fifo_cancel_test)
 
     int err;
     err = gu_fifo_cancel_gets (q);
-    fail_if (0 != err);
+    ck_assert(0 == err);
     err = gu_fifo_cancel_gets (q);
-    fail_if (-EBADFD != err);
+    ck_assert(-EBADFD == err);
 
     /* allow the first gu_fifo_get_head() */
     gu_fifo_release (q);
@@ -195,9 +198,9 @@ START_TEST(gu_fifo_cancel_test)
     mark_point();
 
     err = gu_fifo_resume_gets (q);
-    fail_if (0 != err);
+    ck_assert(0 == err);
     err = gu_fifo_resume_gets (q);
-    fail_if (-EBADFD != err);
+    ck_assert(-EBADFD == err);
 
     /* signal that now gets are resumed */
     gu_cond_signal (&sync_cond);
@@ -210,7 +213,7 @@ START_TEST(gu_fifo_cancel_test)
     gu_fifo_lock(q);
     err = gu_fifo_cancel_gets (q);
     gu_fifo_release(q);
-    fail_if (0 != err);
+    ck_assert(0 == err);
 
     /* wait for the 3rd gu_fifo_get_head() to complete */
     gu_cond_wait (&sync_cond, &sync_mtx);
@@ -229,6 +232,8 @@ START_TEST(gu_fifo_cancel_test)
     mark_point();
 
     gu_thread_join(thread, NULL);
+
+    gu_fifo_destroy(q);
 }
 END_TEST
 
@@ -246,33 +251,33 @@ START_TEST(gu_fifo_wrap_around_test)
     #define FIFO_WRAP_LENGTH 2048
 
     fifo = gu_fifo_create (FIFO_WRAP_LENGTH, sizeof(i));
-    fail_if (fifo == NULL);
-    fail_if (gu_fifo_length(fifo) != 0, "fifo->used is %lu for an empty FIFO",
-             gu_fifo_length(fifo));
+    ck_assert(fifo != NULL);
+    ck_assert_msg(gu_fifo_length(fifo) == 0, "fifo->used is %lu for an empty FIFO",
+                  gu_fifo_length(fifo));
 
     /* fill FIFO */
     for (i = 0; i < FIFO_WRAP_LENGTH; i++) {
         item = gu_fifo_get_tail (fifo);
-        fail_if (item == NULL, "could not get item %ld", i);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
         *item = 0xCCCC;
         gu_fifo_push_tail (fifo);
     }
 
     used = i;
-    fail_if (gu_fifo_length(fifo) != used, "used is %zu, expected %zu", 
-             used, gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == used, "used is %zu, expected %zu",
+                  used, gu_fifo_length(fifo));
 
     /* run through the queue (ensure that we do gu_fifo_pop_head() at the
      * end of a row) */
     for (i = 0; i < FIFO_WRAP_LENGTH*2; i++) {
         int err;
         item = gu_fifo_get_head (fifo, &err);
-        fail_if (item == NULL, "could not get item %ld", i);
-        fail_if (*item != (ulong)0xCCCC, "got %ld, expected %lx", *item, 0xCCCC);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
+        ck_assert_msg(*item == (ulong)0xCCCC, "got %ld, expected %lx", *item, 0xCCCC);
         gu_fifo_pop_head (fifo);
 
         item = gu_fifo_get_tail (fifo);
-        fail_if (item == NULL, "could not get item %ld", i);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
         *item = 0xCCCC;
         gu_fifo_push_tail (fifo);
     }
@@ -282,21 +287,21 @@ START_TEST(gu_fifo_wrap_around_test)
     for (i = 0; i < used; i++) {
         int err;
         item = gu_fifo_get_head (fifo, &err);
-        fail_if (item == NULL, "could not get item %ld", i);
-        fail_if (*item != (ulong)0xCCCC, "got %ld, expected %lx", *item, 0xCCCC);
+        ck_assert_msg(item != NULL, "could not get item %ld", i);
+        ck_assert_msg(*item == (ulong)0xCCCC, "got %ld, expected %lx", *item, 0xCCCC);
         gu_fifo_pop_head (fifo);
     }
 
-    fail_if (gu_fifo_length(fifo) != 0,
-             "gu_fifo_length() for empty queue is %lx",
-             gu_fifo_length(fifo));
+    ck_assert_msg(gu_fifo_length(fifo) == 0,
+                  "gu_fifo_length() for empty queue is %lx",
+                  gu_fifo_length(fifo));
 
     gu_fifo_close (fifo);
 
     int err;
     item = gu_fifo_get_head (fifo, &err);
-    fail_if (item != NULL);
-    fail_if (err  != -ENODATA);
+    ck_assert(item == NULL);
+    ck_assert(err  == -ENODATA);
 
     gu_fifo_destroy (fifo);
 
@@ -312,6 +317,9 @@ Suite *gu_fifo_suite(void)
     tcase_add_test  (tc, gu_fifo_test);
     tcase_add_test  (tc, gu_fifo_cancel_test);
     tcase_add_test  (tc, gu_fifo_wrap_around_test);
+
+    tcase_set_timeout(tc, 60);
+
     return s;
 }
 

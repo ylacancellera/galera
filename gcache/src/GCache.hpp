@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2020 Codership Oy <info@codership.com>
  */
 
 #ifndef __GCACHE_H__
@@ -64,39 +64,39 @@ namespace gcache
          * Assign sequence number to buffer pointed to by ptr
          */
         void  seqno_assign (const void* ptr,
-                            int64_t     seqno_g,
-                            int64_t     seqno_d);
+                            seqno_t     seqno_g,
+                            seqno_t     seqno_d);
 
         /*!
          * Release (free) buffers up to seqno
          */
-        void seqno_release (int64_t seqno);
+        void seqno_release (seqno_t seqno);
 
         /*!
          * Returns smallest seqno present in history
          */
-        int64_t seqno_min() const
+        seqno_t seqno_min() const
         {
             gu::Lock lock(mtx);
             if (gu_likely(!seqno2ptr.empty()))
-                return seqno2ptr.begin()->first;
+                return seqno2ptr.index_begin();
             else
-                return -1;
+                return SEQNO_ILL;
         }
 
         /*!
          * Move lock to a given seqno.
          * @throws gu::NotFound if seqno is not in the cache.
          */
-        void  seqno_lock (int64_t const seqno_g);
+        void  seqno_lock (seqno_t const seqno_g);
 
         /*!          DEPRECATED
          * Get pointer to buffer identified by seqno.
          * Moves lock to the given seqno.
          * @throws NotFound
          */
-        const void* seqno_get_ptr (int64_t  seqno_g,
-                                   int64_t& seqno_d,
+        const void* seqno_get_ptr (seqno_t  seqno_g,
+                                   seqno_t& seqno_d,
                                    ssize_t& size);
 
         /*!
@@ -138,8 +138,8 @@ namespace gcache
                 return *this;
             }
 
-            int64_t           seqno_g() const { return seqno_g_; }
-            int64_t           seqno_d() const { return seqno_d_; }
+            seqno_t           seqno_g() const { return seqno_g_; }
+            seqno_t           seqno_d() const { return seqno_d_; }
             const gu::byte_t* ptr()     const { return ptr_;     }
             ssize_type        size()    const { return size_;    }
 
@@ -158,8 +158,8 @@ namespace gcache
 
         private:
 
-            int64_t           seqno_g_;
-            int64_t           seqno_d_;
+            seqno_t           seqno_g_;
+            seqno_t           seqno_d_;
             const gu::byte_t* ptr_;
             ssize_type        size_; /* same type as passed to malloc() */
 
@@ -173,7 +173,7 @@ namespace gcache
          *
          * @retval number of buffers filled (<= v.size())
          */
-        size_t seqno_get_buffers (std::vector<Buffer>& v, int64_t start);
+        size_t seqno_get_buffers (std::vector<Buffer>& v, seqno_t start);
 
         /*!
          * Releases any seqno locks present.
@@ -244,13 +244,9 @@ namespace gcache
 
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS mtx;
-        gu::CondWithPFS  cond;
 #else
         gu::Mutex       mtx;
-        gu::Cond        cond;
 #endif /* HAVE_PSI_INTERFACE */
-
-
         seqno2ptr_t     seqno2ptr;
         gu::UUID        gid;
 
@@ -262,9 +258,11 @@ namespace gcache
         long long       reallocs;
         long long       frees;
 
-        int64_t         seqno_locked;
-        int64_t         seqno_max;
-        int64_t         seqno_released;
+        seqno_t         seqno_max;
+        seqno_t         seqno_released;
+
+        seqno_t         seqno_locked;
+        int             seqno_locked_count;
 
 #ifndef NDEBUG
         std::set<const void*> buf_tracker;
@@ -273,10 +271,10 @@ namespace gcache
         void discard_buffer (BufferHeader* bh);
 
         /* returns true when successfully discards all seqnos up to s */
-        bool discard_seqno (int64_t s);
+        bool discard_seqno (seqno_t s);
 
         /* discards all seqnos greater than s */
-        void discard_tail (int64_t s);
+        void discard_tail (seqno_t s);
 
         // disable copying
         GCache (const GCache&);

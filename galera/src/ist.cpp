@@ -425,7 +425,13 @@ void galera::ist::Receiver::run()
         {
             gu::Lock lock(mutex_);
             while (ready_ == false && interrupted_ == false)
+            {
                 lock.wait(cond_);
+                if (interrupted_)
+                {
+                    goto Intrrupted;
+                }
+            }
         }
 
         gu::Progress<wsrep_seqno_t> progress(

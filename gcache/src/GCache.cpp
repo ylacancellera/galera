@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2018 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2020 Codership Oy <info@codership.com>
  */
 
 #include "GCache.hpp"
@@ -23,12 +23,13 @@ namespace gcache
         reallocs = 0;
         frees    = 0;
 
-        seqno_locked   = SEQNO_NONE;
+        gid            = gu::UUID();
         seqno_max      = SEQNO_NONE;
         seqno_released = SEQNO_NONE;
-        gid            = gu::UUID();
+        seqno_locked   = SEQNO_MAX;
+        seqno_locked_count = 0;
 
-        seqno2ptr.clear();
+        seqno2ptr.clear(SEQNO_NONE);
 
 #ifndef NDEBUG
         buf_tracker.clear();
@@ -41,12 +42,10 @@ namespace gcache
         params    (config, data_dir),
 #ifdef HAVE_PSI_INTERFACE
         mtx       (WSREP_PFS_INSTR_TAG_GCACHE_MUTEX),
-        cond      (WSREP_PFS_INSTR_TAG_GCACHE_CONDVAR),
 #else
         mtx       (),
-        cond      (),
 #endif /* HAVE_PSI_INTERFACE */
-        seqno2ptr (),
+        seqno2ptr (SEQNO_NONE),
         gid       (),
         mem       (params.mem_size(), seqno2ptr, params.debug()),
         rb        (params.rb_name(), params.rb_size(), seqno2ptr, gid,
@@ -62,10 +61,11 @@ namespace gcache
         mallocs   (0),
         reallocs  (0),
         frees     (0),
-        seqno_locked(SEQNO_NONE),
-        seqno_max   (seqno2ptr.empty() ?
-                     SEQNO_NONE : seqno2ptr.rbegin()->first),
-        seqno_released(seqno_max)
+        seqno_max     (seqno2ptr.empty() ?
+                       SEQNO_NONE : seqno2ptr.index_back()),
+        seqno_released(seqno_max),
+        seqno_locked  (SEQNO_MAX),
+        seqno_locked_count(0)
 #ifndef NDEBUG
         ,buf_tracker()
 #endif
