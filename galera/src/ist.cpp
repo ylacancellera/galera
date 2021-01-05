@@ -682,7 +682,13 @@ void galera::ist::Receiver::run()
             }
         }
 
+<<<<<<< HEAD
         if(progress) progress->finish();
+||||||| bf205c6e
+        progress->finish();
+=======
+        if (progress /* IST actually started */) progress->finish();
+>>>>>>> release_26.4.6
     }
     catch (asio::system_error& e)
     {
@@ -700,7 +706,6 @@ void galera::ist::Receiver::run()
     }
 
 err:
-    gcache_.seqno_unlock();
     delete progress;
     gu::Lock lock(mutex_);
     if (use_ssl_ == true)

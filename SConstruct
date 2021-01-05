@@ -80,6 +80,8 @@ Commandline Options:
     psi=[0|1]           instrument galera mutexes/cond-vars using mysql psi (only with pxc-5.7+)
     gcov=[True|False]   compile Galera for code coverage reporting
     install=path        install files under path
+    version_script=[0|1] Use version script (default 1)
+    crc32c_no_hardware=[0|1] disable building hardware support for CRC32C
 ''')
 # bpostatic option added on Percona request
 
@@ -120,7 +122,6 @@ build_dir = ARGUMENTS.get('build_dir', '')
 debug = ARGUMENTS.get('debug', -1)
 dbug  = ARGUMENTS.get('dbug', False)
 asan = ARGUMENTS.get('asan', 0)
-
 gcov = ARGUMENTS.get('gcov', False)
 
 debug_lvl = int(debug)
@@ -174,7 +175,9 @@ all_tests = int(ARGUMENTS.get('all_tests', 0))
 strict_build_flags = int(ARGUMENTS.get('strict_build_flags', 0))
 static_ssl = ARGUMENTS.get('static_ssl', None)
 install = ARGUMENTS.get('install', None)
+version_script = int(ARGUMENTS.get('version_script', 1))
 
+<<<<<<< HEAD
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
@@ -183,6 +186,11 @@ if psi:
 opt_flags = opt_flags + ' -DPXC'
 
 GALERA_VER = ARGUMENTS.get('version', '4.5')
+||||||| bf205c6e
+GALERA_VER = ARGUMENTS.get('version', '4.5')
+=======
+GALERA_VER = ARGUMENTS.get('version', '4.6')
+>>>>>>> release_26.4.6
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -297,6 +305,7 @@ if sysname != 'sunos':
 #env.Prepend(LINKFLAGS = '-Wl,--warn-common -Wl,--fatal-warnings ')
 if int(asan):
     env.Append(CCFLAGS = ' -fsanitize=address')
+    env.Append(CPPFLAGS = ' -DGALERA_WITH_ASAN')
     env.Append(LINKFLAGS = ' -fsanitize=address')
 
 if gcov:
@@ -688,7 +697,7 @@ elif conf.CheckSetTmpEcdh():
 
 # these will be used only with our software
 if strict_build_flags == 1:
-    conf.env.Append(CCFLAGS = ' -Werror -pedantic')
+    conf.env.Append(CCFLAGS = ' -Werror ')
     if 'clang' in cxx_version:
         conf.env.Append(CCFLAGS  = ' -Wno-self-assign')
         conf.env.Append(CCFLAGS  = ' -Wno-gnu-zero-variadic-macro-arguments')
@@ -717,7 +726,19 @@ print('Global flags:')
 for f in ['CFLAGS', 'CXXFLAGS', 'CCFLAGS', 'CPPFLAGS']:
     print(f + ': ' + env[f].strip())
 
+<<<<<<< HEAD
 Export('x86', 'bits', 'env', 'sysname', 'machine', 'libboost_program_options', 'install')
+||||||| bf205c6e
+Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options', 'install')
+=======
+Export('machine',
+       'x86',
+       'bits',
+       'env',
+       'sysname',
+       'libboost_program_options',
+       'install')
+>>>>>>> release_26.4.6
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
@@ -733,6 +754,11 @@ if sysname == 'darwin' and int(debug) >= 0 and int(debug) < 3:
 
 # Clone base from default environment
 check_env = env.Clone()
+
+if not x86:
+    # don't attempt to run the legacy protocol tests that use unaligned memory
+    # access on platforms that are not known to handle it well.
+    check_env.Append(CPPFLAGS = ' -DGALERA_ONLY_ALIGNED')
 
 conf = Configure(check_env)
 
@@ -772,7 +798,10 @@ conf = Configure(test_env, custom_tests = {
     'CheckVersionScript': CheckVersionScript,
 })
 
-has_version_script = conf.CheckVersionScript()
+if version_script:
+    has_version_script = conf.CheckVersionScript()
+else:
+    has_version_script = False
 conf.Finish()
 
 #
