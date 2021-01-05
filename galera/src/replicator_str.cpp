@@ -455,100 +455,86 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
     wsrep_seqno_t rcode (0);
     bool join_now = true;
 
-    if (streq->ist_len())
+    if (!skip_sst)
     {
+      if (streq->ist_len()) {
         IST_request istr;
         get_ist_request(streq, &istr);
 
-        if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0)
-        {
-            log_info << "IST request: " << istr;
+        if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0) {
+          log_info << "IST request: " << istr;
 
-            try
-            {
-                gcache_.seqno_lock(istr.last_applied() + 1);
+          try {
+            gcache_.seqno_lock(istr.last_applied() + 1);
 #ifdef PXC
-                    // We can use Galera debugging facility to simulate
-                    // unexpected shift of the donor seqno:
+            // We can use Galera debugging facility to simulate
+            // unexpected shift of the donor seqno:
 #ifdef GU_DBUG_ON
-                    GU_DBUG_EXECUTE("simulate_seqno_shift",
-                                    throw gu::NotFound(););
+            GU_DBUG_EXECUTE("simulate_seqno_shift", throw gu::NotFound(););
 #endif
 #endif /* PXC */
-            }
-            catch(gu::NotFound& nf)
-            {
-                log_info << "IST first seqno " << istr.last_applied() + 1
-                         << " not found from cache, falling back to SST";
-                // @todo: close IST channel explicitly
+          } catch (gu::NotFound &nf) {
+            log_info << "IST first seqno " << istr.last_applied() + 1
+                     << " not found from cache, falling back to SST";
+            // @todo: close IST channel explicitly
 #ifdef PXC
-                    // When new node joining the cluster, it may trying to avoid
-                    // unnecessary SST request. However, the heuristic algorithm,
-                    // which selects the donor node, does not give us a 100%
-                    // guarantee that seqno will not move forward while new
-                    // node sending its request (to joining the cluster).
-                    // Therefore, if seqno had gone forward, and if we have only
-                    // the IST request (without the SST part), then we need to
-                    // inform new node that it should prepare to receive full
-                    // state and re-send the SST request (if the server supports
-                    // it):
+            // When new node joining the cluster, it may trying to avoid
+            // unnecessary SST request. However, the heuristic algorithm,
+            // which selects the donor node, does not give us a 100%
+            // guarantee that seqno will not move forward while new
+            // node sending its request (to joining the cluster).
+            // Therefore, if seqno had gone forward, and if we have only
+            // the IST request (without the SST part), then we need to
+            // inform new node that it should prepare to receive full
+            // state and re-send the SST request (if the server supports
+            // it):
 
-                    if (streq->sst_len() == 0)
-                    {
-                        log_info << "IST cancelled because the donor seqno had "
-                                    "moved forward, but the SST request was not "
-                                    "prepared by the joiner node.";
-                        rcode = -ENODATA;
-                        goto out;
-                    }
+            if (streq->sst_len() == 0) {
+              log_info << "IST cancelled because the donor seqno had "
+                          "moved forward, but the SST request was not "
+                          "prepared by the joiner node.";
+              rcode = -ENODATA;
+              goto out;
+            }
 #endif /* PXC */
 
-                goto full_sst;
+            goto full_sst;
+          }
+
+          if (streq->sst_len())  // if joiner is waiting for SST, notify it
+          {
+            wsrep_gtid_t const state_id = {istr.uuid(), istr.last_applied()};
+
+            rcode = donate_sst(recv_ctx, *streq, state_id, true);
+
+            // we will join in sst_sent.
+            join_now = false;
+          }
+
+          if (rcode >= 0) {
+            wsrep_seqno_t const first(
+                (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
+                    ? istr.last_applied() + 1
+                    : std::min(cc_lowest_trx_seqno_, istr.last_applied() + 1));
+            try {
+              ist_senders_.run(config_, istr.peer(), first, cc_seqno_,
+                               cc_lowest_trx_seqno_,
+                               /* Historically IST messages versioned
+                                * with the global replicator protocol.
+                                * Need to keep it that way for backward
+                                * compatibility */
+                               protocol_version_);
+            } catch (gu::Exception &e) {
+              log_error << "IST failed: " << e.what();
+              rcode = -e.get_errno();
             }
+          } else {
+            log_error << "Failed to bypass SST";
+          }
 
-            if (streq->sst_len()) // if joiner is waiting for SST, notify it
-            {
-                wsrep_gtid_t const state_id =
-                    { istr.uuid(), istr.last_applied() };
-
-                rcode = donate_sst(recv_ctx, *streq, state_id, true);
-
-                // we will join in sst_sent.
-                join_now = false;
-            }
-
-            if (rcode >= 0)
-            {
-                wsrep_seqno_t const first
-                    ((str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0) ?
-                     istr.last_applied() + 1 :
-                     std::min(cc_lowest_trx_seqno_, istr.last_applied()+1));
-                try
-                {
-                    ist_senders_.run(config_,
-                                     istr.peer(),
-                                     first,
-                                     cc_seqno_,
-                                     cc_lowest_trx_seqno_,
-                                     /* Historically IST messages versioned
-                                      * with the global replicator protocol.
-                                      * Need to keep it that way for backward
-                                      * compatibility */
-                                     protocol_version_);
-                }
-                catch (gu::Exception& e)
-                {
-                    log_error << "IST failed: " << e.what();
-                    rcode = -e.get_errno();
-                }
-            }
-            else
-            {
-                log_error << "Failed to bypass SST";
-            }
-
-            goto out;
+          goto out;
         }
+      }
 
     full_sst:
 
