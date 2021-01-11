@@ -269,20 +269,12 @@ namespace gcache
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         gu::MutexWithPFS mtx;
-        gu::CondWithPFS  cond;
 #else
          gu::Mutex       mtx;
-         gu::Cond        cond;
 #endif /* HAVE_PSI_INTERFACE */
 #else
         gu::Mutex       mtx;
-<<<<<<< HEAD
-        gu::Cond        cond;
 #endif /* PXC */
-||||||| bf205c6e
-        gu::Cond        cond;
-=======
->>>>>>> release_26.4.6
 
         seqno2ptr_t     seqno2ptr;
         gu::UUID        gid;

@@ -126,31 +126,23 @@ namespace gcache
 
     /* discard all seqnos preceeding and including seqno */
     bool
-    RingBuffer::discard_seqnos(seqno2ptr_t::iterator const i_begin,
+    RingBuffer::discard_seqnos(seqno2ptr_t const& seq, seqno2ptr_t::iterator const i_begin,
                                seqno2ptr_t::iterator const i_end)
     {
         for (seqno2ptr_t::iterator i(i_begin); i != i_end;)
         {
-<<<<<<< HEAD
 #ifdef PXC
             /* Skip purge from this seqno onwards. */
-            if (skip_purge(i->first))
+            if (skip_purge(seq.index(i)))
                 return false;
 #endif /* PXC */
 
-            seqno2ptr_t::iterator j(i); ++i;
-            BufferHeader* const bh (ptr2BH (j->second));
-||||||| bf205c6e
-            seqno2ptr_t::iterator j(i); ++i;
-            BufferHeader* const bh (ptr2BH (j->second));
-=======
             seqno2ptr_t::iterator j(i);
 
             /* advance i to next set element skipping holes */
             do { ++i; } while ( i != i_end && !*i);
 
             BufferHeader* const bh(ptr2BH(*j));
->>>>>>> release_26.4.6
 
             if (gu_likely (BH_is_released(bh)))
             {

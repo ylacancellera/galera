@@ -1819,41 +1819,21 @@ long gcs_destroy (gcs_conn_t *conn)
             err = -EBADFD;
         }
 
-<<<<<<< HEAD
-||||||| bf205c6e
-        /* this should cancel all recv calls */
-        gu_fifo_destroy (conn->recv_q);
-
-=======
         gcs_sm_leave (conn->sm);
 
->>>>>>> release_26.4.6
         gcs_shift_state (conn, GCS_CONN_DESTROYED);
         /* we must unlock the mutex here to allow unfortunate threads
          * to acquire the lock and give up gracefully */
     }
     else {
-<<<<<<< HEAD
-        gcs_sm_leave (conn->sm);
-        err = -EBADFD;
-||||||| bf205c6e
-        gcs_sm_leave (conn->sm);
-        gu_cond_destroy (&tmp_cond);
-        err = -EBADFD;
-        return err;
-=======
         gu_debug("gcs_destroy: gcs_sm_enter() err = %d", err);
         // We should still cleanup resources
->>>>>>> release_26.4.6
     }
 
     gu_fifo_destroy (conn->recv_q);
 
     gu_cond_destroy (&tmp_cond);
     gcs_sm_destroy (conn->sm);
-
-    /* this should cancel all recv calls */
-    gu_fifo_destroy (conn->recv_q);
 
     if ((err = gcs_fifo_lite_destroy (conn->repl_q)))
     {
@@ -2487,18 +2467,15 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
-<<<<<<< HEAD
+
+    stats->fc_active   = conn->stop_count > 0;
+    stats->fc_requested= conn->stop_sent_ > 0;
 
 #ifdef PXC
     stats->fc_lower_limit = conn->lower_limit;
     stats->fc_upper_limit = conn->upper_limit;
     stats->fc_status = conn->stop_sent() > 0 ? 1 : 0;
 #endif /* PXC */
-||||||| bf205c6e
-=======
-    stats->fc_active   = conn->stop_count > 0;
-    stats->fc_requested= conn->stop_sent_ > 0;
->>>>>>> release_26.4.6
 }
 
 void

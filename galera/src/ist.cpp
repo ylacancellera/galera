@@ -667,7 +667,7 @@ void galera::ist::Receiver::run()
                     ts->mark_dummy_with_action(act.buf);
                 }
 
-                //log_info << "####### Passing WS " << act.seqno_g;
+                log_info << "####### Passing WS " << act.seqno_g;
                 handler_.ist_trx(ts, must_apply, preload);
                 break;
             }
@@ -682,13 +682,7 @@ void galera::ist::Receiver::run()
             }
         }
 
-<<<<<<< HEAD
-        if(progress) progress->finish();
-||||||| bf205c6e
-        progress->finish();
-=======
         if (progress /* IST actually started */) progress->finish();
->>>>>>> release_26.4.6
     }
     catch (asio::system_error& e)
     {

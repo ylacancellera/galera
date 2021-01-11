@@ -2520,18 +2520,10 @@ START_TEST(test_out_queue_limit)
     // The next write should fill the out_queue and return EAGAIN
     const char small_data[1] = { 0 };
     dg = gu::SharedBuffer(new gu::Buffer(small_data, small_data + 1));
-<<<<<<< HEAD
-    auto v = f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)); 
-    printf("%i\n", v);
-    //fail_unless(v == EAGAIN);
-||||||| bf205c6e
-    fail_unless(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == EAGAIN);
-=======
     ck_assert(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == EAGAIN);
 
     gcomm::Datagram* tmp;
     while ((tmp = f.tr1.out())) delete tmp;
->>>>>>> release_26.4.6
 }
 END_TEST
 

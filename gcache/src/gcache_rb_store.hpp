@@ -72,13 +72,13 @@ namespace gcache
         void  seqno_reset(bool zero_out = false);
 
         /* returns true when successfully discards all seqnos in range */
-        bool  discard_seqnos(seqno2ptr_t::iterator i_begin,
+        bool  discard_seqnos(seqno2ptr_t const& seq, seqno2ptr_t::iterator i_begin,
                              seqno2ptr_t::iterator i_end);
 
         /* returns true when successfully discards all seqnos up to s */
         bool  discard_seqno(seqno_t s)
         {
-            return discard_seqnos(seqno2ptr_.begin(), seqno2ptr_.find(s + 1));
+            return discard_seqnos(seqno2ptr_, seqno2ptr_.begin(), seqno2ptr_.find(s + 1));
         }
 
         void print (std::ostream& os) const;

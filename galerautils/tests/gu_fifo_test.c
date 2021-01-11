@@ -320,14 +320,10 @@ Suite *gu_fifo_suite(void)
     suite_add_tcase (s, tc);
     tcase_add_test  (tc, gu_fifo_test);
     tcase_add_test  (tc, gu_fifo_cancel_test);
-<<<<<<< HEAD
 #ifdef PXC
     tcase_add_test  (tc, gu_fifo_wrap_around_test);
 #endif /* PXC */
-||||||| bf205c6e
-=======
     tcase_set_timeout(tc, 60);
->>>>>>> release_26.4.6
 
     return s;
 }

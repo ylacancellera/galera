@@ -45,23 +45,13 @@ namespace gcache
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         mtx       (WSREP_PFS_INSTR_TAG_GCACHE_MUTEX),
-        cond      (WSREP_PFS_INSTR_TAG_GCACHE_CONDVAR),
 #else
          mtx       (),
-         cond      (),
 #endif /* HAVE_PSI_INTERFACE */
 #else
         mtx       (),
-<<<<<<< HEAD
-        cond      (),
 #endif /* PXC */
-        seqno2ptr (),
-||||||| bf205c6e
-        cond      (),
-        seqno2ptr (),
-=======
         seqno2ptr (SEQNO_NONE),
->>>>>>> release_26.4.6
         gid       (),
         mem       (params.mem_size(), seqno2ptr, params.debug()),
         rb        (params.rb_name(), params.rb_size(), seqno2ptr, gid,

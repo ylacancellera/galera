@@ -353,16 +353,8 @@ START_TEST(defaults)
         real_defaults.erase(real++);
     }
 
-<<<<<<< HEAD
-    //fail_if (!err.str().empty(), "Defaults discrepancies detected:\n%s",
-    //         err.str().c_str());
-||||||| bf205c6e
-    fail_if (!err.str().empty(), "Defaults discrepancies detected:\n%s",
-             err.str().c_str());
-=======
     ck_assert_msg(err.str().empty(), "Defaults discrepancies detected:\n%s",
                   err.str().c_str());
->>>>>>> release_26.4.6
 }
 END_TEST
 

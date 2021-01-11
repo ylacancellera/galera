@@ -544,112 +544,48 @@ START_TEST(test_gcs_group_find_donor)
     //========== sst ==========
     gu::GTID const empty_gtid;
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home3"),
-<<<<<<< HEAD
                                  empty_gtid, false);
-    fail_if(donor != -EHOSTDOWN);
-||||||| bf205c6e
-                                 empty_gtid);
-    fail_if(donor != -EHOSTDOWN);
-=======
-                                 empty_gtid);
     ck_assert(donor == -EHOSTDOWN);
->>>>>>> release_26.4.6
 
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home1,home2"),
-<<<<<<< HEAD
                                  empty_gtid, false);
-    fail_if(donor != 1);
-||||||| bf205c6e
-                                 empty_gtid);
-    fail_if(donor != 1);
-=======
-                                 empty_gtid);
     ck_assert(donor == 1);
->>>>>>> release_26.4.6
 
     nodes[1].status = GCS_NODE_STATE_JOINER;
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home1,home2"),
-<<<<<<< HEAD
                                  empty_gtid, false);
-    fail_if(donor != 2);
-||||||| bf205c6e
-                                 empty_gtid);
-    fail_if(donor != 2);
-=======
-                                 empty_gtid);
     ck_assert(donor == 2);
->>>>>>> release_26.4.6
     nodes[1].status = GCS_NODE_STATE_SYNCED;
 
     // handle dangling comma.
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home3,"),
-<<<<<<< HEAD
                                  empty_gtid, false);
-    fail_if(donor != 0);
-||||||| bf205c6e
-                                 empty_gtid);
-    fail_if(donor != 0);
-=======
-                                 empty_gtid);
     ck_assert(donor == 0);
->>>>>>> release_26.4.6
 
     // ========== ist ==========
     // by name.
     gu::GTID const group_gtid(group.group_uuid, 100);
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home0,home1,home2"),
-<<<<<<< HEAD
                                  group_gtid, false);
-    fail_if(donor != 1);
-||||||| bf205c6e
-                                 group_gtid);
-    fail_if(donor != 1);
-=======
-                                 group_gtid);
     ck_assert(donor == 1);
->>>>>>> release_26.4.6
 
     group.quorum.act_id = 1498; // not in safe range.
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home2"),
-<<<<<<< HEAD
                                  group_gtid, false);
-    fail_if(donor != 2);
-||||||| bf205c6e
-                                 group_gtid);
-    fail_if(donor != 2);
-=======
-                                 group_gtid);
     ck_assert(donor == 2);
->>>>>>> release_26.4.6
 
     group.quorum.act_id = 1497; // in safe range. in segment.
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home2"),
-<<<<<<< HEAD
                                  group_gtid, false);
-    fail_if(donor != 1);
-||||||| bf205c6e
-                                 group_gtid);
-    fail_if(donor != 1);
-=======
-                                 group_gtid);
     ck_assert(donor == 1);
->>>>>>> release_26.4.6
 
     group.quorum.act_id = 1497; // in safe range. cross segment.
     nodes[0].status = GCS_NODE_STATE_JOINER;
     nodes[1].status = GCS_NODE_STATE_JOINER;
     nodes[2].status = GCS_NODE_STATE_JOINER;
     donor = gcs_group_find_donor(&group, sv, joiner, SARGS("home2"),
-<<<<<<< HEAD
                                  group_gtid, false);
-    fail_if(donor != 5);
-||||||| bf205c6e
-                                 group_gtid);
-    fail_if(donor != 5);
-=======
-                                 group_gtid);
     ck_assert(donor == 5);
->>>>>>> release_26.4.6
     nodes[0].status = GCS_NODE_STATE_SYNCED;
     nodes[1].status = GCS_NODE_STATE_SYNCED;
     nodes[2].status = GCS_NODE_STATE_SYNCED;

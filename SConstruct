@@ -177,7 +177,6 @@ static_ssl = ARGUMENTS.get('static_ssl', None)
 install = ARGUMENTS.get('install', None)
 version_script = int(ARGUMENTS.get('version_script', 1))
 
-<<<<<<< HEAD
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
@@ -185,12 +184,7 @@ if psi:
 
 opt_flags = opt_flags + ' -DPXC'
 
-GALERA_VER = ARGUMENTS.get('version', '4.5')
-||||||| bf205c6e
-GALERA_VER = ARGUMENTS.get('version', '4.5')
-=======
 GALERA_VER = ARGUMENTS.get('version', '4.6')
->>>>>>> release_26.4.6
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given
@@ -726,11 +720,6 @@ print('Global flags:')
 for f in ['CFLAGS', 'CXXFLAGS', 'CCFLAGS', 'CPPFLAGS']:
     print(f + ': ' + env[f].strip())
 
-<<<<<<< HEAD
-Export('x86', 'bits', 'env', 'sysname', 'machine', 'libboost_program_options', 'install')
-||||||| bf205c6e
-Export('x86', 'bits', 'env', 'sysname', 'libboost_program_options', 'install')
-=======
 Export('machine',
        'x86',
        'bits',
@@ -738,7 +727,6 @@ Export('machine',
        'sysname',
        'libboost_program_options',
        'install')
->>>>>>> release_26.4.6
 
 #
 # Actions to build .dSYM directories, containing debugging information for Darwin
