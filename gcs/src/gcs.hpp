@@ -472,14 +472,6 @@ struct gcs_act_cchange
 std::ostream&
 operator <<(std::ostream& os, const struct gcs_act_cchange& cc);
 
-struct gcs_backend_stats {
-    struct stats_t {
-        const char* key;
-        const char* value;
-    }* stats;
-    void* ctx;
-};
-
 struct gcs_stats
 {
     double    send_q_len_avg; //! average send queue length per send call
@@ -496,12 +488,13 @@ struct gcs_stats
     int       send_q_len;     //! current send queue length
     int       send_q_len_max; //! maximum send queue length
     int       send_q_len_min; //! minimum send queue length
+    bool      fc_active;      //! flow control is currently active
+    bool      fc_requested;   //! flow control is requested by this node
 #ifdef PXC
     long      fc_lower_limit; //! Flow-control interval lower limit
     long      fc_upper_limit; //! Flow-control interval upper limit
     int       fc_status;      //! Flow-control status (ON=1/OFF=0)
 #endif /* PXC */
-    struct gcs_backend_stats backend_stats; //! backend stats.
 };
 
 /*! Fills stats struct */

@@ -100,6 +100,8 @@ typedef enum status_vars
     STATS_FC_SSENT,
 //    STATS_FC_CSENT,
     STATS_FC_RECEIVED,
+    STATS_FC_ACTIVE,
+    STATS_FC_REQUESTED,
 #ifdef PXC
     STATS_FC_INTERVAL,
     STATS_FC_INTERVAL_LOW,
@@ -170,6 +172,8 @@ static const struct wsrep_stats_var wsrep_stats[STATS_MAX + 1] =
     { "flow_control_sent",        WSREP_VAR_INT64,  { 0 }  },
 //    { "flow_control_conts_sent",  WSREP_VAR_INT64,  { 0 }  },
     { "flow_control_recv",        WSREP_VAR_INT64,  { 0 }  },
+    { "flow_control_active",      WSREP_VAR_STRING, { 0 }  },
+    { "flow_control_requested",   WSREP_VAR_STRING, { 0 }  },
 #ifdef PXC
     { "flow_control_interval",    WSREP_VAR_STRING, { 0 }  },
     { "flow_control_interval_low",WSREP_VAR_INT64,  { 0 }  },
@@ -300,6 +304,10 @@ galera::ReplicatorSMM::stats_get() const
     sv[STATS_FC_SSENT            ].value._int64  = stats.fc_ssent;
 //    sv[STATS_FC_CSENT            ].value._int64  = stats.fc_csent;
     sv[STATS_FC_RECEIVED         ].value._int64  = stats.fc_received;
+    sv[STATS_FC_ACTIVE           ].value._string = stats.fc_active    ?
+        "true" : "false";
+    sv[STATS_FC_REQUESTED        ].value._string = stats.fc_requested ?
+        "true" : "false";
 
 #ifdef PXC
     std::ostringstream osinterval;
@@ -319,10 +327,10 @@ galera::ReplicatorSMM::stats_get() const
 
     sv[STATS_CERT_DEPS_DISTANCE  ].value._double = avg_deps_dist;
     sv[STATS_CERT_INTERVAL       ].value._double = avg_cert_interval;
-    sv[STATS_CERT_INDEX_SIZE     ].value._int64 = index_size;
+    sv[STATS_CERT_INDEX_SIZE     ].value._int64  = index_size;
 #ifdef PXC
-    sv[STATS_CERT_BUCKET_COUNT   ].value._int64 = cert_.bucket_count();
-    sv[STATS_GCACHE_POOL_SIZE    ].value._int64 = gcache_.allocated_pool_size();
+    sv[STATS_CERT_BUCKET_COUNT   ].value._int64  = cert_.bucket_count();
+    sv[STATS_GCACHE_POOL_SIZE    ].value._int64  = gcache_.allocated_pool_size();
 #endif /* PXC */
 
     double oooe;

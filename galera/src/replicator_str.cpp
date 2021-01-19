@@ -457,6 +457,16 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
 
     if (!skip_sst)
     {
+      struct sgl {
+        gcache::GCache &gcache_;
+        bool unlock_;
+
+        sgl(gcache::GCache &cache) : gcache_(cache), unlock_(false) {}
+        ~sgl() {
+          if (unlock_) gcache_.seqno_unlock();
+        }
+      } seqno_lock_guard(gcache_);
+
       if (streq->ist_len()) {
         IST_request istr;
         get_ist_request(streq, &istr);
@@ -464,39 +474,25 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
         if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0) {
           log_info << "IST request: " << istr;
 
+          wsrep_seqno_t const first(
+              (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
+                  ? istr.last_applied() + 1
+                  : std::min(cc_lowest_trx_seqno_, istr.last_applied() + 1));
+
           try {
-            gcache_.seqno_lock(istr.last_applied() + 1);
 #ifdef PXC
             // We can use Galera debugging facility to simulate
             // unexpected shift of the donor seqno:
 #ifdef GU_DBUG_ON
-            GU_DBUG_EXECUTE("simulate_seqno_shift", throw gu::NotFound(););
+            GU_DBUG_EXECUTE("simulate_seqno_shift", { throw gu::NotFound(); });
 #endif
 #endif /* PXC */
+            gcache_.seqno_lock(first);
+            seqno_lock_guard.unlock_ = true;
           } catch (gu::NotFound &nf) {
             log_info << "IST first seqno " << istr.last_applied() + 1
                      << " not found from cache, falling back to SST";
             // @todo: close IST channel explicitly
-#ifdef PXC
-            // When new node joining the cluster, it may trying to avoid
-            // unnecessary SST request. However, the heuristic algorithm,
-            // which selects the donor node, does not give us a 100%
-            // guarantee that seqno will not move forward while new
-            // node sending its request (to joining the cluster).
-            // Therefore, if seqno had gone forward, and if we have only
-            // the IST request (without the SST part), then we need to
-            // inform new node that it should prepare to receive full
-            // state and re-send the SST request (if the server supports
-            // it):
-
-            if (streq->sst_len() == 0) {
-              log_info << "IST cancelled because the donor seqno had "
-                          "moved forward, but the SST request was not "
-                          "prepared by the joiner node.";
-              rcode = -ENODATA;
-              goto out;
-            }
-#endif /* PXC */
 
             goto full_sst;
           }
@@ -512,10 +508,6 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
           }
 
           if (rcode >= 0) {
-            wsrep_seqno_t const first(
-                (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
-                    ? istr.last_applied() + 1
-                    : std::min(cc_lowest_trx_seqno_, istr.last_applied() + 1));
             try {
               ist_senders_.run(config_, istr.peer(), first, cc_seqno_,
                                cc_lowest_trx_seqno_,
@@ -524,6 +516,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                 * Need to keep it that way for backward
                                 * compatibility */
                                protocol_version_);
+              // seqno will be unlocked when sender exists
+              seqno_lock_guard.unlock_ = false;
             } catch (gu::Exception &e) {
               log_error << "IST failed: " << e.what();
               rcode = -e.get_errno();
@@ -537,6 +531,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
       }
 
     full_sst:
+
+        assert(!seqno_lock_guard.unlock_);
 
         if (cert_.nbo_size() > 0)
         {
@@ -581,6 +577,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                         }
 
                         gcache_.seqno_lock(preload_start);
+                        seqno_lock_guard.unlock_ = true;
                     }
                     catch (gu::NotFound& nf)
                     {
@@ -608,6 +605,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                       * Need to keep it that way for backward
                                       * compatibility */
                                      protocol_version_);
+                    // seqno will be unlocked when sender exists
+                    seqno_lock_guard.unlock_ = false;
                 }
                 else /* streq->version() == 0 */
                 {
@@ -616,12 +615,9 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                 }
             }
 
-            if (not skip_sst)
-            {
-                rcode = donate_sst(recv_ctx, *streq, state_id, false);
-                // we will join in sst_sent.
-                join_now = false;
-            }
+            rcode = donate_sst(recv_ctx, *streq, state_id, false);
+            // we will join in sst_sent.
+            join_now = false;
         }
         else
         {

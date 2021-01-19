@@ -1809,7 +1809,7 @@ long gcs_destroy (gcs_conn_t *conn)
     gu_cond_t tmp_cond;
     gu_cond_init (&tmp_cond, NULL);
 
-    if ((err = gcs_sm_enter (conn->sm, &tmp_cond, false, true))) // need an error here
+    if (!(err = gcs_sm_enter (conn->sm, &tmp_cond, false, true))) // need an error here
     {
         if (GCS_CONN_CLOSED != conn->state)
         {
@@ -1819,20 +1819,21 @@ long gcs_destroy (gcs_conn_t *conn)
             err = -EBADFD;
         }
 
+        gcs_sm_leave (conn->sm);
+
         gcs_shift_state (conn, GCS_CONN_DESTROYED);
         /* we must unlock the mutex here to allow unfortunate threads
          * to acquire the lock and give up gracefully */
     }
     else {
-        gcs_sm_leave (conn->sm);
-        err = -EBADFD;
+        gu_debug("gcs_destroy: gcs_sm_enter() err = %d", err);
+        // We should still cleanup resources
     }
+
+    gu_fifo_destroy (conn->recv_q);
 
     gu_cond_destroy (&tmp_cond);
     gcs_sm_destroy (conn->sm);
-
-    /* this should cancel all recv calls */
-    gu_fifo_destroy (conn->recv_q);
 
     if ((err = gcs_fifo_lite_destroy (conn->repl_q)))
     {
@@ -2357,15 +2358,15 @@ gcs_vote (gcs_conn_t* const conn, const gu::GTID& gtid, uint64_t const code,
     if (0 != code)
     {
         size_t const buf_len(gtid.serial_size() + sizeof(code));
-        char* const buf(new char[buf_len]);
+        std::vector<char> buf(buf_len);
         size_t offset(0);
 
-        offset = gtid.serialize(buf, buf_len, offset);
-        offset = gu::serialize8(code, buf, buf_len, offset);
-        assert(buf_len == offset);
+        offset = gtid.serialize(buf.data(), buf.size(), offset);
+        offset = gu::serialize8(code, buf.data(), buf.size(), offset);
+        assert(buf.size() == offset);
 
         gu::MMH3 hash;
-        hash.append(buf, buf_len);
+        hash.append(buf.data(), buf.size());
         hash.append(msg, msg_len);
 
         my_vote = (hash.gather8() | (1ULL << 63));
@@ -2466,6 +2467,9 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
+
+    stats->fc_active   = conn->stop_count > 0;
+    stats->fc_requested= conn->stop_sent_ > 0;
 
 #ifdef PXC
     stats->fc_lower_limit = conn->lower_limit;

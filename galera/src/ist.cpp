@@ -667,7 +667,7 @@ void galera::ist::Receiver::run()
                     ts->mark_dummy_with_action(act.buf);
                 }
 
-                //log_info << "####### Passing WS " << act.seqno_g;
+                log_info << "####### Passing WS " << act.seqno_g;
                 handler_.ist_trx(ts, must_apply, preload);
                 break;
             }
@@ -682,7 +682,7 @@ void galera::ist::Receiver::run()
             }
         }
 
-        if(progress) progress->finish();
+        if (progress /* IST actually started */) progress->finish();
     }
     catch (asio::system_error& e)
     {
@@ -700,7 +700,6 @@ void galera::ist::Receiver::run()
     }
 
 err:
-    gcache_.seqno_unlock();
     delete progress;
     gu::Lock lock(mutex_);
     if (use_ssl_ == true)
