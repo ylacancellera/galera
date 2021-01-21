@@ -130,7 +130,7 @@ RecvLoop::loop()
                             pipe_to_log(p.err_pipe());
                             log_info << "SST script ended";
                             sst_ended = true;
-                            gcs_.close();
+                            gcs_.close(true);
                         });
 
                         sst_out_log = std::thread([&](){
@@ -199,7 +199,7 @@ RecvLoop::loop()
             {
                 // we requested custom SST, so we're done here
                 if(config_.recv_script().empty()) {
-                    gcs_.close();
+                    gcs_.close(true);
                 }
             }
 
@@ -207,7 +207,7 @@ RecvLoop::loop()
         }
         case GCS_ACT_INCONSISTENCY:
             // something went terribly wrong, restart needed
-            gcs_.close();
+            gcs_.close(true);
             return 2;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
