@@ -102,15 +102,7 @@ link_arch    = ''
 build_dir    = ''
 
 # Version script file
-galera_script = File('#/galera-sym.map').abspath
-with open(galera_script, 'w') as f:
-    f.write('''{
-    global: wsrep_loader;
-            wsrep_interface_version;
-    local:  *;
-};
-''')
-
+galera_script = File('#/galera/src/galera-sym.map').abspath
 
 #
 # Read commandline options
@@ -177,6 +169,7 @@ static_ssl = ARGUMENTS.get('static_ssl', None)
 install = ARGUMENTS.get('install', None)
 version_script = int(ARGUMENTS.get('version_script', 1))
 
+<<<<<<< HEAD
 # parse psi flag option
 psi        = int(ARGUMENTS.get('psi', 0))
 if psi:
@@ -185,6 +178,11 @@ if psi:
 opt_flags = opt_flags + ' -DPXC'
 
 GALERA_VER = ARGUMENTS.get('version', '4.6')
+||||||| 323e509d
+GALERA_VER = ARGUMENTS.get('version', '4.6')
+=======
+GALERA_VER = ARGUMENTS.get('version', '4.7')
+>>>>>>> release_26.4.7
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given

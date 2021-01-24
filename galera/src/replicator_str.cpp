@@ -455,11 +455,32 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
     wsrep_seqno_t rcode (0);
     bool join_now = true;
 
+<<<<<<< HEAD
     if (!skip_sst)
+||||||| 323e509d
+    if (streq->ist_len())
+=======
+    if (not skip_sst)
+>>>>>>> release_26.4.7
     {
+<<<<<<< HEAD
       struct sgl {
         gcache::GCache &gcache_;
         bool unlock_;
+||||||| 323e509d
+        IST_request istr;
+        get_ist_request(streq, &istr);
+
+        struct sgl
+        {
+            gcache::GCache& gcache_;
+            bool            unlock_;
+=======
+        struct sgl
+        {
+            gcache::GCache& gcache_;
+            bool            unlock_;
+>>>>>>> release_26.4.7
 
         sgl(gcache::GCache &cache) : gcache_(cache), unlock_(false) {}
         ~sgl() {
@@ -467,18 +488,90 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
         }
       } seqno_lock_guard(gcache_);
 
+<<<<<<< HEAD
       if (streq->ist_len()) {
         IST_request istr;
         get_ist_request(streq, &istr);
+||||||| 323e509d
+        if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0)
+        {
+            log_info << "IST request: " << istr;
 
+            wsrep_seqno_t const first
+                ((str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0) ?
+                 istr.last_applied() + 1 :
+                 std::min(cc_lowest_trx_seqno_, istr.last_applied()+1));
+
+            try
+            {
+                gcache_.seqno_lock(first);
+                seqno_lock_guard.unlock_ = true;
+            }
+            catch(gu::NotFound& nf)
+            {
+                log_info << "IST first seqno " << istr.last_applied() + 1
+                         << " not found from cache, falling back to SST";
+                // @todo: close IST channel explicitly
+                goto full_sst;
+            }
+
+            if (streq->sst_len()) // if joiner is waiting for SST, notify it
+            {
+                wsrep_gtid_t const state_id =
+                    { istr.uuid(), istr.last_applied() };
+=======
+        if (streq->ist_len())
+        {
+            IST_request istr;
+            get_ist_request(streq, &istr);
+
+            if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0)
+            {
+                log_info << "IST request: " << istr;
+
+                wsrep_seqno_t const first
+                    ((str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0) ?
+                    istr.last_applied() + 1 :
+                    std::min(cc_lowest_trx_seqno_, istr.last_applied()+1));
+>>>>>>> release_26.4.7
+
+<<<<<<< HEAD
         if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0) {
           log_info << "IST request: " << istr;
+||||||| 323e509d
+                rcode = donate_sst(recv_ctx, *streq, state_id, true);
+=======
+                try
+                {
+                    gcache_.seqno_lock(first);
+                    seqno_lock_guard.unlock_ = true;
+                }
+                catch(gu::NotFound& nf)
+                {
+                    log_info << "IST first seqno " << istr.last_applied() + 1
+                             << " not found from cache, falling back to SST";
+                    // @todo: close IST channel explicitly
+                    goto full_sst;
+                }
+>>>>>>> release_26.4.7
 
+<<<<<<< HEAD
           wsrep_seqno_t const first(
               (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
                   ? istr.last_applied() + 1
                   : std::min(cc_lowest_trx_seqno_, istr.last_applied() + 1));
+||||||| 323e509d
+                // we will join in sst_sent.
+                join_now = false;
+            }
+=======
+                if (streq->sst_len()) // if joiner is waiting for SST, notify it
+                {
+                    wsrep_gtid_t const state_id =
+                        { istr.uuid(), istr.last_applied() };
+>>>>>>> release_26.4.7
 
+<<<<<<< HEAD
           try {
 #ifdef PXC
             // We can use Galera debugging facility to simulate
@@ -525,8 +618,78 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
           } else {
             log_error << "Failed to bypass SST";
           }
+||||||| 323e509d
+            if (rcode >= 0)
+            {
+                try
+                {
+                    ist_senders_.run(config_,
+                                     istr.peer(),
+                                     first,
+                                     cc_seqno_,
+                                     cc_lowest_trx_seqno_,
+                                     /* Historically IST messages versioned
+                                      * with the global replicator protocol.
+                                      * Need to keep it that way for backward
+                                      * compatibility */
+                                     protocol_version_);
+                    // seqno will be unlocked when sender exists
+                    seqno_lock_guard.unlock_ = false;
+                }
+                catch (gu::Exception& e)
+                {
+                    log_error << "IST failed: " << e.what();
+                    rcode = -e.get_errno();
+                }
+            }
+            else
+            {
+                log_error << "Failed to bypass SST";
+            }
+=======
+                    rcode = donate_sst(recv_ctx, *streq, state_id, true);
 
+                    // we will join in sst_sent.
+                    join_now = false;
+                }
+
+                if (rcode >= 0)
+                {
+                    try
+                    {
+                        ist_senders_.run(config_,
+                                         istr.peer(),
+                                         first,
+                                         cc_seqno_,
+                                         cc_lowest_trx_seqno_,
+                                         /* Historically IST messages versioned
+                                          * with the global replicator protocol.
+                                          * Need to keep it that way for backward
+                                          * compatibility */
+                                         protocol_version_);
+                        // seqno will be unlocked when sender exists
+                        seqno_lock_guard.unlock_ = false;
+                    }
+                    catch (gu::Exception& e)
+                    {
+                        log_error << "IST failed: " << e.what();
+                        rcode = -e.get_errno();
+                    }
+                }
+                else
+                {
+                    log_error << "Failed to bypass SST";
+                }
+>>>>>>> release_26.4.7
+
+<<<<<<< HEAD
           goto out;
+||||||| 323e509d
+            goto out;
+=======
+                goto out;
+            }
+>>>>>>> release_26.4.7
         }
       }
 
