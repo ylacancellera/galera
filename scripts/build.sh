@@ -38,13 +38,11 @@ Options:
     --dl            set debug level for Scons build (1, implies -c)
     -r|--release    release number
     -m32/-m64       build 32/64-bit binaries for x86
-    -p|--package    build RPM packages at the end (DEB not supported).
+    -p|--package    build RPM and DEB packages at the end.
     --with-spread   configure build with spread backend (implies -c to gcs)
     --source        build source packages
     --sb            skip actual build, use the existing binaries
-    --cmake         build using CMake build system (yes)
-    --co            CMake options
-    --scons         build using Scons build system (no)
+    --scons         build using Scons build system (yes)
     --so            Sconscript option
     -j|--jobs       how many parallel jobs to use for Scons (1)
     -a|--archive    Generate source archive (tar.gz)
@@ -62,9 +60,7 @@ RELEASE=${RELEASE:-""}
 SOURCE=${SOURCE:-"no"}
 DEBUG=${DEBUG:-"no"}
 DEBUG_LEVEL=${DEBUG_LEVEL:-"0"}
-CMAKE=${CMAKE:-"yes"}
-CMAKE_OPTS=${CMAKE_OPTS:-""}
-SCONS=${SCONS:-"no"}
+SCONS=${SCONS:-"yes"}
 SCONS_OPTS=${SCONS_OPTS:-""}
 export JOBS=${JOBS:-"$(get_cores)"}
 SCRATCH=${SCRATCH:-"no"}
@@ -97,6 +93,8 @@ if [ "$OS" == "Darwin" ]; then
 elif [ "$OS" == "FreeBSD" ]; then
   EXTRA_SYSROOT=/usr/local
 fi
+
+which dpkg >/dev/null 2>&1 && DEBIAN=${DEBIAN:-1} || DEBIAN=${DEBIAN:-0}
 
 if [ "$OS" == "FreeBSD" ]; then
     CC=${CC:-"gcc48"}
@@ -137,9 +135,9 @@ last_stage="galera"
 gainroot=""
 TARGET=${TARGET:-""} # default target
 
-while test $# -gt 0
+while test $# -gt 0 
 do
-    case $1 in
+    case $1 in 
         --stage)
             initial_stage=$2
             shift
@@ -200,17 +198,8 @@ do
         --sb)
             SKIP_BUILD="yes"
             ;;
-        --cmake)
-            CMAKE="yes"
-            SCONS="no"
-            ;;
-        --co)
-            CMAKE_OPTS="$CMAKE_OPTS $2"
-            shift
-            ;;
         --scons)
             SCONS="yes"
-            CMAKE="no"
             ;;
         --so)
             SCONS_OPTS="$SCONS_OPTS $2"
@@ -238,57 +227,6 @@ do
     shift
 done
 
-<<<<<<< HEAD
-||||||| 323e509d
-# check whether sudo accepts -E to preserve environment
-if [ "$PACKAGE" == "yes" ]
-then
-    echo "testing sudo"
-    if sudo -E $true >/dev/null 2>&1
-    then
-        echo "sudo accepts -E"
-        SUDO="sudo -E"
-    else
-        echo "sudo does not accept param -E"
-        if [ $(id -ur) != 0 ]
-        then
-            echo "error, must build as root"
-            exit 1
-        else
-            echo "I'm root, can continue"
-            SUDO=""
-        fi
-    fi
-fi
-
-=======
-# check whether sudo accepts -E to preserve environment
-if [ "$PACKAGE" == "yes" ]
-then
-    if which dpkg >/dev/null 2>&1
-    then
-        echo "Error: Package build not supported on Debian, use dpkg-buildpackage"
-        exit 1
-    fi
-    echo "testing sudo"
-    if sudo -E $true >/dev/null 2>&1
-    then
-        echo "sudo accepts -E"
-        SUDO="sudo -E"
-    else
-        echo "sudo does not accept param -E"
-        if [ $(id -ur) != 0 ]
-        then
-            echo "error, must build as root"
-            exit 1
-        else
-            echo "I'm root, can continue"
-            SUDO=""
-        fi
-    fi
-fi
-
->>>>>>> release_26.4.7
 if [ "$OPT"   == "yes" ]; then CONFIGURE="yes";
    conf_flags="--disable-debug --disable-dbug";
 fi
@@ -365,7 +303,6 @@ build_packages()
     rm -rf $ARCH
 
     set +e
-<<<<<<< HEAD
     if [ $DEBIAN -ne 0 ]; then # build DEB
         debian_version="$(lsb_release -sc)"
 
@@ -386,17 +323,6 @@ build_packages()
             ./freebsd.sh $GALERA_VER
         else # build RPM
             ./rpm.sh $GALERA_VER
-||||||| 323e509d
-    if [ $DEBIAN -ne 0 ]; then # build DEB
-        ./deb.sh $GALERA_VER
-    elif [ "$OS" == "FreeBSD" ]; then
-        if test "$NO_STRIP" != "yes"; then
-            strip $build_base/{garb/garbd,libgalera_smm.so}
-=======
-    if [ "$OS" == "FreeBSD" ]; then
-        if test "$NO_STRIP" != "yes"; then
-            strip $build_base/{garb/garbd,libgalera_smm.so}
->>>>>>> release_26.4.7
         fi
         RET=$?
         popd
@@ -404,19 +330,9 @@ build_packages()
 
     set -e
 
-<<<<<<< HEAD
     if [ $DEBIAN -ne 0 ]; then
         echo Debian - Do nothing
     elif [ "$OS" == "FreeBSD" ]; then
-||||||| 323e509d
-    popd
-    if [ $DEBIAN -ne 0 ]; then
-        mv -f $PKG_DIR/$ARCH/*.deb ./
-    elif [ "$OS" == "FreeBSD" ]; then
-=======
-    popd
-    if [ "$OS" == "FreeBSD" ]; then
->>>>>>> release_26.4.7
         mv -f $PKG_DIR/*.tbz ./
     else
         mv -f $PKG_DIR/*.rpm ./
@@ -473,7 +389,6 @@ build_sources()
 GALERA_VER=$RELEASE
 
 pushd "$build_base"
-<<<<<<< HEAD
 GALERA_REV=$(git log --pretty=oneline | wc -l) || \
 GALERA_REV=$(bzr revno --tree -q)              || \
 GALERA_REV=$(svn info >&/dev/null && svnversion | sed s/\:/,/g) || \
@@ -481,78 +396,8 @@ GALERA_REV="a3edd"
 # trim spaces (sed is not working on Solaris, so using bash built-in)
 GALERA_REV=${GALERA_REV//[[:space:]]/}
 popd
-||||||| 323e509d
-#GALERA_REV="$(svnversion | sed s/\:/,/g)"
-#if [ "$GALERA_REV" == "exported" ]
-#then
-    GALERA_REV=$(git log --pretty=oneline | wc -l) || \
-    GALERA_REV=$(bzr revno --tree -q)              || \
-    GALERA_REV=$(svn info >&/dev/null && svnversion | sed s/\:/,/g) || \
-    GALERA_REV="XXXX"
-    # trim spaces (sed is not working on Solaris, so using bash built-in)
-    GALERA_REV=${GALERA_REV//[[:space:]]/}
-#fi
-popd
-=======
-#GALERA_REV="$(svnversion | sed s/\:/,/g)"
-#if [ "$GALERA_REV" == "exported" ]
-#then
-    GALERA_REV=$(git log --pretty=oneline | wc -l) || \
-    GALERA_REV=$(bzr revno --tree -q)              || \
-    GALERA_REV=$(svn info >&/dev/null && svnversion | sed s/\:/,/g) || \
-    GALERA_REV="XXXX"
-    # trim spaces (sed is not working on Solaris, so using bash built-in)
-    GALERA_REV=${GALERA_REV//[[:space:]]/}
-#fi
->>>>>>> release_26.4.7
-
-<<<<<<< HEAD
-if [ "$SCONS" == "yes" ] # Build using Scons
-||||||| 323e509d
-#if [ -z "$RELEASE" ]
-#then
-#    RELEASE=$GALERA_REV
-#fi
 
 if [ "$SCONS" == "yes" ] # Build using Scons
-=======
-if [ -z "$RELEASE" ]
-then
-    source GALERA_VERSION
-    RELEASE="$GALERA_VERSION_WSREP_API.$GALERA_VERSION_MAJOR.$GALERA_VERSION_MINOR"
-fi
-
-if [ "$CMAKE" == "yes" ] # Build using CMake
-then
-    cmake_args="$CMAKE_OPTS -DGALERA_REVISION=$GALERA_REV"
-    [ -n "$TARGET"        ] && \
-        echo "WARN: TARGET=$TARGET ignored by CMake build"
-    [ -n "$RELEASE"       ] && \
-        echo "WARN: RELEASE=$RELEASE ignored by CMake build"
-    [ "$DEBUG" == "yes"   ] && \
-        cmake_args="$cmake_args -DCMAKE_BUILD_TYPE=Debug" || \
-        cmake_args="$cmake_args -DCMAKE_BUILD_TYPE=RelWithDebInfo"
-    [ -n "$EXTRA_SYSROOT" ] && \
-        echo "EXTRA_SYSROOT=$EXTRA_SYSROOT ignored by CMake build"
-
-    if [ "$SCRATCH" == "yes" ]
-    then
-        (cd $build_base && make clean) || :
-        rm -f $build_base/CMakeCache.txt
-        cmake $cmake_args $build_base
-    fi
-
-    if [ "$SKIP_BUILD" != "yes" ]
-    then
-        make -j $JOBS VERBOSE=1
-    fi
-
-    if [ $RUN_TESTS ]
-    then
-        make test ARGS=-V
-    fi
-elif [ "$SCONS" == "yes" ] # Build using Scons
->>>>>>> release_26.4.7
 then
     # Scons variant dir, defaults to GALERA_SRC
     export SCONS_VD=$build_base
@@ -594,4 +439,4 @@ then
     build_sources
 fi
 
-popd # $build_base
+

@@ -26,20 +26,6 @@ namespace gcache
     bool
     GCache::discard_seqno (seqno_t seqno)
     {
-<<<<<<< HEAD
-        // assert(mtx.locked() && mtx.owned());
-
-        /* if we can't complete the operation, let's not even start */
-        if (seqno >= seqno_locked) return false;
-
-||||||| 323e509d
-        assert(mtx.locked() && mtx.owned());
-
-        /* if we can't complete the operation, let's not even start */
-        if (seqno >= seqno_locked) return false;
-
-=======
->>>>>>> release_26.4.7
 #ifndef NDEBUG
         seqno_t const begin(params.debug() ?
                             (seqno2ptr.empty() ?

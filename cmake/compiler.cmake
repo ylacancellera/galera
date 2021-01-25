@@ -54,3 +54,9 @@ endif()
 if (GALERA_GU_DEBUG_MUTEX)
   add_definitions(-DGU_DEBUG_MUTEX)
 endif()
+
+add_definitions(-DPXC)
+
+if (GALERA_PSI_INTERFACE)
+  add_definitions(-DWITH_PSI_INTERFACE)
+endif()

@@ -209,10 +209,9 @@ namespace gcache
             batch_size += (new_gap >= old_gap) * min_batch_size;
             old_gap = new_gap;
 
-<<<<<<< HEAD
-            seqno_t const start(idx - 1);
-            seqno_t const end  (seqno - start >= 2*batch_size ?
-                                start + batch_size : seqno);
+            seqno_t const start  (idx - 1);
+            seqno_t const end    (seqno - start >= 2*batch_size ?
+                                  start + batch_size : seqno);
 
             // Just not to overcomplicate the logic here:
             // release only if the whole batch can be released, if not - wait.
@@ -223,16 +222,6 @@ namespace gcache
                 continue;
             }
 
-||||||| 323e509d
-            seqno_t const start(idx - 1);
-            seqno_t const end  (seqno - start >= 2*batch_size ?
-                                start + batch_size : seqno);
-=======
-            seqno_t const start  (idx - 1);
-            seqno_t const max_end(std::min(seqno, seqno_locked - 1));
-            seqno_t const end    (max_end - start >= 2*batch_size ?
-                                  start + batch_size : max_end);
->>>>>>> release_26.4.7
 #ifndef NDEBUG
             if (params.debug())
             {

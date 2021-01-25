@@ -8,6 +8,7 @@ add_executable(garbd
   garb_gcs.cpp
   garb_recv_loop.cpp
   garb_main.cpp
+  process.cc
   )
 
 target_include_directories(garbd
