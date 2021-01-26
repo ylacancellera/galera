@@ -263,7 +263,7 @@ galera::ReplicatorSMM::stats_get() const
                << commit_monitor_stats[1] << ") ]";
 
     strncpy(monitor_status_string_, stats_string.str().c_str(),
-            sizeof(monitor_status_string_));
+            sizeof(monitor_status_string_)-1);
     monitor_status_string_[sizeof(monitor_status_string_)-1] = 0;
 
     sv[STATS_MONITOR_STATUS].value._string = monitor_status_string_;
@@ -312,7 +312,7 @@ galera::ReplicatorSMM::stats_get() const
 #ifdef PXC
     std::ostringstream osinterval;
     osinterval << "[ " << stats.fc_lower_limit << ", " << stats.fc_upper_limit << " ]";
-    strncpy(interval_string_, osinterval.str().c_str(), sizeof(interval_string_));
+    strncpy(interval_string_, osinterval.str().c_str(), sizeof(interval_string_)-1);
     interval_string_[sizeof(interval_string_)-1] = 0;
     sv[STATS_FC_INTERVAL         ].value._string = interval_string_;
     sv[STATS_FC_INTERVAL_LOW     ].value._int64 = stats.fc_lower_limit;
@@ -389,7 +389,7 @@ galera::ReplicatorSMM::stats_get() const
           std::ostringstream   os;
           os << percent_complete << "% complete, received seqno "
              << current << " of " << first << "-" << last;
-          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_));
+          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_)-1);
           ist_status_string_[sizeof(ist_status_string_)-1] = 0;
           sv[STATS_IST_RECEIVE_STATUS].value._string = ist_status_string_;
 
@@ -402,7 +402,7 @@ galera::ReplicatorSMM::stats_get() const
           std::ostringstream   os;
           os << "preloading certification queue from "
              << current << " to " << first;
-          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_));
+          strncpy(ist_status_string_, os.str().c_str(), sizeof(ist_status_string_)-1);
           ist_status_string_[sizeof(ist_status_string_)-1] = 0;
           sv[STATS_IST_RECEIVE_STATUS].value._string = ist_status_string_;
 
