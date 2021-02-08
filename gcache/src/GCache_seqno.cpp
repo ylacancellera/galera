@@ -114,8 +114,15 @@ namespace gcache
 
         bool   loop(false);
 
+        bool   sleep_a_bit(false);
+
         do
         {
+            if (sleep_a_bit) {
+              usleep(10000);
+              sleep_a_bit = false;
+            }
+
             /* if we're doing this loop repeatedly, allow other threads to run*/
             if (loop) sched_yield();
 
@@ -146,10 +153,19 @@ namespace gcache
             batch_size += (new_gap >= old_gap) * min_batch_size;
             old_gap = new_gap;
 
-            seqno_t const start  (idx - 1);
-            seqno_t const max_end(std::min(seqno, seqno_locked - 1));
-            seqno_t const end    (max_end - start >= 2*batch_size ?
-                                  start + batch_size : max_end);
+            seqno_t const start(idx - 1);
+            seqno_t const end  (seqno - start >= 2*batch_size ?
+                                start + batch_size : seqno);
+
+            // Just not to overcomplicate the logic here:
+            // release only if the whole batch can be released, if not - wait.
+            if (seqno_locked != SEQNO_NONE && end >= seqno_locked) {
+                log_debug << "GCache::seqno_release requested: " << seqno
+                          << " locked: " << seqno_locked << " - waiting";
+                sleep_a_bit = true;
+                continue;
+            }
+
 #ifndef NDEBUG
             if (params.debug())
             {
