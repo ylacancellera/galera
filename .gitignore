@@ -14,7 +14,6 @@ core
 rb_test
 galera.cache
 gvwstate.dat
-galera-sym.map
 galera/tests/galera_check
 galera/tests/galera_check.passed
 galerautils/tests/gu_tests
@@ -28,7 +27,7 @@ galerautils/tests/deqmap_bench
 galerautils/tests/crc32c_bench
 garb/garbd
 gcache.page.*
-gcache/src/test
+gcache/src/gcache_test
 gcache/tests/gcache_tests
 gcache/tests/gcache_tests.passed
 gcomm/test/check_gcomm
@@ -39,6 +38,7 @@ gcs/src/gcs_test
 gcs/src/unit_tests/gcs_tests
 gcs/src/unit_tests/gcs_tests.passed
 scripts/mysql/mysql-[5-9].[5-9].[0-9]*
+scripts/packages/codership-galera.spec
 tests/bin
 tests/out
 tests/run
@@ -47,3 +47,15 @@ tests/conf/nodes.conf
 tests/conf/common_my.cnf
 tests/conf/my[0-9]*.cnf
 docs/build
+CMakeCache.txt
+CPackConfig.cmake
+CPackSourceConfig.cmake
+DartConfiguration.tcl
+**/cmake_install.cmake
+**/CMakeFiles/
+**/CTestTestfile.cmake
+Testing/
+**/Makefile
+GALERA_GIT_REVISION
+GALERA_REVISION
+*~
