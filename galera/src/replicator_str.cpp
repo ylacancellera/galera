@@ -474,10 +474,11 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
         if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0) {
           log_info << "IST request: " << istr;
 
+          wsrep_seqno_t const min_available = std::max(cc_lowest_trx_seqno_, gcache_.seqno_min());
           wsrep_seqno_t const first(
               (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
                   ? istr.last_applied() + 1
-                  : std::min(cc_lowest_trx_seqno_, istr.last_applied() + 1));
+                  : std::min(min_available, istr.last_applied() + 1));
 
           try {
 #ifdef PXC
