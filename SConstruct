@@ -102,15 +102,7 @@ link_arch    = ''
 build_dir    = ''
 
 # Version script file
-galera_script = File('#/galera-sym.map').abspath
-with open(galera_script, 'w') as f:
-    f.write('''{
-    global: wsrep_loader;
-            wsrep_interface_version;
-    local:  *;
-};
-''')
-
+galera_script = File('#/galera/src/galera-sym.map').abspath
 
 #
 # Read commandline options
@@ -184,7 +176,7 @@ if psi:
 
 opt_flags = opt_flags + ' -DPXC'
 
-GALERA_VER = ARGUMENTS.get('version', '4.6')
+GALERA_VER = ARGUMENTS.get('version', '4.7')
 GALERA_REV = ARGUMENTS.get('revno', 'XXXX')
 
 # Attempt to read from file if not given

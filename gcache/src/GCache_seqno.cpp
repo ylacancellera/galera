@@ -209,9 +209,9 @@ namespace gcache
             batch_size += (new_gap >= old_gap) * min_batch_size;
             old_gap = new_gap;
 
-            seqno_t const start(idx - 1);
-            seqno_t const end  (seqno - start >= 2*batch_size ?
-                                start + batch_size : seqno);
+            seqno_t const start  (idx - 1);
+            seqno_t const end    (seqno - start >= 2*batch_size ?
+                                  start + batch_size : seqno);
 
             // Just not to overcomplicate the logic here:
             // release only if the whole batch can be released, if not - wait.
@@ -240,6 +240,7 @@ namespace gcache
                       seqno_released == SEQNO_NONE))
                 {
                     log_info << "seqno_released: " << seqno_released
+                             << "; seqno_locked: " << seqno_locked
                              << "; idx: " << idx
                              << "; seqno2ptr.begin: " <<seqno2ptr.index_begin()
                              << "\nstart: " << start << "; end: " << end
