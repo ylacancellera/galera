@@ -1395,7 +1395,11 @@ _check_recv_queue_growth (gcs_conn_t* conn, ssize_t size)
 }
 
 static long
+#ifdef GCS_FOR_GARB
+_close(gcs_conn_t* conn, bool join_recv_thread, bool explicit_close = false)
+#else
 _close(gcs_conn_t* conn, bool join_recv_thread)
+#endif
 {
     /* all possible races in connection closing should be resolved by
      * the following call, it is thread-safe */
@@ -1459,7 +1463,7 @@ _close(gcs_conn_t* conn, bool join_recv_thread)
         // thread are no longer running. Empty the contents of the receiver
         // queue and release the buffer before we destroy the gcs object in
         // gcs_destroy().
-        if (GCS_CONN_CLOSED == conn->state) {
+        if (GCS_CONN_CLOSED == conn->state && !explicit_close) {
             int err = 0;
             struct gcs_recv_act* recv_act = nullptr;
 
@@ -1770,7 +1774,11 @@ out:
 /* After it returns, application should have all time in the world to cancel
  * and join threads which try to access the handle, before calling gcs_destroy()
  * on it. */
+#ifdef GCS_FOR_GARB
+long gcs_close (gcs_conn_t *conn, bool explicit_close)
+#else
 long gcs_close (gcs_conn_t *conn)
+#endif
 {
     long ret;
 
@@ -1778,7 +1786,11 @@ long gcs_close (gcs_conn_t *conn)
         return -EALREADY;
     }
 
+#ifdef GCS_FOR_GARB
+    if ((ret = _close(conn, true, explicit_close)) == -EALREADY)
+#else
     if ((ret = _close(conn, true)) == -EALREADY)
+#endif
     {
         gu_info("recv_thread() already closing, joining thread.");
         /* _close() has already been called by gcs_recv_thread() and it
