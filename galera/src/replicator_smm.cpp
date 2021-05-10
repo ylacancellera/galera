@@ -2632,12 +2632,13 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 void galera::ReplicatorSMM::drain_monitors_for_local_conf_change(const gcs_act_cchange& cc)
 {
    std::vector<std::string> allowed_IST_clients;
+   allowed_IST_clients.reserve(cc.memb.size());
+
    for ( auto member : cc.memb) {
        char tmp[GU_UUID_STR_LEN+1];
        gu_uuid_print(&(member.uuid_), tmp, GU_UUID_STR_LEN);
        tmp[GU_UUID_STR_LEN] = 0;
-       std::string uuid(tmp);
-       allowed_IST_clients.push_back(uuid);
+       allowed_IST_clients.emplace_back(tmp);
    }
    ist_senders_.terminate(allowed_IST_clients);
 
@@ -2645,7 +2646,7 @@ void galera::ReplicatorSMM::drain_monitors_for_local_conf_change(const gcs_act_c
         log_info << "Maybe drain monitors from " << last_committed()
                   << " upto current CC event " << cc.seqno
                   << " upto:" << upto;
-
+    assert(upto >= last_committed());
     if (upto >= last_committed())
     {
         log_info << "Drain monitors from " << last_committed()
