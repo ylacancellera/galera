@@ -925,7 +925,6 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                      << "-" << group_seqno;
             ist_receiver_.ready();
             recv_IST(recv_ctx);
-<<<<<<< HEAD
 
             // We must close the IST receiver if the node
             // is in the process of shutting down:
@@ -934,14 +933,7 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
                 ist_prepared_ = false;
                 sst_seqno_ = ist_receiver_.finished();
             }
-
-||||||| d9929322
-            sst_seqno_ = ist_receiver_.finished();
-
-=======
-            sst_seqno_ = ist_receiver_.finished();
             last_st_type_ = ST_TYPE_IST;
->>>>>>> release_25.3.34
             // Note: apply_monitor_ must be drained to avoid race between
             // IST appliers and GCS appliers, GCS action source may
             // provide actions that have already been applied.

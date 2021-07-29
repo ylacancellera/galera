@@ -2130,18 +2130,12 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
-<<<<<<< HEAD
 
     stats->fc_lower_limit = conn->lower_limit;
     stats->fc_upper_limit = conn->upper_limit;
 
     stats->fc_status = conn->stop_sent() > 0 ? 1 : 0;
-    stats->fc_active   = conn->stop_count > 0;
-||||||| d9929322
-    stats->fc_active   = conn->stop_count > 0;
-=======
     stats->fc_active   = fc_active(conn);
->>>>>>> release_25.3.34
     stats->fc_requested= conn->stop_sent_ > 0;
 }
 
