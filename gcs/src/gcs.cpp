@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2020 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2021 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -695,7 +695,8 @@ _release_flow_control (gcs_conn_t* conn)
 static void
 gcs_become_primary (gcs_conn_t* conn)
 {
-    assert(conn->join_seqno == GCS_SEQNO_ILL ||
+    assert(conn->join_seqno <= 0             ||
+           conn->state == GCS_CONN_PRIMARY   ||
            conn->state == GCS_CONN_JOINER    ||
            conn->state == GCS_CONN_OPEN /* joiner that has received NON_PRIM */);
 
@@ -1674,6 +1675,12 @@ long gcs_caused(gcs_conn_t* conn, gcs_seqno_t& seqno)
     return gcs_core_caused(conn->core, seqno);
 }
 
+static inline bool
+fc_active(gcs_conn_t* conn)
+{
+    return conn->stop_count > 0;
+}
+
 /* Puts action in the send queue and returns after it is replicated */
 long gcs_replv (gcs_conn_t*          const conn,      //!<in
                 const struct gu_buf* const act_in,    //!<in
@@ -1717,9 +1724,8 @@ long gcs_replv (gcs_conn_t*          const conn,      //!<in
             // if (conn->state >= GCS_CONN_CLOSE) or (act_ptr == NULL)
             // ret will be -ENOTCONN
             if ((ret = -EAGAIN,
-                 conn->upper_limit >= conn->queue_len ||
-                 act->type         != GCS_ACT_TORDERED)         &&
-                (ret = -ENOTCONN, GCS_CONN_OPEN >= conn->state) &&
+                 !fc_active(conn) || act->type != GCS_ACT_TORDERED) &&
+                (ret = -ENOTCONN, GCS_CONN_OPEN >= conn->state)     &&
                 (act_ptr = (struct gcs_repl_act**)gcs_fifo_lite_get_tail (conn->repl_q)))
             {
                 *act_ptr = &repl_act;
@@ -2129,7 +2135,7 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_upper_limit = conn->upper_limit;
 
     stats->fc_status = conn->stop_sent() > 0 ? 1 : 0;
-    stats->fc_active   = conn->stop_count > 0;
+    stats->fc_active   = fc_active(conn);
     stats->fc_requested= conn->stop_sent_ > 0;
 }
 
