@@ -203,6 +203,7 @@ struct gcs_action {
     gcs_seqno_t    seqno_g;
     gcs_seqno_t    seqno_l;
     gcs_act_type_t type;
+    char           sender_id[GU_UUID_STR_LEN+1];
 };
 
 /*! @brief Replicates a vector of buffers as a single action.

@@ -80,6 +80,9 @@ public:
     }
 #ifdef GU_DBUG_ON
     void debug_sync(gu::Mutex&) { }
+#ifdef HAVE_PSI_INTERFACE
+    void debug_sync(gu::MutexWithPFS&) { }
+#endif // HAVE_PSI_INTERFACE
 #endif // GU_DBUG_ON
 private:
     galera::TrxHandle& trx_;

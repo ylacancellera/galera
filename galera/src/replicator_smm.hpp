@@ -159,7 +159,7 @@ namespace galera
                                  wsrep_seqno_t seqno_l);
         void process_state_req(void* recv_ctx, const void* req,
                                size_t req_size, wsrep_seqno_t seqno_l,
-                               wsrep_seqno_t donor_seq);
+                               wsrep_seqno_t donor_seq, const char* requestor_id);
         void process_join(wsrep_seqno_t seqno, wsrep_seqno_t seqno_l);
         void process_sync(wsrep_seqno_t seqno_l);
 
