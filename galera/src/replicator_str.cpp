@@ -326,7 +326,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                       const void* req,
                                       size_t      req_size,
                                       wsrep_seqno_t const seqno_l,
-                                      wsrep_seqno_t const donor_seq)
+                                      wsrep_seqno_t const donor_seq,
+                                      const char* requestor_id)
 {
     assert(recv_ctx != 0);
     assert(seqno_l > -1);
@@ -451,7 +452,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                          istr.peer(),
                                          istr.last_applied() + 1,
                                          cc_seqno_,
-                                         protocol_version_);
+                                         protocol_version_,
+                                         std::string(requestor_id));
 
                         // seqno will be unlocked when sender exists
                         seqno_lock_guard.unlock_ = false;

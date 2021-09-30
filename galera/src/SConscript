@@ -33,8 +33,12 @@ libgaleraxx_srcs = [
     'saved_state.cpp'
 ]
 
+
 objs = libgaleraxx_env.Object(libgaleraxx_srcs)
-env.Append(LIBGALERA_OBJS = libgaleraxx_env.SharedObject(libgaleraxx_srcs))
+objs.append(libgaleraxx_env.Object('socket_watchdog.cpp', CXXFLAGS='-std=c++11'))
+objs2 = libgaleraxx_env.SharedObject(libgaleraxx_srcs)
+objs2.append(libgaleraxx_env.SharedObject('socket_watchdog.cpp', CXXFLAGS='-std=c++11'))
+env.Append(LIBGALERA_OBJS = objs2)
 
 # Environment for multimaster library build
 mmlib_env = libgaleraxx_env.Clone()

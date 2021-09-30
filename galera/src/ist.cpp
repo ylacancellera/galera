@@ -12,6 +12,7 @@
 
 #include "GCache.hpp"
 #include "galera_common.hpp"
+#include "socket_watchdog.hpp"
 #include <boost/bind.hpp>
 #include <fstream>
 #include <algorithm>
@@ -35,11 +36,13 @@ namespace galera
                         wsrep_seqno_t first,
                         wsrep_seqno_t last,
                         AsyncSenderMap& asmap,
-                        int version)
+                        int version,
+                        const std::string& sender_id)
                 :
                 Sender (conf, asmap.gcache(), peer, version),
                 conf_  (conf),
                 peer_  (peer),
+                peer_id_ (sender_id),
                 first_ (first),
                 last_  (last),
                 asmap_ (asmap),
@@ -48,6 +51,7 @@ namespace galera
 
             const gu::Config&  conf()   { return conf_;   }
             const std::string& peer()   { return peer_;   }
+            const std::string& peer_id() const { return peer_id_;  }
             wsrep_seqno_t      first()  { return first_;  }
             wsrep_seqno_t      last()   { return last_;   }
             AsyncSenderMap&    asmap()  { return asmap_;  }
@@ -58,6 +62,7 @@ namespace galera
             friend class AsyncSenderMap;
             const gu::Config&  conf_;
             const std::string  peer_;
+            const std::string  peer_id_;
             wsrep_seqno_t      first_;
             wsrep_seqno_t      last_;
             AsyncSenderMap&    asmap_;
@@ -375,7 +380,6 @@ galera::ist::Receiver::prepare(wsrep_seqno_t first_seqno,
     return recv_addr_;
 }
 
-
 void galera::ist::Receiver::run()
 {
     asio::ip::tcp::socket socket(io_service_);
@@ -442,48 +446,74 @@ void galera::ist::Receiver::run()
              * once per BOTH 10 seconds (default) and 16 events */
             16);
 
-        while (true)
         {
-            TrxHandle* trx;
-            if (use_ssl_ == true)
-            {
-                trx = p.recv_trx(ssl_stream);
-            }
-            else
-            {
-                trx = p.recv_trx(socket);
-            }
-            if (trx != 0)
-            {
-                if (trx->global_seqno() != current_seqno_)
-                {
-                    log_error << "unexpected trx seqno: " << trx->global_seqno()
-                              << " expected: " << current_seqno_;
-                    ec = EINVAL;
-                    goto err;
-                }
-                ++current_seqno_;
+            struct WatchdogCallback : public SocketWatchdogCb {
 
-                progress.update(1);
-            }
-            gu::Lock lock(mutex_);
-            assert(ready_ || interrupted_);
-            while (consumers_.empty())
+              bool use_ssl;
+              asio::ip::tcp::socket& socket;
+              asio::ssl::stream<asio::ip::tcp::socket>& ssl_stream;
+
+              WatchdogCallback(bool use_ssl, asio::ip::tcp::socket& socket, asio::ssl::stream<asio::ip::tcp::socket>& ssl_stream) 
+              : use_ssl(use_ssl), socket(socket), ssl_stream(ssl_stream) {
+              }
+
+              virtual void operator()() {
+                  log_info << "SocketWatchdog expired";
+                  if (use_ssl) {
+                      ssl_stream.lowest_layer().shutdown(asio::socket_base::shutdown_both);
+                  } else {
+                      socket.shutdown(asio::socket_base::shutdown_both);
+                  }
+              }
+            };
+
+            WatchdogCallback cb(use_ssl_, socket, ssl_stream);
+            SocketWatchdog watchdog(&cb);
+            while (true)
             {
-                if (interrupted_)
+                watchdog.start();
+                TrxHandle* trx;
+                if (use_ssl_ == true)
                 {
-                    goto Intrrupted;
+                    trx = p.recv_trx(ssl_stream);
                 }
-                lock.wait(cond_);
-            }
-            Consumer* cons(consumers_.top());
-            consumers_.pop();
-            cons->trx(trx);
-            cons->cond().signal();
-            if (trx == 0)
-            {
-                log_debug << "eof received, closing socket";
-                break;
+                else
+                {
+                    trx = p.recv_trx(socket);
+                }
+                watchdog.stop();
+                if (trx != 0)
+                {
+                    if (trx->global_seqno() != current_seqno_)
+                    {
+                        log_error << "unexpected trx seqno: " << trx->global_seqno()
+                                  << " expected: " << current_seqno_;
+                        ec = EINVAL;
+                        goto err;
+                    }
+                    ++current_seqno_;
+
+                    progress.update(1);
+                }
+                gu::Lock lock(mutex_);
+                assert(ready_ || interrupted_);
+                while (consumers_.empty())
+                {
+                    if (interrupted_)
+                    {
+                        goto Intrrupted;
+                    }
+                    lock.wait(cond_);
+                }
+                Consumer* cons(consumers_.top());
+                consumers_.pop();
+                cons->trx(trx);
+                cons->cond().signal();
+                if (trx == 0)
+                {
+                    log_debug << "eof received, closing socket";
+                    break;
+                }
             }
         }
 
@@ -491,8 +521,12 @@ void galera::ist::Receiver::run()
     }
     catch (asio::system_error& e)
     {
-        log_error << "got error while reading ist stream: " << e.code();
         ec = e.code().value();
+        if (ec == asio::error::eof) {
+            log_error << "Connection closed by IST peer\n";
+        }
+        log_error << "got error while reading ist stream: " << e.code()
+                  << " ec: " << ec << " what: " << e.what();
     }
     catch (gu::Exception& e)
     {
@@ -901,10 +935,11 @@ void galera::ist::AsyncSenderMap::run(const gu::Config&  conf,
                                       const std::string& peer,
                                       wsrep_seqno_t      first,
                                       wsrep_seqno_t      last,
-                                      int                version)
+                                      int                version,
+                                      const std::string& sender_id)
 {
     gu::Critical crit(monitor_);
-    AsyncSender* as(new AsyncSender(conf, peer, first, last, *this, version));
+    AsyncSender* as(new AsyncSender(conf, peer, first, last, *this, version, sender_id));
     int err(gu_thread_create(&as->thread_, 0, &run_async_sender, as));
     if (err != 0)
     {
@@ -926,6 +961,37 @@ void galera::ist::AsyncSenderMap::remove(AsyncSender* as, wsrep_seqno_t seqno)
     senders_.erase(i);
 }
 
+void galera::ist::AsyncSenderMap::terminate(const std::vector<std::string>& active_peers) 
+{
+    gu::Critical crit(monitor_);
+    std::vector<AsyncSender*> senders_to_remove;
+    for(std::set<AsyncSender*>::iterator it =  senders_.begin() ; it != senders_.end();++it)
+    {
+      AsyncSender* sender = *it;
+      std::vector<std::string>::const_iterator it2 = std::find(active_peers.begin(), active_peers.end(), sender->peer_id());
+        if (it2 == active_peers.end()) {
+            log_warn << "Peer (IST receiver) " << sender->peer_id().c_str()
+                     << " for IST AsyncSender seems to be disconnected."
+                     << " Terminating IST AsyncSender.\n",
+            senders_to_remove.push_back(sender);
+        }
+    }
+
+    for(std::vector<AsyncSender*>::iterator it =  senders_to_remove.begin() ; it != senders_to_remove.end();++it)
+    {
+        AsyncSender* sender = *it;
+        senders_.erase(sender);
+        int err;
+        sender->terminate();
+        monitor_.leave();
+        if ((err = gu_thread_join(sender->thread_, 0)) != 0)
+        {
+            log_warn << "thread_join() failed: " << err;
+        }
+        monitor_.enter();
+        delete sender;
+    }
+}
 
 void galera::ist::AsyncSenderMap::cancel()
 {

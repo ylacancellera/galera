@@ -147,6 +147,18 @@ namespace galera
                 }
             }
 
+
+            void terminate()
+            {
+                if (use_ssl_ == true)
+                {
+                    ssl_stream_->lowest_layer().shutdown(asio::socket_base::shutdown_both);
+                }
+                else
+                {
+                    socket_.shutdown(asio::socket_base::shutdown_both);
+                }
+            }
         private:
 
             asio::io_service                          io_service_;
@@ -181,8 +193,10 @@ namespace galera
                      const std::string& peer,
                      wsrep_seqno_t,
                      wsrep_seqno_t,
-                     int);
+                     int,
+                     const std::string&);
             void remove(AsyncSender*, wsrep_seqno_t);
+            void terminate(const std::vector<std::string>& active_peers);
             void cancel();
             gcache::GCache& gcache() { return gcache_; }
         private:

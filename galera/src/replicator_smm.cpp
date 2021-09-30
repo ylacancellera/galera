@@ -1537,6 +1537,22 @@ app_wants_state_transfer (const void* const req, ssize_t const req_len)
             memcmp(req, WSREP_STATE_TRANSFER_NONE, req_len));
 }
 
+int
+wsrep_uuid_print (const wsrep_uuid_t* uuid, char* str, size_t str_len)
+{
+    if (str_len > 36) {
+        const unsigned char* u = uuid->data;
+        return snprintf(str, str_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-"
+                        "%02x%02x-%02x%02x%02x%02x%02x%02x",
+                        u[ 0], u[ 1], u[ 2], u[ 3], u[ 4], u[ 5], u[ 6], u[ 7],
+                        u[ 8], u[ 9], u[10], u[11], u[12], u[13], u[14], u[15]);
+    }
+    else {
+        return -EMSGSIZE;
+    }
+}
+
+
 void
 galera::ReplicatorSMM::update_incoming_list(const wsrep_view_info_t& view)
 {
@@ -1568,6 +1584,16 @@ galera::ReplicatorSMM::update_incoming_list(const wsrep_view_info_t& view)
         incoming_list_ += separator;
         incoming_list_ += view.members[i].incoming;
     }
+
+    std::vector<std::string> allowed_IST_clients;
+    for (int i = 0; i < view.memb_num; ++i)
+    {
+       char tmp[GU_UUID_STR_LEN+1];
+       wsrep_uuid_print(&(view.members[i].id), tmp, GU_UUID_STR_LEN+1);
+       allowed_IST_clients.push_back(tmp);
+    }
+    ist_senders_.terminate(allowed_IST_clients);
+
 }
 
 void
