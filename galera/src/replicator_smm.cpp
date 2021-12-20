@@ -3201,7 +3201,7 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     }
 
     // From this point on the CC is known to be processed in order.
-    assert(group_seqno > cert_.position());
+    assert(group_seqno >= cert_.position());
 
     // This CC is processed in order. Establish protocol versions,
     // it must be done before cert_.adjust_position().
