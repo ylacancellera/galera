@@ -14,10 +14,6 @@
 #include <boost/bind.hpp>
 #include <fstream>
 #include <algorithm>
-#include <chrono>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
 
 namespace
 {
@@ -39,13 +35,11 @@ namespace galera
                         wsrep_seqno_t last,
                         wsrep_seqno_t preload_start,
                         AsyncSenderMap& asmap,
-                        int version,
-                        const std::string& sender_id)
+                        int version)
                 :
                 Sender (conf, asmap.gcache(), peer, version),
                 conf_  (conf),
                 peer_  (peer),
-                peer_id_ (sender_id),
                 first_ (first),
                 last_  (last),
                 preload_start_(preload_start),
@@ -55,7 +49,6 @@ namespace galera
 
             const gu::Config&  conf()   { return conf_;   }
             const std::string& peer()  const { return peer_;   }
-            const std::string& peer_id() const { return peer_id_;  }
             wsrep_seqno_t      first() const { return first_;  }
             wsrep_seqno_t      last()  const { return last_;   }
             wsrep_seqno_t      preload_start() const { return preload_start_; }
@@ -68,7 +61,6 @@ namespace galera
 
             const gu::Config&   conf_;
             std::string const   peer_;
-            std::string const   peer_id_;
             wsrep_seqno_t const first_;
             wsrep_seqno_t const last_;
             wsrep_seqno_t const preload_start_;
@@ -374,108 +366,6 @@ galera::ist::Receiver::prepare(wsrep_seqno_t const first_seqno,
     return recv_addr_;
 }
 
-#if 0 // KH: fixme
-class SocketWatchdog
-{
-    public:
-        explicit SocketWatchdog(std::function<void()> onExpire, unsigned int timeoutMs = 10000)
-            : eventCbFn_(onExpire)
-            , active_(false)
-            , alive_(true)
-            , restart_(true)
-            , expire_cnt_(timeoutMs/10)
-            , mtx_()
-            , cv_()
-            , t_([this]() {
-
-              bool aliveSnapshot = alive_;
-
-              while(aliveSnapshot) {
-                bool activeSnapshot;
-                bool restartSnapshot = false;
-                int counter;
-
-                // Wait for the trigger. (start, stop or destructor).
-                // Once triggered, collect current state of control flags.
-                {
-                  std::unique_lock<std::mutex> lock(mtx_);
-                  while(!active_) cv_.wait(lock);
-                  activeSnapshot = active_;
-                  aliveSnapshot = alive_;
-                  counter = expire_cnt_;
-
-                  // Here we do not capture restart_ because we just set up
-                  // fresh state of the watchdog.
-                  restart_ = false;
-                }
-
-                // Timer loop.
-                while (activeSnapshot && aliveSnapshot && !restartSnapshot) {
-                    if (counter == 0) {
-                        // Timeout expired. Call registered delegate and
-                        // deactivate the watchdog.
-                        eventCbFn_();
-
-                        std::unique_lock<std::mutex> lock(mtx_);
-                        active_ = false;
-                        break;
-                    }
-
-                    {
-                        // Watit for 10ms, than collect current state of
-                        // control flags.
-                        std::unique_lock<std::mutex> lock(mtx_);
-                        cv_.wait_for(lock, std::chrono::milliseconds(10));
-                        activeSnapshot = active_;
-                        aliveSnapshot = alive_;
-                        // If in the meantime, when we were not under lock,
-                        // stop-start sequence was called, it means we need
-                        // to restart the timer loop.
-                        restartSnapshot = restart_;
-                    }
-                    --counter;
-                }
-              }
-          }) { }
-
-        ~SocketWatchdog() {
-            {
-                std::unique_lock<std::mutex> lock(mtx_);
-                alive_ = false;
-                active_ = true;
-                cv_.notify_one();
-            }
-            t_.join();
-
-        }
-
-        void start() {
-            std::unique_lock<std::mutex> lock(mtx_);
-            active_ = true;
-            // Inform executor thread that watchdog was just started
-            // and it is necessary to restart timer loop.
-            restart_ = true;
-            cv_.notify_one();
-        }
-
-        void stop() {
-            std::unique_lock<std::mutex> lock(mtx_);
-            active_ = false;
-            cv_.notify_one();
-        }
-
-    private:
-        std::function<void()> eventCbFn_;
-        bool active_;
-        bool alive_;
-        bool restart_;
-        int expire_cnt_;
-        std::mutex mtx_;
-        std::condition_variable cv_;
-
-        std::thread t_;
-};
-#endif // KH: fixme
 
 void galera::ist::Receiver::run()
 {
@@ -521,219 +411,204 @@ void galera::ist::Receiver::run()
         bool preload_started(false);
         current_seqno_ = WSREP_SEQNO_UNDEFINED;
 
+        while (true)
         {
-#if 0
-            // KH: fixme
-            SocketWatchdog watchdog([&ssl_stream, &socket, this]() {
-                log_info << "SocketWatchdog expired";
-                if (use_ssl_) {
-                    ssl_stream.lowest_layer().shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                } else {
-                    socket.shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                }
-            });
-#endif
-            while (true)
+            std::pair<gcs_action, bool> ret;
+            p.recv_ordered(*socket, ret);
+
+            gcs_action& act(ret.first);
+
+            // act type GCS_ACT_UNKNOWN denotes EOF
+            if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
             {
-                std::pair<gcs_action, bool> ret;
-               // KH: fixme watchdog.start();
-                p.recv_ordered(*socket, ret);
-               // KH: fixme watchdog.stop();
+                assert(0    == act.seqno_g);
+                assert(NULL == act.buf);
+                assert(0    == act.size);
+                log_debug << "eof received, closing socket";
+                break;
+            }
 
-                gcs_action& act(ret.first);
+            assert(act.seqno_g > 0);
 
-                // act type GCS_ACT_UNKNOWN denotes EOF
-                if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
+            if (gu_unlikely(WSREP_SEQNO_UNDEFINED == current_seqno_))
+            {
+                assert(!progress);
+                if (act.seqno_g > first_seqno_)
                 {
-                    assert(0    == act.seqno_g);
-                    assert(NULL == act.buf);
-                    assert(0    == act.size);
-                    log_debug << "eof received, closing socket";
-                    break;
-                }
-
-                assert(act.seqno_g > 0);
-
-                if (gu_unlikely(WSREP_SEQNO_UNDEFINED == current_seqno_))
-                {
-                    assert(!progress);
-                    if (act.seqno_g > first_seqno_)
-                    {
-                        log_error
-                            << "IST started with wrong seqno: " << act.seqno_g
-                            << ", expected <= " << first_seqno_;
-                        ec = EINVAL;
-                        goto err;
-                    }
-                    log_info << "####### IST current seqno initialized to "
-                            << act.seqno_g;
-                    current_seqno_ = act.seqno_g;
-                    progress = new gu::Progress<wsrep_seqno_t>(
-                        "Receiving IST", " events",
-                        last_seqno_ - current_seqno_ + 1,
-                        /* The following means reporting progress NO MORE frequently
-                        * than once per BOTH 10 seconds (default) and 16 events */
-                        1, "PT1S");
-                }
-                else
-                {
-                    assert(progress);
-
-                    ++current_seqno_;
-                    progress->update(1);
-                }
-
-                if (act.seqno_g != current_seqno_)
-                {
-                    log_error << "Unexpected action seqno: " << act.seqno_g
-                            << " expected: " << current_seqno_;
+                    log_error
+                        << "IST started with wrong seqno: " << act.seqno_g
+                        << ", expected <= " << first_seqno_;
                     ec = EINVAL;
                     goto err;
                 }
+                log_info << "####### IST current seqno initialized to "
+                        << act.seqno_g;
+                current_seqno_ = act.seqno_g;
+                progress = new gu::Progress<wsrep_seqno_t>(
+                    "Receiving IST", " events",
+                    last_seqno_ - current_seqno_ + 1,
+                    /* The following means reporting progress NO MORE frequently
+                    * than once per BOTH 10 seconds (default) and 16 events */
+                    1, "PT1S");
+            }
+            else
+            {
+                assert(progress);
 
-                assert(current_seqno_ > 0);
-                assert(current_seqno_ == act.seqno_g);
-                assert(act.type != GCS_ACT_UNKNOWN);
+                ++current_seqno_;
+                progress->update(1);
+            }
 
-                /* Say use-case is booting 3 node cluster n1, n2, n3 all from scratch.
-                - n1 bootstraps and create cluster with state x:1
-                - n2 boots up and joins cluster moving cluster state from x:1 -> x:2
-                - n2 then demands SST since state of n2 is 0:-1.
-                - n1 decided to donate SST to n2.
-                - As per new G-4 protocol cc events are all persisted.
-                n2 raises SST followed by IST request.
-                - n2 demands IST request for 0-2.
-                - n1 detects SST action and decided to process IST only for 2-2
-                - n2 gets SST state that represent x:2 followed by IST with
-                write-set = 2.
-                - Since n2 already has write-set = 2 it ignores applying
-                the said write-set.
-                (n3 will join post this with same sequencing).
+            if (act.seqno_g != current_seqno_)
+            {
+                log_error << "Unexpected action seqno: " << act.seqno_g
+                        << " expected: " << current_seqno_;
+                ec = EINVAL;
+                goto err;
+            }
 
-                .... this is how normal flow happens.
+            assert(current_seqno_ > 0);
+            assert(current_seqno_ == act.seqno_g);
+            assert(act.type != GCS_ACT_UNKNOWN);
 
-                so process of joinint the node can be summarized as
-                (a) grant membership and update configuration (that is persisted).
-                (b) request SST + IST (with range).
-                (c) donor kicks-off IST (async action).
-                (d) donor initiate SST (again async action).
-                (e) joiner before applying IST wait for SST to complete.
-                (f) post SST joiner apply IST only write set > sst-write-set.
-                (e) other write-set still are cached in gcache and are added
-                    to gcache maintain seqno2ptr.
+            /* Say use-case is booting 3 node cluster n1, n2, n3 all from scratch.
+            - n1 bootstraps and create cluster with state x:1
+            - n2 boots up and joins cluster moving cluster state from x:1 -> x:2
+            - n2 then demands SST since state of n2 is 0:-1.
+            - n1 decided to donate SST to n2.
+            - As per new G-4 protocol cc events are all persisted.
+            n2 raises SST followed by IST request.
+            - n2 demands IST request for 0-2.
+            - n1 detects SST action and decided to process IST only for 2-2
+            - n2 gets SST state that represent x:2 followed by IST with
+            write-set = 2.
+            - Since n2 already has write-set = 2 it ignores applying
+            the said write-set.
+            (n3 will join post this with same sequencing).
 
-                use-case-1
-                ----------
+            .... this is how normal flow happens.
 
-                Now say n3 joins after n2 is done with (c) but before donor
-                initiate (d). n1 updates membership and update cc moving state
-                from x:2 -> x:3. Post SST n2 get state = x:3 (first_seqno_ = 3).
-                Check below (must_apply) will ignore applying write-set from
-                IST channel as  2 < 3 that suggest SST already got changes from
-                write-set 2 so no need to apply it but write-set is kept active
-                in gcache so cert preload is reset back to (2) from (3) that was
-                set immediately post-SST.
+            so process of joinint the node can be summarized as
+            (a) grant membership and update configuration (that is persisted).
+            (b) request SST + IST (with range).
+            (c) donor kicks-off IST (async action).
+            (d) donor initiate SST (again async action).
+            (e) joiner before applying IST wait for SST to complete.
+            (f) post SST joiner apply IST only write set > sst-write-set.
+            (e) other write-set still are cached in gcache and are added
+                to gcache maintain seqno2ptr.
 
-                Write-set (CC event) registered with seqno=3 is also delivered to
-                n2 through group channel. n2 ignore processing group channel
-                delivered event given the said event (creation of updated view)
-                as it is already present through SST.
+            use-case-1
+            ----------
 
-                While n2 ignores applying this event it is also freed from gcache.
-                This creates inconsistency as n2 maintained gcache now has
-                event=2, event=3 (absent), other events.....
-                gcache is expected to have all events sequentially.
-                [recv_ordered that read events from ist channel caches the events
-                to gcache and also add it to the gcache vector seqno2ptr]
+            Now say n3 joins after n2 is done with (c) but before donor
+            initiate (d). n1 updates membership and update cc moving state
+            from x:2 -> x:3. Post SST n2 get state = x:3 (first_seqno_ = 3).
+            Check below (must_apply) will ignore applying write-set from
+            IST channel as  2 < 3 that suggest SST already got changes from
+            write-set 2 so no need to apply it but write-set is kept active
+            in gcache so cert preload is reset back to (2) from (3) that was
+            set immediately post-SST.
 
-                fix-1: ensure such ignored event are added gcache.
+            Write-set (CC event) registered with seqno=3 is also delivered to
+            n2 through group channel. n2 ignore processing group channel
+            delivered event given the said event (creation of updated view)
+            as it is already present through SST.
 
-                use-case-2
-                ----------
+            While n2 ignores applying this event it is also freed from gcache.
+            This creates inconsistency as n2 maintained gcache now has
+            event=2, event=3 (absent), other events.....
+            gcache is expected to have all events sequentially.
+            [recv_ordered that read events from ist channel caches the events
+            to gcache and also add it to the gcache vector seqno2ptr]
 
-                Now say n3 joins between (b) and (c). n1 updates membership from
-                x:2 -> x:3 and initiate IST. IST followed by SST is never processed
-                based on demand but based on donor state so donor initiate IST
-                with write-set 3-3.
+            fix-1: ensure such ignored event are added gcache.
 
-                n2 demanded 0-2 but received IST write-set=3 and SST with write-sets
-                upto = 3. n2 also recieved the said write-set from group channel since
-                n2 was part of the group channel when n3 joined.
-                n2 ignores processing of the event received from group channel
-                (ignore creation of view since the view is already created through
-                SST restoration) but try to add the said ignored event to gcache
-                as per the protocol established above. Unfortunately, it hits an
-                error here because IST during its processing has already added it.
+            use-case-2
+            ----------
 
-                fix-2: avoid adding events to gcache that has
-                    seqno > ist-demanded-seqno (3 > 2 avoid adding 3).
+            Now say n3 joins between (b) and (c). n1 updates membership from
+            x:2 -> x:3 and initiate IST. IST followed by SST is never processed
+            based on demand but based on donor state so donor initiate IST
+            with write-set 3-3.
 
-                use-case-3:
-                -----------
+            n2 demanded 0-2 but received IST write-set=3 and SST with write-sets
+            upto = 3. n2 also recieved the said write-set from group channel since
+            n2 was part of the group channel when n3 joined.
+            n2 ignores processing of the event received from group channel
+            (ignore creation of view since the view is already created through
+            SST restoration) but try to add the said ignored event to gcache
+            as per the protocol established above. Unfortunately, it hits an
+            error here because IST during its processing has already added it.
 
-                Now say instead of n3 joining n2 which is already part of the cluster
-                and waiting for SST + IST faces some n/w glitch.
+            fix-2: avoid adding events to gcache that has
+                seqno > ist-demanded-seqno (3 > 2 avoid adding 3).
 
-                This cause another configuration change registered under seqno=3
-                but this cc is not delivered to n2 due to n/w issue.
+            use-case-3:
+            -----------
 
-                Once n/w is back n2 get the SST with state = x:3 and IST with seqno=2.
-                As as explained in use-case-1 it ignored seqno=2 (2 < 3) but
-                as it was case in use-case-1 local ordered CC event cause addition
-                of seqno=3 to gcache vector but since this event never got delivered
-                this seqno is not added to gcache. Instead it processes an event
-                with CC = -1 that registers its disconnection from the cluster.
-                Eventually it catches up with the cluster through IST demanding
-                3-4 writeset as n2 has registered state = 3 from SST but this causes
-                inconsistency in gcache seqno2ptr vector as write-set 3 never get
-                registered.
-                */
+            Now say instead of n3 joining n2 which is already part of the cluster
+            and waiting for SST + IST faces some n/w glitch.
 
-                bool const must_apply(current_seqno_ >= first_seqno_);
-                bool const preload(ret.second);
+            This cause another configuration change registered under seqno=3
+            but this cc is not delivered to n2 due to n/w issue.
 
-                if (gu_unlikely(preload == true && preload_started == false))
+            Once n/w is back n2 get the SST with state = x:3 and IST with seqno=2.
+            As as explained in use-case-1 it ignored seqno=2 (2 < 3) but
+            as it was case in use-case-1 local ordered CC event cause addition
+            of seqno=3 to gcache vector but since this event never got delivered
+            this seqno is not added to gcache. Instead it processes an event
+            with CC = -1 that registers its disconnection from the cluster.
+            Eventually it catches up with the cluster through IST demanding
+            3-4 writeset as n2 has registered state = 3 from SST but this causes
+            inconsistency in gcache seqno2ptr vector as write-set 3 never get
+            registered.
+            */
+
+            bool const must_apply(current_seqno_ >= first_seqno_);
+            bool const preload(ret.second);
+
+            if (gu_unlikely(preload == true && preload_started == false))
+            {
+                log_info << "IST preload starting at " << current_seqno_;
+                preload_started = true;
+            }
+
+            switch (act.type)
+            {
+            case GCS_ACT_WRITESET:
+            {
+                TrxHandleSlavePtr ts(
+                    TrxHandleSlavePtr(TrxHandleSlave::New(false,
+                                                        slave_pool_),
+                                    TrxHandleSlaveDeleter()));
+                if (act.size > 0)
                 {
-                    log_info << "IST preload starting at " << current_seqno_;
-                    preload_started = true;
+                    gu_trace(ts->unserialize<false>(act));
+                    ts->set_local(false);
+                    assert(ts->global_seqno() == act.seqno_g);
+                    assert(ts->depends_seqno() >= 0 || ts->nbo_end());
+                    assert(ts->action().first && ts->action().second);
+                    // Checksum is verified later on
+                }
+                else
+                {
+                    ts->set_global_seqno(act.seqno_g);
+                    ts->mark_dummy_with_action(act.buf);
                 }
 
-                switch (act.type)
-                {
-                case GCS_ACT_WRITESET:
-                {
-                    TrxHandleSlavePtr ts(
-                        TrxHandleSlavePtr(TrxHandleSlave::New(false,
-                                                            slave_pool_),
-                                        TrxHandleSlaveDeleter()));
-                    if (act.size > 0)
-                    {
-                        gu_trace(ts->unserialize<false>(act));
-                        ts->set_local(false);
-                        assert(ts->global_seqno() == act.seqno_g);
-                        assert(ts->depends_seqno() >= 0 || ts->nbo_end());
-                        assert(ts->action().first && ts->action().second);
-                        // Checksum is verified later on
-                    }
-                    else
-                    {
-                        ts->set_global_seqno(act.seqno_g);
-                        ts->mark_dummy_with_action(act.buf);
-                    }
-
-                    log_debug << "####### Passing WS " << act.seqno_g;
-                    handler_.ist_trx(ts, must_apply, preload);
-                    break;
-                }
-                case GCS_ACT_CCHANGE:
-                    log_info << "####### Passing IST CC " << act.seqno_g
-                            << ", must_apply: " << must_apply
-                            << ", preload: " << (preload ? "true" : "false");
-                    handler_.ist_cc(act, must_apply, preload);
-                    break;
-                default:
-                    assert(0);
-                }
+                log_debug << "####### Passing WS " << act.seqno_g;
+                handler_.ist_trx(ts, must_apply, preload);
+                break;
+            }
+            case GCS_ACT_CCHANGE:
+                log_info << "####### Passing IST CC " << act.seqno_g
+                        << ", must_apply: " << must_apply
+                        << ", preload: " << (preload ? "true" : "false");
+                handler_.ist_cc(act, must_apply, preload);
+                break;
+            default:
+                assert(0);
             }
         }
         if (progress /* IST actually started */) progress->finish();
@@ -1055,12 +930,11 @@ void galera::ist::AsyncSenderMap::run(const gu::Config&   conf,
                                       wsrep_seqno_t const first,
                                       wsrep_seqno_t const last,
                                       wsrep_seqno_t const preload_start,
-                                      int const           version,
-                                      const std::string&  sender_id)
+                                      int const           version)
 {
     gu::Critical crit(monitor_);
     AsyncSender* as(new AsyncSender(conf, peer, first, last, preload_start,
-                                    *this, version, sender_id));
+                                    *this, version));
     int err(gu_thread_create(&as->thread_, 0, &run_async_sender, as));
     if (err != 0)
     {
@@ -1082,34 +956,6 @@ void galera::ist::AsyncSenderMap::remove(AsyncSender* as, wsrep_seqno_t seqno)
     senders_.erase(i);
 }
 
-void galera::ist::AsyncSenderMap::terminate(const std::vector<std::string>& active_peers) 
-{
-    gu::Critical crit(monitor_);
-    std::vector<AsyncSender*> senders_to_remove;
-    for(auto sender : senders_)
-    {
-        auto it = std::find(begin(active_peers), end(active_peers), sender->peer_id());
-        if (it == active_peers.end()) {
-            log_warn << "Peer (IST receiver) " << sender->peer_id().c_str()
-                     << " for IST AsyncSender seems to be disconnected."
-                     << " Terminating IST AsyncSender.\n",
-            senders_to_remove.push_back(sender);
-        }
-    }
-
-    for (auto sender : senders_to_remove) {
-        senders_.erase(sender);
-        int err;
-        sender->terminate();
-        monitor_.leave();
-        if ((err = gu_thread_join(sender->thread_, 0)) != 0)
-        {
-            log_warn << "thread_join() failed: " << err;
-        }
-        monitor_.enter();
-        delete sender;
-    }
-}
 
 void galera::ist::AsyncSenderMap::cancel()
 {

@@ -171,17 +171,8 @@ namespace gcache
 
         bool   loop(true);
 
-        // Before 4.6 we used a condition variable to wait until the whole batch
-        // can be released. Upstream removed this condition variable in 4.6, so our
-        // code relies on small sleeps and retries now.
-        bool sleep_a_bit = false;
-
         while(loop)
         {
-            if (sleep_a_bit) {
-              usleep(10000);
-              sleep_a_bit = false;
-            }
             gu::Lock lock(mtx);
 
             if (seqno < seqno_released || seqno >= seqno_locked)
@@ -224,16 +215,6 @@ namespace gcache
             seqno_t const start  (idx - 1);
             seqno_t const end    (seqno - start >= 2*batch_size ?
                                   start + batch_size : seqno);
-
-            // Just not to overcomplicate the logic here:
-            // release only if the whole batch can be released, if not - wait.
-            if(seqno_locked != SEQNO_NONE && end >= seqno_locked) {
-                log_debug << "GCache::seqno_release requested: " << seqno
-                          << " locked: " << seqno_locked << " - waiting";
-                sleep_a_bit = true;
-                continue;
-            }
-
 #ifndef NDEBUG
             if (params.debug())
             {

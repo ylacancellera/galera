@@ -427,7 +427,6 @@ static wsrep_seqno_t run_ist_senders(ist::AsyncSenderMap& ist_senders,
                                      wsrep_seqno_t const  cc_seqno,
                                      wsrep_seqno_t const  cc_lowest,
                                      int const            proto_ver,
-                                     const char*          requestor_id,
                                      slg&                 seqno_lock_guard,
                                      wsrep_seqno_t const  rcode)
 {
@@ -438,8 +437,7 @@ static wsrep_seqno_t run_ist_senders(ist::AsyncSenderMap& ist_senders,
                         preload_start,
                         cc_seqno,
                         cc_lowest,
-                        proto_ver,
-                        std::string(requestor_id));
+                        proto_ver);
         // seqno will be unlocked when sender exists
         seqno_lock_guard.unlock_ = false;
         return rcode;
@@ -455,8 +453,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                                       const void* req,
                                       size_t      req_size,
                                       wsrep_seqno_t const seqno_l,
-                                      wsrep_seqno_t const donor_seq,
-                                      const char* requestor_id)
+                                      wsrep_seqno_t const donor_seq)
 {
     assert(recv_ctx != 0);
     assert(seqno_l > -1);
@@ -558,7 +555,6 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                          * Need to keep it that way for backward
                          * compatibility */
                                             protocol_version_,
-                                            requestor_id,
                                             seqno_lock_guard,
                                             rcode);
                 }
@@ -647,7 +643,6 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                          * Need to keep it that way for backward
                          * compatibility */
                                             protocol_version_,
-                                            requestor_id,
                                             seqno_lock_guard,
                                             rcode);
                     if (rcode < 0) goto out;
