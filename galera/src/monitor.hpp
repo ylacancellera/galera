@@ -78,7 +78,8 @@ namespace galera
             entered_(0),
             oooe_(0),
             oool_(0),
-            win_size_(0)
+            win_size_(0),
+            waits_(0)
         { }
 
         ~Monitor()
@@ -172,6 +173,7 @@ namespace galera
                 while (may_enter(obj) == false &&
                        process_[idx].state_ == Process::S_WAITING)
                 {
+                    ++waits_;
                     lock.wait(process_[idx].cond_);
                 }
 
@@ -384,7 +386,8 @@ namespace galera
             }
         }
 
-        void get_stats(double* oooe, double* oool, double* win_size) const
+        void get_stats(double* oooe, double* oool, double* win_size,
+                       long long* waits) const
         {
             gu::Lock lock(mutex_);
 
@@ -398,12 +401,13 @@ namespace galera
             {
                 *oooe = .0; *oool = .0; *win_size = .0;
             }
+            *waits = waits_;
         }
 
         void flush_stats()
         {
             gu::Lock lock(mutex_);
-            oooe_ = 0; oool_ = 0; win_size_ = 0; entered_ = 0;
+            oooe_ = 0; oool_ = 0; win_size_ = 0; entered_ = 0; waits_ = 0;
         }
 
     private:
@@ -582,6 +586,9 @@ namespace galera
         long oooe_;     // out of order entered
         long oool_;     // out of order left
         long win_size_; // window between last_left_ and last_entered_
+        // Total number of waits in the monitor. Incremented before
+        // entering into waiting state.
+        long long waits_;
     };
 }
 
