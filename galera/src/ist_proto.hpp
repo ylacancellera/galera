@@ -300,18 +300,8 @@ namespace galera
             {
                 Handshake  hs(version_);
                 gu::Buffer buf(hs.serial_size());
-<<<<<<< HEAD
                 size_t offset(hs.serialize(buf.data(), buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(buf.data(),
-                                                          buf.size())));
-||||||| bac81712
-                size_t offset(hs.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0],
-                                                          buf.size())));
-=======
-                size_t offset(hs.serialize(&buf[0], buf.size(), 0));
-                size_t n(socket.write(gu::AsioConstBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.write(gu::AsioConstBuffer(buf.data(), buf.size())));
                 if (n != offset)
                 {
                     gu_throw_error(EPROTO) << "error sending handshake";
@@ -322,13 +312,7 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-<<<<<<< HEAD
-                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
-||||||| bac81712
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
-=======
-                size_t n(socket.read(gu::AsioMutableBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.read(gu::AsioMutableBuffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
@@ -372,16 +356,8 @@ namespace galera
             {
                 HandshakeResponse hsr(version_);
                 gu::Buffer buf(hsr.serial_size());
-<<<<<<< HEAD
                 size_t offset(hsr.serialize(buf.data(), buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(buf.data(), buf.size())));
-||||||| bac81712
-                size_t offset(hsr.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0], buf.size())));
-=======
-                size_t offset(hsr.serialize(&buf[0], buf.size(), 0));
-                size_t n(socket.write(gu::AsioConstBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.write(gu::AsioConstBuffer(buf.data(), buf.size())));
                 if (n != offset)
                 {
                     gu_throw_error(EPROTO)
@@ -393,13 +369,7 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-<<<<<<< HEAD
-                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
-||||||| bac81712
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
-=======
-                size_t n(socket.read(gu::AsioMutableBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.read(gu::AsioMutableBuffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
@@ -435,16 +405,8 @@ namespace galera
             {
                 Ctrl       ctrl(version_, code);
                 gu::Buffer buf(ctrl.serial_size());
-<<<<<<< HEAD
                 size_t offset(ctrl.serialize(buf.data(), buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(buf.data(),buf.size())));
-||||||| bac81712
-                size_t offset(ctrl.serialize(&buf[0], buf.size(), 0));
-                size_t n(asio::write(socket, asio::buffer(&buf[0],buf.size())));
-=======
-                size_t offset(ctrl.serialize(&buf[0], buf.size(), 0));
-                size_t n(socket.write(gu::AsioConstBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.write(gu::AsioConstBuffer(buf.data(), buf.size())));
                 if (n != offset)
                 {
                     gu_throw_error(EPROTO) << "error sending ctrl message";
@@ -455,13 +417,7 @@ namespace galera
             {
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-<<<<<<< HEAD
-                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
-||||||| bac81712
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
-=======
-                size_t n(socket.read(gu::AsioMutableBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.read(gu::AsioMutableBuffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
@@ -566,13 +522,7 @@ namespace galera
                                             buf.data(), buf.size(), offset);
                 }
 
-<<<<<<< HEAD
-                cbs[0] = asio::const_buffer(buf.data(), buf.size());
-||||||| bac81712
-                cbs[0] = asio::const_buffer(&buf[0], buf.size());
-=======
-                cbs[0] = gu::AsioConstBuffer(&buf[0], buf.size());
->>>>>>> release_26.4.10
+                cbs[0] = gu::AsioConstBuffer(buf.data(), buf.size());
 
                 if (gu_likely(payload_size))
                 {
@@ -591,19 +541,9 @@ namespace galera
                 gu::Buffer buf(4092);
                 while (bytes > 0)
                 {
-<<<<<<< HEAD
-                    bytes -= asio::read(
-                        socket,
-                        asio::buffer(buf.data(), std::min(buf.size(), bytes)));
-||||||| bac81712
-                    bytes -= asio::read(
-                        socket,
-                        asio::buffer(&buf[0], std::min(buf.size(), bytes)));
-=======
                     bytes -= socket.read(
                         gu::AsioMutableBuffer(
-                            &buf[0], std::min(buf.size(), bytes)));
->>>>>>> release_26.4.10
+                            buf.data(), std::min(buf.size(), bytes)));
                 }
                 assert(bytes == 0);
             }
@@ -622,13 +562,7 @@ namespace galera
 
                 Message    msg(version_);
                 gu::Buffer buf(msg.serial_size());
-<<<<<<< HEAD
-                size_t n(asio::read(socket, asio::buffer(buf.data(), buf.size())));
-||||||| bac81712
-                size_t n(asio::read(socket, asio::buffer(&buf[0], buf.size())));
-=======
-                size_t n(socket.read(gu::AsioMutableBuffer(&buf[0], buf.size())));
->>>>>>> release_26.4.10
+                size_t n(socket.read(gu::AsioMutableBuffer(buf.data(), buf.size())));
 
                 if (n != buf.size())
                 {
@@ -657,13 +591,7 @@ namespace galera
 
                         buf.resize(sizeof(seqno_g) + sizeof(seqno_d));
 
-<<<<<<< HEAD
-                        n = asio::read(socket, asio::buffer(buf.data(),buf.size()));
-||||||| bac81712
-                        n = asio::read(socket, asio::buffer(&buf[0],buf.size()));
-=======
-                        n = socket.read(gu::AsioMutableBuffer(&buf[0],buf.size()));
->>>>>>> release_26.4.10
+                        n = socket.read(gu::AsioMutableBuffer(buf.data(),buf.size()));
                         if (n != buf.size())
                         {
                             assert(0);

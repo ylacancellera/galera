@@ -72,14 +72,8 @@ namespace gu
 #endif /* PXC */
 
 #ifdef GU_MUTEX_DEBUG
-<<<<<<< HEAD
             mtx_->locked_ = false;
-||||||| bac81712
-            mtx_.locked_ = false;
-=======
-            mtx_.locked_ = false;
-            mtx_.disown();
->>>>>>> release_26.4.10
+            mtx_->disown();
 #endif /* GU_MUTEX_DEBUG */
             cond.ref_count++;
             gu_cond_wait (&(cond.cond), &mtx_->impl()); // never returns error
@@ -111,14 +105,8 @@ namespace gu
 
             date._timespec(ts);
 #ifdef GU_MUTEX_DEBUG
-<<<<<<< HEAD
             mtx_->locked_ = false;
-||||||| bac81712
-            mtx_.locked_ = false;
-=======
-            mtx_.locked_ = false;
-            mtx_.disown();
->>>>>>> release_26.4.10
+            mtx_->disown();
 #endif /* GU_MUTEX_DEBUG */
             cond.ref_count++;
             int const ret(gu_cond_timedwait (&(cond.cond), &mtx_->impl(), &ts));

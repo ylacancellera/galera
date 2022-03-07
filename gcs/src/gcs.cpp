@@ -2491,14 +2491,7 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
-<<<<<<< HEAD
-
-    stats->fc_active   = conn->stop_count > 0;
-||||||| bac81712
-    stats->fc_active   = conn->stop_count > 0;
-=======
     stats->fc_active   = fc_active(conn);
->>>>>>> release_26.4.10
     stats->fc_requested= conn->stop_sent_ > 0;
 
 #ifdef PXC

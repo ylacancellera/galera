@@ -2630,6 +2630,7 @@ galera::ReplicatorSMM::process_conf_change(void*                    recv_ctx,
 
 void galera::ReplicatorSMM::drain_monitors_for_local_conf_change(const gcs_act_cchange& cc)
 {
+#if 0 // KH:
    std::vector<std::string> allowed_IST_clients;
    allowed_IST_clients.reserve(cc.memb.size());
 
@@ -2640,6 +2641,7 @@ void galera::ReplicatorSMM::drain_monitors_for_local_conf_change(const gcs_act_c
        allowed_IST_clients.emplace_back(tmp);
    }
    ist_senders_.terminate(allowed_IST_clients);
+#endif
 
    wsrep_seqno_t const upto(cert_.position());
         log_info << "Maybe drain monitors from " << last_committed()

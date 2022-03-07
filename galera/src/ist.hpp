@@ -81,10 +81,8 @@ namespace galera
 
             std::string                                   recv_addr_;
             std::string                                   recv_bind_;
-<<<<<<< HEAD
-            asio::io_service                              io_service_;
-            asio::ip::tcp::acceptor                       acceptor_;
-            asio::ssl::context                            ssl_ctx_;
+            gu::AsioIoService                             io_service_;
+            std::shared_ptr<gu::AsioAcceptor>             acceptor_;
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
             gu::MutexWithPFS                              mutex_;
@@ -94,14 +92,6 @@ namespace galera
              gu::Cond                                      cond_;
 #endif /* HAVE_PSI_INTERFACE */
 #else
-||||||| bac81712
-            asio::io_service                              io_service_;
-            asio::ip::tcp::acceptor                       acceptor_;
-            asio::ssl::context                            ssl_ctx_;
-=======
-            gu::AsioIoService                             io_service_;
-            std::shared_ptr<gu::AsioAcceptor>             acceptor_;
->>>>>>> release_26.4.10
             gu::Mutex                                     mutex_;
             gu::Cond                                      cond_;
 #endif /* PXC */
@@ -153,6 +143,7 @@ namespace galera
 
             void terminate()
             {
+#if 0 // KH:
                 if (use_ssl_ == true)
                 {
                     ssl_stream_->lowest_layer().shutdown(asio::socket_base::shutdown_type::shutdown_both);
@@ -161,6 +152,7 @@ namespace galera
                 {
                     socket_.shutdown(asio::socket_base::shutdown_type::shutdown_both);
                 }
+#endif
             }
 
         private:

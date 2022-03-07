@@ -133,101 +133,8 @@ void gcomm::AsioTcpSocket::failed_handler(const gu::AsioErrorCode& ec,
     }
 }
 
-<<<<<<< HEAD
-void gcomm::AsioTcpSocket::handshake_handler(const asio::error_code& ec)
-{
-    if (ec)
-    {
-        if (ec.category() == asio::error::get_ssl_category() &&
-            gu::exclude_ssl_error(ec) == false)
-        {
-
-            log_error
-                << "handshake with remote endpoint "
-                << remote_addr() << " failed: " << ec << ": '"
-                << ec.message()
-                << "' ( " << gu::extra_error_info(ec) << ")" << std::endl
-                << "This error is often caused by SSL issues. "
-                << "For more information, please see:" << std::endl
-                << "  https://per.co.na/pxc/encrypt_cluster_traffic" << std::endl
-                << "--------";
-        }
-        FAILED_HANDLER(ec);
-        return;
-    }
-
-    if (ssl_socket_ == 0)
-    {
-        log_error << "handshake handler called for non-SSL socket "
-                  << id() << " "
-                  << remote_addr() << " <-> "
-                  << local_addr();
-        FAILED_HANDLER(asio::error_code(EPROTO, asio::error::system_category));
-        return;
-    }
-
-    const char* compression_name = gu::compression(*ssl_socket_);
-
-    log_info << "SSL handshake successful, "
-             << "remote endpoint " << remote_addr()
-             << " local endpoint " << local_addr()
-             << " cipher: " << gu::cipher(*ssl_socket_)
-             << " compression: "
-             << (compression_name != NULL ? compression_name : "none");
-    state_ = S_CONNECTED;
-    init_tstamps();
-    net_.dispatch(id(), Datagram(), ProtoUpMeta(ec.value()));
-    async_receive();
-}
-
-void gcomm::AsioTcpSocket::connect_handler(const asio::error_code& ec)
-||||||| bac81712
-void gcomm::AsioTcpSocket::handshake_handler(const asio::error_code& ec)
-{
-    if (ec)
-    {
-        if (ec.category() == asio::error::get_ssl_category() &&
-            gu::exclude_ssl_error(ec) == false)
-        {
-
-            log_error << "handshake with remote endpoint "
-                      << remote_addr() << " failed: " << ec << ": '"
-                      << ec.message()
-                      << "' ( " << gu::extra_error_info(ec) << ")";
-        }
-        FAILED_HANDLER(ec);
-        return;
-    }
-
-    if (ssl_socket_ == 0)
-    {
-        log_error << "handshake handler called for non-SSL socket "
-                  << id() << " "
-                  << remote_addr() << " <-> "
-                  << local_addr();
-        FAILED_HANDLER(asio::error_code(EPROTO, asio::error::system_category));
-        return;
-    }
-
-    const char* compression_name = gu::compression(*ssl_socket_);
-
-    log_info << "SSL handshake successful, "
-             << "remote endpoint " << remote_addr()
-             << " local endpoint " << local_addr()
-             << " cipher: " << gu::cipher(*ssl_socket_)
-             << " compression: "
-             << (compression_name != NULL ? compression_name : "none");
-    state_ = S_CONNECTED;
-    init_tstamps();
-    net_.dispatch(id(), Datagram(), ProtoUpMeta(ec.value()));
-    async_receive();
-}
-
-void gcomm::AsioTcpSocket::connect_handler(const asio::error_code& ec)
-=======
 void gcomm::AsioTcpSocket::connect_handler(gu::AsioSocket& socket,
                                            const gu::AsioErrorCode& ec)
->>>>>>> release_26.4.10
 {
     Critical<AsioProtonet> crit(net_);
 
@@ -711,20 +618,8 @@ void gcomm::AsioTcpSocket::async_receive()
 
     gcomm_assert(state() == S_CONNECTED);
 
-<<<<<<< HEAD
-    gu::array<asio::mutable_buffer, 1>::type mbs;
-
-    mbs[0] = asio::mutable_buffer(recv_buf_.data(), recv_buf_.size());
-    read_one(mbs);
-||||||| bac81712
-    gu::array<asio::mutable_buffer, 1>::type mbs;
-
-    mbs[0] = asio::mutable_buffer(&recv_buf_[0], recv_buf_.size());
-    read_one(mbs);
-=======
-    socket_->async_read(gu::AsioMutableBuffer(&recv_buf_[0], recv_buf_.size()),
+    socket_->async_read(gu::AsioMutableBuffer(recv_buf_.data(), recv_buf_.size()),
                         shared_from_this());
->>>>>>> release_26.4.10
 }
 
 size_t gcomm::AsioTcpSocket::mtu() const

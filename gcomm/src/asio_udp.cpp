@@ -141,26 +141,8 @@ void gcomm::AsioUdpSocket::read_handler(gu::AsioDatagramSocket&,
 void gcomm::AsioUdpSocket::async_receive()
 {
     Critical<AsioProtonet> crit(net_);
-<<<<<<< HEAD
-    gu::array<asio::mutable_buffer, 1>::type mbs;
-    mbs[0] = asio::mutable_buffer(recv_buf_.data(), recv_buf_.size());
-    socket_.async_receive_from(mbs, source_ep_,
-                               boost::bind(&AsioUdpSocket::read_handler,
-                                           shared_from_this(),
-                                           asio::placeholders::error,
-                                           asio::placeholders::bytes_transferred));
-||||||| bac81712
-    gu::array<asio::mutable_buffer, 1>::type mbs;
-    mbs[0] = asio::mutable_buffer(&recv_buf_[0], recv_buf_.size());
-    socket_.async_receive_from(mbs, source_ep_,
-                               boost::bind(&AsioUdpSocket::read_handler,
-                                           shared_from_this(),
-                                           asio::placeholders::error,
-                                           asio::placeholders::bytes_transferred));
-=======
-    socket_->async_read(gu::AsioMutableBuffer(&recv_buf_[0], recv_buf_.size()),
+    socket_->async_read(gu::AsioMutableBuffer(recv_buf_.data(), recv_buf_.size()),
                         shared_from_this());
->>>>>>> release_26.4.10
 }
 
 

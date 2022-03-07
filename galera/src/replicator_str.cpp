@@ -427,6 +427,7 @@ static wsrep_seqno_t run_ist_senders(ist::AsyncSenderMap& ist_senders,
                                      wsrep_seqno_t const  cc_seqno,
                                      wsrep_seqno_t const  cc_lowest,
                                      int const            proto_ver,
+                                     const char*          requestor_id,
                                      slg&                 seqno_lock_guard,
                                      wsrep_seqno_t const  rcode)
 {
@@ -437,7 +438,8 @@ static wsrep_seqno_t run_ist_senders(ist::AsyncSenderMap& ist_senders,
                         preload_start,
                         cc_seqno,
                         cc_lowest,
-                        proto_ver);
+                        proto_ver,
+                        std::string(requestor_id));
         // seqno will be unlocked when sender exists
         seqno_lock_guard.unlock_ = false;
         return rcode;
@@ -496,82 +498,6 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
 
     if (!skip_sst)
     {
-<<<<<<< HEAD
-      struct sgl {
-        gcache::GCache &gcache_;
-        bool unlock_;
-
-        sgl(gcache::GCache &cache) : gcache_(cache), unlock_(false) {}
-        ~sgl() {
-          if (unlock_) gcache_.seqno_unlock();
-        }
-      } seqno_lock_guard(gcache_);
-
-      if (streq->ist_len()) {
-        IST_request istr;
-        get_ist_request(streq, &istr);
-
-        if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0) {
-          log_info << "IST request: " << istr;
-
-          wsrep_seqno_t const min_available = std::max(cc_lowest_trx_seqno_, gcache_.seqno_min());
-          wsrep_seqno_t const first(
-              (str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0)
-                  ? istr.last_applied() + 1
-                  : std::min(min_available, istr.last_applied() + 1));
-
-          try {
-#ifdef PXC
-            // We can use Galera debugging facility to simulate
-            // unexpected shift of the donor seqno:
-#ifdef GU_DBUG_ON
-            GU_DBUG_EXECUTE("simulate_seqno_shift", { throw gu::NotFound(); });
-#endif
-#endif /* PXC */
-            gcache_.seqno_lock(first);
-            seqno_lock_guard.unlock_ = true;
-          } catch (gu::NotFound &nf) {
-            log_info << "IST first seqno " << istr.last_applied() + 1
-                     << " not found from cache, falling back to SST";
-            // @todo: close IST channel explicitly
-||||||| bac81712
-        struct sgl
-        {
-            gcache::GCache& gcache_;
-            bool            unlock_;
-
-            sgl(gcache::GCache& cache) : gcache_(cache), unlock_(false){}
-            ~sgl() { if (unlock_) gcache_.seqno_unlock(); }
-        }
-        seqno_lock_guard(gcache_);
-
-        if (streq->ist_len())
-        {
-            IST_request istr;
-            get_ist_request(streq, &istr);
-
-            if (istr.uuid() == state_uuid_ && istr.last_applied() >= 0)
-            {
-                log_info << "IST request: " << istr;
-
-                wsrep_seqno_t const first
-                    ((str_proto_ver < 3 || cc_lowest_trx_seqno_ == 0) ?
-                    istr.last_applied() + 1 :
-                    std::min(cc_lowest_trx_seqno_, istr.last_applied()+1));
-
-                try
-                {
-                    gcache_.seqno_lock(first);
-                    seqno_lock_guard.unlock_ = true;
-                }
-                catch(gu::NotFound& nf)
-                {
-                    log_info << "IST first seqno " << istr.last_applied() + 1
-                             << " not found from cache, falling back to SST";
-                    // @todo: close IST channel explicitly
-                    goto full_sst;
-                }
-=======
         slg seqno_lock_guard(gcache_);
 
         if (streq->ist_len())
@@ -590,6 +516,13 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
 
                 try
                 {
+#ifdef PXC
+                    // We can use Galera debugging facility to simulate
+                    // unexpected shift of the donor seqno:
+#ifdef GU_DBUG_ON
+                    GU_DBUG_EXECUTE("simulate_seqno_shift", { throw gu::NotFound(); });
+#endif
+#endif /* PXC */
                     gcache_.seqno_lock(first);
                     seqno_lock_guard.unlock_ = true;
                 }
@@ -600,73 +533,18 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     // @todo: close IST channel explicitly
                     goto full_sst;
                 }
->>>>>>> release_26.4.10
 
-            goto full_sst;
-          }
+                if (streq->sst_len()) // if joiner is waiting for SST, notify it
+                {
+                    wsrep_gtid_t const state_id =
+                        { istr.uuid(), istr.last_applied() };
 
-<<<<<<< HEAD
-          if (streq->sst_len())  // if joiner is waiting for SST, notify it
-          {
-            wsrep_gtid_t const state_id = {istr.uuid(), istr.last_applied()};
-||||||| bac81712
-                    rcode = donate_sst(recv_ctx, *streq, state_id, true);
-=======
                     gu_trace(rcode = donate_sst(recv_ctx, *streq, state_id, true));
->>>>>>> release_26.4.10
 
-            rcode = donate_sst(recv_ctx, *streq, state_id, true);
-
-<<<<<<< HEAD
-            // we will join in sst_sent.
-            join_now = false;
-          }
-
-          if (rcode >= 0) {
-            try {
-              ist_senders_.run(config_, istr.peer(), first, cc_seqno_,
-                               cc_lowest_trx_seqno_,
-                               /* Historically IST messages versioned
-                                * with the global replicator protocol.
-                                * Need to keep it that way for backward
-                                * compatibility */
-                               protocol_version_, std::string(requestor_id));
-              // seqno will be unlocked when sender exists
-              seqno_lock_guard.unlock_ = false;
-            } catch (gu::Exception &e) {
-              log_error << "IST failed: " << e.what();
-              rcode = -e.get_errno();
-||||||| bac81712
-                if (rcode >= 0)
-                {
-                    try
-                    {
-                        ist_senders_.run(config_,
-                                         istr.peer(),
-                                         first,
-                                         cc_seqno_,
-                                         cc_lowest_trx_seqno_,
-                                         /* Historically IST messages versioned
-                                          * with the global replicator protocol.
-                                          * Need to keep it that way for backward
-                                          * compatibility */
-                                         protocol_version_);
-                        // seqno will be unlocked when sender exists
-                        seqno_lock_guard.unlock_ = false;
-                    }
-                    catch (gu::Exception& e)
-                    {
-                        log_error << "IST failed: " << e.what();
-                        rcode = -e.get_errno();
-                    }
-                }
-                else
-                {
-                    log_error << "Failed to bypass SST";
+                    // we will join in sst_sent.
+                    join_now = false;
                 }
 
-                goto out;
-=======
                 if (rcode >= 0)
                 {
                     rcode = run_ist_senders(ist_senders_,
@@ -680,6 +558,7 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                          * Need to keep it that way for backward
                          * compatibility */
                                             protocol_version_,
+                                            requestor_id,
                                             seqno_lock_guard,
                                             rcode);
                 }
@@ -689,15 +568,8 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                 }
 
                 goto out;
->>>>>>> release_26.4.10
             }
-          } else {
-            log_error << "Failed to bypass SST";
           }
-
-          goto out;
-        }
-      }
 
     full_sst:
 
@@ -764,34 +636,6 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                     IST_request istr;
                     get_ist_request(streq, &istr);
                     // Send trxs to rebuild cert index.
-<<<<<<< HEAD
-                    ist_senders_.run(config_,
-                                     istr.peer(),
-                                     preload_start,
-                                     cc_seqno_,
-                                     preload_start,
-                                     /* Historically IST messages are versioned
-                                      * with the global replicator protocol.
-                                      * Need to keep it that way for backward
-                                      * compatibility */
-                                     protocol_version_,
-                                     std::string(requestor_id));
-                    // seqno will be unlocked when sender exists
-                    seqno_lock_guard.unlock_ = false;
-||||||| bac81712
-                    ist_senders_.run(config_,
-                                     istr.peer(),
-                                     preload_start,
-                                     cc_seqno_,
-                                     preload_start,
-                                     /* Historically IST messages are versioned
-                                      * with the global replicator protocol.
-                                      * Need to keep it that way for backward
-                                      * compatibility */
-                                     protocol_version_);
-                    // seqno will be unlocked when sender exists
-                    seqno_lock_guard.unlock_ = false;
-=======
                     rcode = run_ist_senders(ist_senders_,
                                             config_,
                                             istr.peer(),
@@ -803,10 +647,10 @@ void ReplicatorSMM::process_state_req(void*       recv_ctx,
                          * Need to keep it that way for backward
                          * compatibility */
                                             protocol_version_,
+                                            requestor_id,
                                             seqno_lock_guard,
                                             rcode);
                     if (rcode < 0) goto out;
->>>>>>> release_26.4.10
                 }
                 else /* streq->version() == 0 */
                 {
@@ -1479,18 +1323,14 @@ ReplicatorSMM::request_state_transfer (void* recv_ctx,
     else
 #endif /* PXC */
     {
-<<<<<<< HEAD
         /* Reaching here means 2 things:
         * SST completed in which case req->ist_len = 0.
         * SST is not needed and there is need for IST. req->ist_len > 0.
         Before starting IST we should restore the state = safe and let
         IST take a call when to mark it unsafe. */
-||||||| bac81712
-=======
         // Clear seqno from state file. Otherwise if node gets killed
         // during IST, it may recover to incorrect position.
         st_.set(state_uuid_, WSREP_SEQNO_UNDEFINED, safe_to_bootstrap_);
->>>>>>> release_26.4.10
         st_.mark_safe();
     }
 

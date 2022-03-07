@@ -104,23 +104,13 @@ galera::ist::Receiver::Receiver(gu::Config&           conf,
     :
     recv_addr_    (),
     recv_bind_    (),
-<<<<<<< HEAD
-    io_service_   (),
-    acceptor_     (io_service_),
-    ssl_ctx_      (io_service_, asio::ssl::context::sslv23),
+    io_service_   (conf),
+    acceptor_     (),
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     mutex_        (WSREP_PFS_INSTR_TAG_IST_RECEIVER_MUTEX),
     cond_         (WSREP_PFS_INSTR_TAG_IST_RECEIVER_CONDVAR),
 #else
-||||||| bac81712
-    io_service_   (),
-    acceptor_     (io_service_),
-    ssl_ctx_      (io_service_, asio::ssl::context::sslv23),
-=======
-    io_service_   (conf),
-    acceptor_     (),
->>>>>>> release_26.4.10
     mutex_        (),
     cond_         (),
 #endif /* HAVE_PSI_INTERFACE */
@@ -384,7 +374,7 @@ galera::ist::Receiver::prepare(wsrep_seqno_t const first_seqno,
     return recv_addr_;
 }
 
-
+#if 0 // KH: fixme
 class SocketWatchdog
 {
     public:
@@ -485,6 +475,7 @@ class SocketWatchdog
 
         std::thread t_;
 };
+#endif // KH: fixme
 
 void galera::ist::Receiver::run()
 {
@@ -531,7 +522,8 @@ void galera::ist::Receiver::run()
         current_seqno_ = WSREP_SEQNO_UNDEFINED;
 
         {
-<<<<<<< HEAD
+#if 0
+            // KH: fixme
             SocketWatchdog watchdog([&ssl_stream, &socket, this]() {
                 log_info << "SocketWatchdog expired";
                 if (use_ssl_) {
@@ -540,63 +532,13 @@ void galera::ist::Receiver::run()
                     socket.shutdown(asio::socket_base::shutdown_type::shutdown_both);
                 }
             });
-||||||| bac81712
-            std::pair<gcs_action, bool> ret;
-
-            if (use_ssl_ == true)
-            {
-                p.recv_ordered(ssl_stream, ret);
-            }
-            else
-            {
-                p.recv_ordered(socket, ret);
-            }
-
-            gcs_action& act(ret.first);
-
-            // act type GCS_ACT_UNKNOWN denotes EOF
-            if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
-            {
-                assert(0    == act.seqno_g);
-                assert(NULL == act.buf);
-                assert(0    == act.size);
-                log_debug << "eof received, closing socket";
-                break;
-            }
-
-            assert(act.seqno_g > 0);
-=======
-            std::pair<gcs_action, bool> ret;
-            p.recv_ordered(*socket, ret);
-
-            gcs_action& act(ret.first);
-
-            // act type GCS_ACT_UNKNOWN denotes EOF
-            if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
-            {
-                assert(0    == act.seqno_g);
-                assert(NULL == act.buf);
-                assert(0    == act.size);
-                log_debug << "eof received, closing socket";
-                break;
-            }
-
-            assert(act.seqno_g > 0);
->>>>>>> release_26.4.10
-
+#endif
             while (true)
             {
                 std::pair<gcs_action, bool> ret;
-                watchdog.start();
-                if (use_ssl_ == true)
-                {
-                    p.recv_ordered(ssl_stream, ret);
-                }
-                else
-                {
-                    p.recv_ordered(socket, ret);
-                }
-                watchdog.stop();
+               // KH: fixme watchdog.start();
+                p.recv_ordered(*socket, ret);
+               // KH: fixme watchdog.stop();
 
                 gcs_action& act(ret.first);
 
@@ -796,25 +738,6 @@ void galera::ist::Receiver::run()
         }
         if (progress /* IST actually started */) progress->finish();
     }
-<<<<<<< HEAD
-    catch (asio::system_error& e)
-    {
-        ec = e.code().value();
-        if (ec == asio::error::eof) {
-            log_error << "Connection closed by IST peer\n";
-        }
-        log_error << "got asio system error while reading IST stream: "
-                  << e.code() << " ec: " << ec << " what: " << e.what();
-    }
-||||||| bac81712
-    catch (asio::system_error& e)
-    {
-        log_error << "got asio system error while reading IST stream: "
-                  << e.code();
-        ec = e.code().value();
-    }
-=======
->>>>>>> release_26.4.10
     catch (gu::Exception& e)
     {
         ec = e.get_errno();
