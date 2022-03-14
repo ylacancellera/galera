@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2020 Codership Oy <info@codership.com>
+ * Copyright (C) 2009-2021 Codership Oy <info@codership.com>
  */
 
 #include "gcache_bh.hpp"
@@ -169,22 +169,25 @@ namespace gcache
         size_t old_gap(-1);
         int    batch_size(min_batch_size);
 
-        bool   loop(seqno >= seqno_released);
-
-        // Before 4.6 we used a condition variable to wait until the whole batch
-        // can be released. Upstream removed this condition variable in 4.6, so our
-        // code relies on small sleeps and retries now.
-        bool sleep_a_bit = false;
+        bool   loop(true);
 
         while(loop)
         {
-            if (sleep_a_bit) {
-              usleep(10000);
-              sleep_a_bit = false;
-            }
             gu::Lock lock(mtx);
 
-            assert(seqno >= seqno_released);
+            if (seqno < seqno_released || seqno >= seqno_locked)
+            {
+#ifndef NDEBUG
+                if (params.debug())
+                {
+                    log_info << "GCache::seqno_release(" << seqno
+                             << "): seqno_released: " << seqno_released
+                             << ", seqno_locked: " << seqno_locked
+                             << ": exiting.";
+                }
+#endif
+                break;
+            }
 
             seqno_t idx(seqno2ptr.upper_bound(seqno_released));
 
@@ -212,16 +215,6 @@ namespace gcache
             seqno_t const start  (idx - 1);
             seqno_t const end    (seqno - start >= 2*batch_size ?
                                   start + batch_size : seqno);
-
-            // Just not to overcomplicate the logic here:
-            // release only if the whole batch can be released, if not - wait.
-            if(seqno_locked != SEQNO_NONE && end >= seqno_locked) {
-                log_debug << "GCache::seqno_release requested: " << seqno
-                          << " locked: " << seqno_locked << " - waiting";
-                sleep_a_bit = true;
-                continue;
-            }
-
 #ifndef NDEBUG
             if (params.debug())
             {
@@ -229,6 +222,7 @@ namespace gcache
                          << (seqno - start) << " buffers, batch_size: "
                          << batch_size << ", end: " << end;
             }
+            seqno_t const old_sr(seqno_released);
 #endif
             while((loop = (idx < seqno2ptr.index_end())) && idx <= end)
             {
@@ -260,6 +254,14 @@ namespace gcache
 
             loop = (end < seqno) && loop;
 
+#ifndef NDEBUG
+            if (params.debug())
+            {
+                log_info << "GCache::seqno_release(" << seqno
+                         << ") seqno_released: "
+                         << old_sr << " -> " << seqno_released;
+            }
+#endif
             /* if we're doing this loop repeatedly, allow other threads to run*/
             if (loop) sched_yield();
         }

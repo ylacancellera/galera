@@ -81,9 +81,8 @@ namespace galera
 
             std::string                                   recv_addr_;
             std::string                                   recv_bind_;
-            asio::io_service                              io_service_;
-            asio::ip::tcp::acceptor                       acceptor_;
-            asio::ssl::context                            ssl_ctx_;
+            gu::AsioIoService                             io_service_;
+            std::shared_ptr<gu::AsioAcceptor>             acceptor_;
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
             gu::MutexWithPFS                              mutex_;
@@ -139,34 +138,13 @@ namespace galera
 
             void cancel()
             {
-                if (use_ssl_ == true)
-                {
-                    ssl_stream_->lowest_layer().close();
-                }
-                else
-                {
-                    socket_.close();
-                }
-            }
-
-            void terminate()
-            {
-                if (use_ssl_ == true)
-                {
-                    ssl_stream_->lowest_layer().shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                }
-                else
-                {
-                    socket_.shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                }
+                socket_->close();
             }
 
         private:
 
-            asio::io_service                          io_service_;
-            asio::ip::tcp::socket                     socket_;
-            asio::ssl::context                        ssl_ctx_;
-            asio::ssl::stream<asio::ip::tcp::socket>* ssl_stream_;
+            gu::AsioIoService                         io_service_;
+            std::shared_ptr<gu::AsioSocket>           socket_;
             const gu::Config&                         conf_;
             gcache::GCache&                           gcache_;
             int                                       version_;
@@ -202,11 +180,9 @@ namespace galera
                      wsrep_seqno_t first,
                      wsrep_seqno_t last,
                      wsrep_seqno_t preload_start,
-                     int           version,
-                     const std::string& sender_id);
+                     int           version);
 
             void remove(AsyncSender*, wsrep_seqno_t);
-            void terminate(const std::vector<std::string>& active_peers);
             void cancel();
             gcache::GCache& gcache() { return gcache_; }
         private:
@@ -218,6 +194,12 @@ namespace galera
 
 
     } // namespace ist
+
+    // Helpers to determine receive addr and receive bind. Public for
+    // testing.
+    std::string IST_determine_recv_addr(gu::Config& conf);
+    std::string IST_determine_recv_bind(gu::Config& conf);
+
 } // namespace galera
 
 #endif // GALERA_IST_HPP

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2020 Codership Oy <info@codership.com>
+ * Copyright (C) 2008-2021 Codership Oy <info@codership.com>
  *
  * $Id$
  */
@@ -747,7 +747,8 @@ _release_flow_control (gcs_conn_t* conn)
 static void
 gcs_become_primary (gcs_conn_t* conn)
 {
-    assert(conn->join_gtid.seqno() == GCS_SEQNO_ILL ||
+    assert(conn->join_gtid.seqno() <= 0      ||
+           conn->state == GCS_CONN_PRIMARY   ||
            conn->state == GCS_CONN_JOINER    ||
            conn->state == GCS_CONN_OPEN /* joiner that has received NON_PRIM */);
 
@@ -1930,6 +1931,12 @@ long gcs_caused(gcs_conn_t* conn, gu::GTID& gtid)
     return gcs_core_caused(conn->core, gtid);
 }
 
+static inline bool
+fc_active(gcs_conn_t* conn)
+{
+    return conn->stop_count > 0;
+}
+
 /* Puts action in the send queue and returns after it is replicated */
 long gcs_replv (gcs_conn_t*          const conn,      //!<in
                 const struct gu_buf* const act_in,    //!<in
@@ -1971,9 +1978,8 @@ long gcs_replv (gcs_conn_t*          const conn,      //!<in
             // if (conn->state >= GCS_CONN_CLOSE) or (act_ptr == NULL)
             // ret will be -ENOTCONN
             if ((ret = -EAGAIN,
-                 conn->upper_limit >= conn->queue_len ||
-                 act->type         != GCS_ACT_WRITESET)         &&
-                (ret = -ENOTCONN, GCS_CONN_OPEN >= conn->state) &&
+                 !fc_active(conn) || act->type != GCS_ACT_WRITESET) &&
+                (ret = -ENOTCONN, GCS_CONN_OPEN >= conn->state)     &&
                 (act_ptr = (struct gcs_repl_act**)gcs_fifo_lite_get_tail (conn->repl_q)))
             {
                 *act_ptr = &repl_act;
@@ -2190,12 +2196,6 @@ long gcs_recv (gcs_conn_t*        conn,
         action->type    = recv_act->rcvd.act.type;
         action->seqno_g = recv_act->rcvd.id;
         action->seqno_l = recv_act->local_id;
-        if (gu_likely(recv_act->rcvd.sender_id[0] == 0)) {
-            action->sender_id[0] = 0;
-        } else {
-            memcpy(action->sender_id, recv_act->rcvd.sender_id, GU_UUID_STR_LEN);
-            action->sender_id[GU_UUID_STR_LEN] = 0;
-        }
 
         if (gu_unlikely (GCS_ACT_CCHANGE == action->type)) {
             err = gu_fifo_cancel_gets (conn->recv_q);
@@ -2485,8 +2485,7 @@ gcs_get_stats (gcs_conn_t* conn, struct gcs_stats* stats)
     stats->fc_ssent    = conn->stats_fc_stop_sent;
     stats->fc_csent    = conn->stats_fc_cont_sent;
     stats->fc_received = conn->stats_fc_received;
-
-    stats->fc_active   = conn->stop_count > 0;
+    stats->fc_active   = fc_active(conn);
     stats->fc_requested= conn->stop_sent_ > 0;
 
 #ifdef PXC

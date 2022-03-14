@@ -14,10 +14,6 @@
 #include <boost/bind.hpp>
 #include <fstream>
 #include <algorithm>
-#include <chrono>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
 
 namespace
 {
@@ -39,13 +35,11 @@ namespace galera
                         wsrep_seqno_t last,
                         wsrep_seqno_t preload_start,
                         AsyncSenderMap& asmap,
-                        int version,
-                        const std::string& sender_id)
+                        int version)
                 :
                 Sender (conf, asmap.gcache(), peer, version),
                 conf_  (conf),
                 peer_  (peer),
-                peer_id_ (sender_id),
                 first_ (first),
                 last_  (last),
                 preload_start_(preload_start),
@@ -55,7 +49,6 @@ namespace galera
 
             const gu::Config&  conf()   { return conf_;   }
             const std::string& peer()  const { return peer_;   }
-            const std::string& peer_id() const { return peer_id_;  }
             wsrep_seqno_t      first() const { return first_;  }
             wsrep_seqno_t      last()  const { return last_;   }
             wsrep_seqno_t      preload_start() const { return preload_start_; }
@@ -68,7 +61,6 @@ namespace galera
 
             const gu::Config&   conf_;
             std::string const   peer_;
-            std::string const   peer_id_;
             wsrep_seqno_t const first_;
             wsrep_seqno_t const last_;
             wsrep_seqno_t const preload_start_;
@@ -104,9 +96,8 @@ galera::ist::Receiver::Receiver(gu::Config&           conf,
     :
     recv_addr_    (),
     recv_bind_    (),
-    io_service_   (),
-    acceptor_     (io_service_),
-    ssl_ctx_      (io_service_, asio::ssl::context::sslv23),
+    io_service_   (conf),
+    acceptor_     (),
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
     mutex_        (WSREP_PFS_INSTR_TAG_IST_RECEIVER_MUTEX),
@@ -196,56 +187,39 @@ extern "C" void* run_receiver_thread(void* arg)
     return 0;
 }
 
-static std::string
-IST_determine_recv_addr (gu::Config& conf)
+static void IST_fix_addr_scheme(const gu::Config& conf, std::string& addr)
 {
-    std::string recv_addr;
-
-    try
-    {
-        recv_addr = conf.get(galera::ist::Receiver::RECV_ADDR);
-    }
-    catch (gu::NotSet&)
-    {
-        try
-        {
-            recv_addr = conf.get(galera::BASE_HOST_KEY);
-        }
-        catch (gu::NotSet&)
-        {
-            gu_throw_error(EINVAL)
-                << "Could not determine IST receive address: '"
-                << galera::ist::Receiver::RECV_ADDR << "' not set.";
-        }
-    }
-
     /* check if explicit scheme is present */
-    if (recv_addr.find("://") == std::string::npos)
+    if (addr.find("://") == std::string::npos)
     {
-        bool ssl(false);
-
+#ifdef GALERA_HAVE_SSL
         try
         {
             std::string ssl_key = conf.get(gu::conf::ssl_key);
-            if (ssl_key.length() != 0) ssl = true;
+            bool dynamic_socket = false;
+            if (conf.has(gu::conf::socket_dynamic))
+            {
+                dynamic_socket = conf.get<bool>(gu::conf::socket_dynamic, false);
+            }
+            if (ssl_key.length() != 0 && not dynamic_socket)
+            {
+                addr.insert(0, "ssl://");
+                return;
+            }
         }
         catch (gu::NotSet&) {}
-
-        if (ssl)
-            recv_addr.insert(0, "ssl://");
-        else
-            recv_addr.insert(0, "tcp://");
+#endif // GALERA_HAVE_SSL
+        addr.insert(0, "tcp://");
     }
+}
 
-    gu::URI ra_uri(recv_addr);
-
-    if (!conf.has(galera::BASE_HOST_KEY))
-        conf.set(galera::BASE_HOST_KEY, ra_uri.get_host());
-
+static void IST_fix_addr_port(const gu::Config& conf, const gu::URI& uri,
+                              std::string& addr)
+{
     try /* check for explicit port,
            TODO: make it possible to use any free port (explicit 0?) */
     {
-        ra_uri.get_port();
+        uri.get_port();
     }
     catch (gu::NotSet&) /* use gmcast listen port + 1 */
     {
@@ -262,58 +236,56 @@ IST_determine_recv_addr (gu::Config& conf)
 
         port += 1;
 
-        recv_addr += ":" + gu::to_string(port);
+        addr += ":" + gu::to_string(port);
     }
+}
+
+std::string galera::IST_determine_recv_addr (gu::Config& conf)
+{
+    std::string recv_addr;
+
+    try
+    {
+        recv_addr = conf.get(galera::ist::Receiver::RECV_ADDR);
+    }
+    catch (const gu::NotSet&)
+    {
+        try
+        {
+            recv_addr = conf.get(galera::BASE_HOST_KEY);
+        }
+        catch (const gu::NotSet&)
+        {
+            gu_throw_error(EINVAL)
+                << "Could not determine IST receive address: '"
+                << galera::ist::Receiver::RECV_ADDR << "' or '"
+                << galera::BASE_HOST_KEY << "' not set.";
+        }
+    }
+
+    IST_fix_addr_scheme(conf, recv_addr);
+    gu::URI ra_uri(recv_addr);
+
+    if (!conf.has(galera::BASE_HOST_KEY))
+        conf.set(galera::BASE_HOST_KEY, ra_uri.get_host());
+
+    IST_fix_addr_port(conf, ra_uri, recv_addr);
 
     log_info << "IST receiver addr using " << recv_addr;
     return recv_addr;
 }
 
-static std::string
-IST_determine_recv_bind(gu::Config& conf)
+std::string galera::IST_determine_recv_bind(gu::Config& conf)
 {
     std::string recv_bind;
 
     recv_bind = conf.get(galera::ist::Receiver::RECV_BIND);
 
-    /* check if explicit scheme is present */
-    if (recv_bind.find("://") == std::string::npos) {
-        bool ssl(false);
-
-        try {
-            std::string ssl_key = conf.get(gu::conf::ssl_key);
-            if (ssl_key.length() != 0)
-                ssl = true;
-        } catch (gu::NotSet&) {
-        }
-
-        if (ssl)
-            recv_bind.insert(0, "ssl://");
-        else
-            recv_bind.insert(0, "tcp://");
-    }
+    IST_fix_addr_scheme(conf, recv_bind);
 
     gu::URI rb_uri(recv_bind);
 
-    try /* check for explicit port,
-     TODO: make it possible to use any free port (explicit 0?) */
-    {
-        rb_uri.get_port();
-    } catch (gu::NotSet&) /* use gmcast listen port + 1 */
-    {
-        int port(0);
-
-        try {
-            port = gu::from_string<uint16_t>(conf.get(galera::BASE_PORT_KEY));
-
-        } catch (...) {
-            port = gu::from_string<uint16_t>(galera::BASE_PORT_DEFAULT);
-        }
-
-        port += 1;
-
-        recv_bind += ":" + gu::to_string(port);
-    }
+    IST_fix_addr_port(conf, rb_uri, recv_bind);
 
     log_info << "IST receiver bind using " << recv_bind;
     return recv_bind;
@@ -337,11 +309,14 @@ galera::ist::Receiver::prepare(wsrep_seqno_t const first_seqno,
     {
         recv_bind_ = recv_addr_;
     }
-    gu::URI     const uri_addr(recv_addr_);
+
+    // uri_bind will be the real bind address which the acceptor will
+    // listen. The recv_addr_ returned from this call may point to
+    // other address, for example if the node is behind NATting firewall.
     gu::URI     const uri_bind(recv_bind_);
     try
     {
-        if (uri_addr.get_scheme() == "ssl")
+        if (uri_bind.get_scheme() == "ssl")
         {
             log_info << "IST receiver using ssl";
             use_ssl_ = true;
@@ -349,31 +324,24 @@ galera::ist::Receiver::prepare(wsrep_seqno_t const first_seqno,
             // which made sender to return null cert in handshake.
             // Therefore peer cert verfification must be enabled
             // only at protocol version 7 or higher.
-            gu::ssl_prepare_context(conf_, ssl_ctx_, version >= 7);
+            // Removed in 4.x asio refactoring.
+            // gu::ssl_prepare_context(conf_, ssl_ctx_, version >= 7);
         }
 
-        asio::ip::tcp::resolver resolver(io_service_);
-        asio::ip::tcp::resolver::query
-            query(gu::unescape_addr(uri_bind.get_host()),
-                  uri_bind.get_port(),
-                  asio::ip::tcp::resolver::query::flags(0));
-        asio::ip::tcp::resolver::iterator i(resolver.resolve(query));
-        acceptor_.open(i->endpoint().protocol());
-        acceptor_.set_option(asio::ip::tcp::socket::reuse_address(true));
-        gu::set_fd_options(acceptor_);
-        acceptor_.bind(*i);
-        acceptor_.listen();
+        acceptor_ = io_service_.make_acceptor(uri_bind);
+        acceptor_->listen(uri_bind);
         // read recv_addr_ from acceptor_ in case zero port was specified
+        gu::URI const uri_addr(recv_addr_);
         recv_addr_ = uri_addr.get_scheme()
             + "://"
             + uri_addr.get_host()
             + ":"
-            + gu::to_string(acceptor_.local_endpoint().port());
+            + gu::to_string(acceptor_->listen_port());
     }
-    catch (asio::system_error& e)
+    catch (const gu::Exception& e)
     {
         recv_addr_ = "";
-        gu_throw_error(e.code().value())
+        gu_throw_error(e.get_errno())
             << "Failed to open IST listener at "
             << uri_bind.to_string()
             << "', asio error '" << e.what() << "'";
@@ -393,145 +361,16 @@ galera::ist::Receiver::prepare(wsrep_seqno_t const first_seqno,
 
     log_info << "Prepared IST receiver for " << first_seqno << '-'
              << last_seqno << ", listening at: "
-             << (uri_bind.get_scheme()
-                 + "://"
-                 + gu::escape_addr(acceptor_.local_endpoint().address())
-                 + ":"
-                 + gu::to_string(acceptor_.local_endpoint().port()));
+             << acceptor_->listen_addr();
 
     return recv_addr_;
 }
 
 
-class SocketWatchdog
-{
-    public:
-        explicit SocketWatchdog(std::function<void()> onExpire, unsigned int timeoutMs = 10000)
-            : eventCbFn_(onExpire)
-            , active_(false)
-            , alive_(true)
-            , restart_(true)
-            , expire_cnt_(timeoutMs/10)
-            , mtx_()
-            , cv_()
-            , t_([this]() {
-
-              bool aliveSnapshot = alive_;
-
-              while(aliveSnapshot) {
-                bool activeSnapshot;
-                bool restartSnapshot = false;
-                int counter;
-
-                // Wait for the trigger. (start, stop or destructor).
-                // Once triggered, collect current state of control flags.
-                {
-                  std::unique_lock<std::mutex> lock(mtx_);
-                  while(!active_) cv_.wait(lock);
-                  activeSnapshot = active_;
-                  aliveSnapshot = alive_;
-                  counter = expire_cnt_;
-
-                  // Here we do not capture restart_ because we just set up
-                  // fresh state of the watchdog.
-                  restart_ = false;
-                }
-
-                // Timer loop.
-                while (activeSnapshot && aliveSnapshot && !restartSnapshot) {
-                    if (counter == 0) {
-                        // Timeout expired. Call registered delegate and
-                        // deactivate the watchdog.
-                        eventCbFn_();
-
-                        std::unique_lock<std::mutex> lock(mtx_);
-                        active_ = false;
-                        break;
-                    }
-
-                    {
-                        // Watit for 10ms, than collect current state of
-                        // control flags.
-                        std::unique_lock<std::mutex> lock(mtx_);
-                        cv_.wait_for(lock, std::chrono::milliseconds(10));
-                        activeSnapshot = active_;
-                        aliveSnapshot = alive_;
-                        // If in the meantime, when we were not under lock,
-                        // stop-start sequence was called, it means we need
-                        // to restart the timer loop.
-                        restartSnapshot = restart_;
-                    }
-                    --counter;
-                }
-              }
-          }) { }
-
-        ~SocketWatchdog() {
-            {
-                std::unique_lock<std::mutex> lock(mtx_);
-                alive_ = false;
-                active_ = true;
-                cv_.notify_one();
-            }
-            t_.join();
-
-        }
-
-        void start() {
-            std::unique_lock<std::mutex> lock(mtx_);
-            active_ = true;
-            // Inform executor thread that watchdog was just started
-            // and it is necessary to restart timer loop.
-            restart_ = true;
-            cv_.notify_one();
-        }
-
-        void stop() {
-            std::unique_lock<std::mutex> lock(mtx_);
-            active_ = false;
-            cv_.notify_one();
-        }
-
-    private:
-        std::function<void()> eventCbFn_;
-        bool active_;
-        bool alive_;
-        bool restart_;
-        int expire_cnt_;
-        std::mutex mtx_;
-        std::condition_variable cv_;
-
-        std::thread t_;
-};
-
 void galera::ist::Receiver::run()
 {
-    asio::ip::tcp::socket socket(io_service_);
-    asio::ssl::stream<asio::ip::tcp::socket> ssl_stream(io_service_, ssl_ctx_);
-
-    try
-    {
-        if (use_ssl_ == true)
-        {
-            acceptor_.accept(ssl_stream.lowest_layer());
-            gu::set_fd_options(ssl_stream.lowest_layer());
-            ssl_stream.handshake(
-                asio::ssl::stream<asio::ip::tcp::socket>::server);
-        }
-        else
-        {
-            acceptor_.accept(socket);
-            gu::set_fd_options(socket);
-        }
-    }
-    catch (asio::system_error& e)
-    {
-        gu_throw_error(e.code().value()) << "accept() failed"
-                                         << "', asio error '"
-                                         << e.what() << "': "
-                                         << gu::extra_error_info(e.code());
-    }
-    acceptor_.close();
+    auto socket(acceptor_->accept());
+    acceptor_->close();
 
     /* shall be initialized below, when we know at what seqno preload starts */
     gu::Progress<wsrep_seqno_t>* progress(NULL);
@@ -543,18 +382,9 @@ void galera::ist::Receiver::run()
         bool const keep_keys(conf_.get(CONF_KEEP_KEYS, CONF_KEEP_KEYS_DEFAULT));
         Proto p(gcache_, version_, keep_keys);
 
-        if (use_ssl_ == true)
-        {
-            p.send_handshake(ssl_stream);
-            p.recv_handshake_response(ssl_stream);
-            p.send_ctrl(ssl_stream, Ctrl::C_OK);
-        }
-        else
-        {
-            p.send_handshake(socket);
-            p.recv_handshake_response(socket);
-            p.send_ctrl(socket, Ctrl::C_OK);
-        }
+        p.send_handshake(*socket);
+        p.recv_handshake_response(*socket);
+        p.send_ctrl(*socket, Ctrl::C_OK);
 
         // wait for SST to complete so that we know what is the first_seqno_
         {
@@ -581,236 +411,207 @@ void galera::ist::Receiver::run()
         bool preload_started(false);
         current_seqno_ = WSREP_SEQNO_UNDEFINED;
 
+        while (true)
         {
-            SocketWatchdog watchdog([&ssl_stream, &socket, this]() {
-                log_info << "SocketWatchdog expired";
-                if (use_ssl_) {
-                    ssl_stream.lowest_layer().shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                } else {
-                    socket.shutdown(asio::socket_base::shutdown_type::shutdown_both);
-                }
-            });
+            std::pair<gcs_action, bool> ret;
+            p.recv_ordered(*socket, ret);
 
-            while (true)
+            gcs_action& act(ret.first);
+
+            // act type GCS_ACT_UNKNOWN denotes EOF
+            if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
             {
-                std::pair<gcs_action, bool> ret;
-                watchdog.start();
-                if (use_ssl_ == true)
-                {
-                    p.recv_ordered(ssl_stream, ret);
-                }
-                else
-                {
-                    p.recv_ordered(socket, ret);
-                }
-                watchdog.stop();
+                assert(0    == act.seqno_g);
+                assert(NULL == act.buf);
+                assert(0    == act.size);
+                log_debug << "eof received, closing socket";
+                break;
+            }
 
-                gcs_action& act(ret.first);
+            assert(act.seqno_g > 0);
 
-                // act type GCS_ACT_UNKNOWN denotes EOF
-                if (gu_unlikely(act.type == GCS_ACT_UNKNOWN))
+            if (gu_unlikely(WSREP_SEQNO_UNDEFINED == current_seqno_))
+            {
+                assert(!progress);
+                if (act.seqno_g > first_seqno_)
                 {
-                    assert(0    == act.seqno_g);
-                    assert(NULL == act.buf);
-                    assert(0    == act.size);
-                    log_debug << "eof received, closing socket";
-                    break;
-                }
-
-                assert(act.seqno_g > 0);
-
-                if (gu_unlikely(WSREP_SEQNO_UNDEFINED == current_seqno_))
-                {
-                    assert(!progress);
-                    if (act.seqno_g > first_seqno_)
-                    {
-                        log_error
-                            << "IST started with wrong seqno: " << act.seqno_g
-                            << ", expected <= " << first_seqno_;
-                        ec = EINVAL;
-                        goto err;
-                    }
-                    log_info << "####### IST current seqno initialized to "
-                            << act.seqno_g;
-                    current_seqno_ = act.seqno_g;
-                    progress = new gu::Progress<wsrep_seqno_t>(
-                        "Receiving IST", " events",
-                        last_seqno_ - current_seqno_ + 1,
-                        /* The following means reporting progress NO MORE frequently
-                        * than once per BOTH 10 seconds (default) and 16 events */
-                        1, "PT1S");
-                }
-                else
-                {
-                    assert(progress);
-
-                    ++current_seqno_;
-                    progress->update(1);
-                }
-
-                if (act.seqno_g != current_seqno_)
-                {
-                    log_error << "Unexpected action seqno: " << act.seqno_g
-                            << " expected: " << current_seqno_;
+                    log_error
+                        << "IST started with wrong seqno: " << act.seqno_g
+                        << ", expected <= " << first_seqno_;
                     ec = EINVAL;
                     goto err;
                 }
+                log_info << "####### IST current seqno initialized to "
+                        << act.seqno_g;
+                current_seqno_ = act.seqno_g;
+                progress = new gu::Progress<wsrep_seqno_t>(
+                    "Receiving IST", " events",
+                    last_seqno_ - current_seqno_ + 1,
+                    /* The following means reporting progress NO MORE frequently
+                    * than once per BOTH 10 seconds (default) and 16 events */
+                    1, "PT1S");
+            }
+            else
+            {
+                assert(progress);
 
-                assert(current_seqno_ > 0);
-                assert(current_seqno_ == act.seqno_g);
-                assert(act.type != GCS_ACT_UNKNOWN);
+                ++current_seqno_;
+                progress->update(1);
+            }
 
-                /* Say use-case is booting 3 node cluster n1, n2, n3 all from scratch.
-                - n1 bootstraps and create cluster with state x:1
-                - n2 boots up and joins cluster moving cluster state from x:1 -> x:2
-                - n2 then demands SST since state of n2 is 0:-1.
-                - n1 decided to donate SST to n2.
-                - As per new G-4 protocol cc events are all persisted.
-                n2 raises SST followed by IST request.
-                - n2 demands IST request for 0-2.
-                - n1 detects SST action and decided to process IST only for 2-2
-                - n2 gets SST state that represent x:2 followed by IST with
-                write-set = 2.
-                - Since n2 already has write-set = 2 it ignores applying
-                the said write-set.
-                (n3 will join post this with same sequencing).
+            if (act.seqno_g != current_seqno_)
+            {
+                log_error << "Unexpected action seqno: " << act.seqno_g
+                        << " expected: " << current_seqno_;
+                ec = EINVAL;
+                goto err;
+            }
 
-                .... this is how normal flow happens.
+            assert(current_seqno_ > 0);
+            assert(current_seqno_ == act.seqno_g);
+            assert(act.type != GCS_ACT_UNKNOWN);
 
-                so process of joinint the node can be summarized as
-                (a) grant membership and update configuration (that is persisted).
-                (b) request SST + IST (with range).
-                (c) donor kicks-off IST (async action).
-                (d) donor initiate SST (again async action).
-                (e) joiner before applying IST wait for SST to complete.
-                (f) post SST joiner apply IST only write set > sst-write-set.
-                (e) other write-set still are cached in gcache and are added
-                    to gcache maintain seqno2ptr.
+            /* Say use-case is booting 3 node cluster n1, n2, n3 all from scratch.
+            - n1 bootstraps and create cluster with state x:1
+            - n2 boots up and joins cluster moving cluster state from x:1 -> x:2
+            - n2 then demands SST since state of n2 is 0:-1.
+            - n1 decided to donate SST to n2.
+            - As per new G-4 protocol cc events are all persisted.
+            n2 raises SST followed by IST request.
+            - n2 demands IST request for 0-2.
+            - n1 detects SST action and decided to process IST only for 2-2
+            - n2 gets SST state that represent x:2 followed by IST with
+            write-set = 2.
+            - Since n2 already has write-set = 2 it ignores applying
+            the said write-set.
+            (n3 will join post this with same sequencing).
 
-                use-case-1
-                ----------
+            .... this is how normal flow happens.
 
-                Now say n3 joins after n2 is done with (c) but before donor
-                initiate (d). n1 updates membership and update cc moving state
-                from x:2 -> x:3. Post SST n2 get state = x:3 (first_seqno_ = 3).
-                Check below (must_apply) will ignore applying write-set from
-                IST channel as  2 < 3 that suggest SST already got changes from
-                write-set 2 so no need to apply it but write-set is kept active
-                in gcache so cert preload is reset back to (2) from (3) that was
-                set immediately post-SST.
+            so process of joinint the node can be summarized as
+            (a) grant membership and update configuration (that is persisted).
+            (b) request SST + IST (with range).
+            (c) donor kicks-off IST (async action).
+            (d) donor initiate SST (again async action).
+            (e) joiner before applying IST wait for SST to complete.
+            (f) post SST joiner apply IST only write set > sst-write-set.
+            (e) other write-set still are cached in gcache and are added
+                to gcache maintain seqno2ptr.
 
-                Write-set (CC event) registered with seqno=3 is also delivered to
-                n2 through group channel. n2 ignore processing group channel
-                delivered event given the said event (creation of updated view)
-                as it is already present through SST.
+            use-case-1
+            ----------
 
-                While n2 ignores applying this event it is also freed from gcache.
-                This creates inconsistency as n2 maintained gcache now has
-                event=2, event=3 (absent), other events.....
-                gcache is expected to have all events sequentially.
-                [recv_ordered that read events from ist channel caches the events
-                to gcache and also add it to the gcache vector seqno2ptr]
+            Now say n3 joins after n2 is done with (c) but before donor
+            initiate (d). n1 updates membership and update cc moving state
+            from x:2 -> x:3. Post SST n2 get state = x:3 (first_seqno_ = 3).
+            Check below (must_apply) will ignore applying write-set from
+            IST channel as  2 < 3 that suggest SST already got changes from
+            write-set 2 so no need to apply it but write-set is kept active
+            in gcache so cert preload is reset back to (2) from (3) that was
+            set immediately post-SST.
 
-                fix-1: ensure such ignored event are added gcache.
+            Write-set (CC event) registered with seqno=3 is also delivered to
+            n2 through group channel. n2 ignore processing group channel
+            delivered event given the said event (creation of updated view)
+            as it is already present through SST.
 
-                use-case-2
-                ----------
+            While n2 ignores applying this event it is also freed from gcache.
+            This creates inconsistency as n2 maintained gcache now has
+            event=2, event=3 (absent), other events.....
+            gcache is expected to have all events sequentially.
+            [recv_ordered that read events from ist channel caches the events
+            to gcache and also add it to the gcache vector seqno2ptr]
 
-                Now say n3 joins between (b) and (c). n1 updates membership from
-                x:2 -> x:3 and initiate IST. IST followed by SST is never processed
-                based on demand but based on donor state so donor initiate IST
-                with write-set 3-3.
+            fix-1: ensure such ignored event are added gcache.
 
-                n2 demanded 0-2 but received IST write-set=3 and SST with write-sets
-                upto = 3. n2 also recieved the said write-set from group channel since
-                n2 was part of the group channel when n3 joined.
-                n2 ignores processing of the event received from group channel
-                (ignore creation of view since the view is already created through
-                SST restoration) but try to add the said ignored event to gcache
-                as per the protocol established above. Unfortunately, it hits an
-                error here because IST during its processing has already added it.
+            use-case-2
+            ----------
 
-                fix-2: avoid adding events to gcache that has
-                    seqno > ist-demanded-seqno (3 > 2 avoid adding 3).
+            Now say n3 joins between (b) and (c). n1 updates membership from
+            x:2 -> x:3 and initiate IST. IST followed by SST is never processed
+            based on demand but based on donor state so donor initiate IST
+            with write-set 3-3.
 
-                use-case-3:
-                -----------
+            n2 demanded 0-2 but received IST write-set=3 and SST with write-sets
+            upto = 3. n2 also recieved the said write-set from group channel since
+            n2 was part of the group channel when n3 joined.
+            n2 ignores processing of the event received from group channel
+            (ignore creation of view since the view is already created through
+            SST restoration) but try to add the said ignored event to gcache
+            as per the protocol established above. Unfortunately, it hits an
+            error here because IST during its processing has already added it.
 
-                Now say instead of n3 joining n2 which is already part of the cluster
-                and waiting for SST + IST faces some n/w glitch.
+            fix-2: avoid adding events to gcache that has
+                seqno > ist-demanded-seqno (3 > 2 avoid adding 3).
 
-                This cause another configuration change registered under seqno=3
-                but this cc is not delivered to n2 due to n/w issue.
+            use-case-3:
+            -----------
 
-                Once n/w is back n2 get the SST with state = x:3 and IST with seqno=2.
-                As as explained in use-case-1 it ignored seqno=2 (2 < 3) but
-                as it was case in use-case-1 local ordered CC event cause addition
-                of seqno=3 to gcache vector but since this event never got delivered
-                this seqno is not added to gcache. Instead it processes an event
-                with CC = -1 that registers its disconnection from the cluster.
-                Eventually it catches up with the cluster through IST demanding
-                3-4 writeset as n2 has registered state = 3 from SST but this causes
-                inconsistency in gcache seqno2ptr vector as write-set 3 never get
-                registered.
-                */
+            Now say instead of n3 joining n2 which is already part of the cluster
+            and waiting for SST + IST faces some n/w glitch.
 
-                bool const must_apply(current_seqno_ >= first_seqno_);
-                bool const preload(ret.second);
+            This cause another configuration change registered under seqno=3
+            but this cc is not delivered to n2 due to n/w issue.
 
-                if (gu_unlikely(preload == true && preload_started == false))
+            Once n/w is back n2 get the SST with state = x:3 and IST with seqno=2.
+            As as explained in use-case-1 it ignored seqno=2 (2 < 3) but
+            as it was case in use-case-1 local ordered CC event cause addition
+            of seqno=3 to gcache vector but since this event never got delivered
+            this seqno is not added to gcache. Instead it processes an event
+            with CC = -1 that registers its disconnection from the cluster.
+            Eventually it catches up with the cluster through IST demanding
+            3-4 writeset as n2 has registered state = 3 from SST but this causes
+            inconsistency in gcache seqno2ptr vector as write-set 3 never get
+            registered.
+            */
+
+            bool const must_apply(current_seqno_ >= first_seqno_);
+            bool const preload(ret.second);
+
+            if (gu_unlikely(preload == true && preload_started == false))
+            {
+                log_info << "IST preload starting at " << current_seqno_;
+                preload_started = true;
+            }
+
+            switch (act.type)
+            {
+            case GCS_ACT_WRITESET:
+            {
+                TrxHandleSlavePtr ts(
+                    TrxHandleSlavePtr(TrxHandleSlave::New(false,
+                                                        slave_pool_),
+                                    TrxHandleSlaveDeleter()));
+                if (act.size > 0)
                 {
-                    log_info << "IST preload starting at " << current_seqno_;
-                    preload_started = true;
+                    gu_trace(ts->unserialize<false>(act));
+                    ts->set_local(false);
+                    assert(ts->global_seqno() == act.seqno_g);
+                    assert(ts->depends_seqno() >= 0 || ts->nbo_end());
+                    assert(ts->action().first && ts->action().second);
+                    // Checksum is verified later on
+                }
+                else
+                {
+                    ts->set_global_seqno(act.seqno_g);
+                    ts->mark_dummy_with_action(act.buf);
                 }
 
-                switch (act.type)
-                {
-                case GCS_ACT_WRITESET:
-                {
-                    TrxHandleSlavePtr ts(
-                        TrxHandleSlavePtr(TrxHandleSlave::New(false,
-                                                            slave_pool_),
-                                        TrxHandleSlaveDeleter()));
-                    if (act.size > 0)
-                    {
-                        gu_trace(ts->unserialize<false>(act));
-                        ts->set_local(false);
-                        assert(ts->global_seqno() == act.seqno_g);
-                        assert(ts->depends_seqno() >= 0 || ts->nbo_end());
-                        assert(ts->action().first && ts->action().second);
-                        // Checksum is verified later on
-                    }
-                    else
-                    {
-                        ts->set_global_seqno(act.seqno_g);
-                        ts->mark_dummy_with_action(act.buf);
-                    }
-
-                    log_debug << "####### Passing WS " << act.seqno_g;
-                    handler_.ist_trx(ts, must_apply, preload);
-                    break;
-                }
-                case GCS_ACT_CCHANGE:
-                    log_info << "####### Passing IST CC " << act.seqno_g
-                            << ", must_apply: " << must_apply
-                            << ", preload: " << (preload ? "true" : "false");
-                    handler_.ist_cc(act, must_apply, preload);
-                    break;
-                default:
-                    assert(0);
-                }
+                log_debug << "####### Passing WS " << act.seqno_g;
+                handler_.ist_trx(ts, must_apply, preload);
+                break;
+            }
+            case GCS_ACT_CCHANGE:
+                log_info << "####### Passing IST CC " << act.seqno_g
+                        << ", must_apply: " << must_apply
+                        << ", preload: " << (preload ? "true" : "false");
+                handler_.ist_cc(act, must_apply, preload);
+                break;
+            default:
+                assert(0);
             }
         }
         if (progress /* IST actually started */) progress->finish();
-    }
-    catch (asio::system_error& e)
-    {
-        ec = e.code().value();
-        if (ec == asio::error::eof) {
-            log_error << "Connection closed by IST peer\n";
-        }
-        log_error << "got asio system error while reading IST stream: "
-                  << e.code() << " ec: " << ec << " what: " << e.what();
     }
     catch (gu::Exception& e)
     {
@@ -824,15 +625,7 @@ void galera::ist::Receiver::run()
 err:
     delete progress;
     gu::Lock lock(mutex_);
-    if (use_ssl_ == true)
-    {
-        ssl_stream.lowest_layer().close();
-        // ssl_stream.shutdown();
-    }
-    else
-    {
-        socket.close();
-    }
+    socket->close();
 
     running_ = false;
     if (last_seqno_ > 0 && ec != EINTR && current_seqno_ < last_seqno_)
@@ -894,7 +687,7 @@ wsrep_seqno_t galera::ist::Receiver::finished()
             log_warn << "Failed to join IST receiver thread: " << err;
         }
 
-        acceptor_.close();
+        acceptor_->close();
 
         gu::Lock lock(mutex_);
 
@@ -912,49 +705,15 @@ void galera::ist::Receiver::interrupt()
     gu::URI uri(recv_addr_);
     try
     {
-        asio::ip::tcp::resolver::iterator i;
-        try
-        {
-            asio::ip::tcp::resolver resolver(io_service_);
-            asio::ip::tcp::resolver::query
-                query(gu::unescape_addr(uri.get_host()),
-                      uri.get_port(),
-                      asio::ip::tcp::resolver::query::flags(0));
-            i = resolver.resolve(query);
-        }
-        catch (asio::system_error& e)
-        {
-            gu_throw_error(e.code().value())
-                << "failed to resolve host '"
-                << uri.to_string()
-                << "', asio error '" << e.what() << "'";
-        }
-        if (use_ssl_ == true)
-        {
-            asio::ssl::stream<asio::ip::tcp::socket>
-                ssl_stream(io_service_, ssl_ctx_);
-            ssl_stream.lowest_layer().connect(*i);
-            gu::set_fd_options(ssl_stream.lowest_layer());
-            ssl_stream.handshake(asio::ssl::stream<asio::ip::tcp::socket>::client);
-            Proto p(gcache_,
-                    version_, conf_.get(CONF_KEEP_KEYS, CONF_KEEP_KEYS_DEFAULT));
-            p.recv_handshake(ssl_stream);
-            p.send_ctrl(ssl_stream, Ctrl::C_EOF);
-            p.recv_ctrl(ssl_stream);
-        }
-        else
-        {
-            asio::ip::tcp::socket socket(io_service_);
-            socket.connect(*i);
-            gu::set_fd_options(socket);
-            Proto p(gcache_, version_,
-                    conf_.get(CONF_KEEP_KEYS, CONF_KEEP_KEYS_DEFAULT));
-            p.recv_handshake(socket);
-            p.send_ctrl(socket, Ctrl::C_EOF);
-            p.recv_ctrl(socket);
-        }
+        auto socket(io_service_.make_socket(uri));
+        socket->connect(uri);
+        Proto p(gcache_, version_,
+                conf_.get(CONF_KEEP_KEYS, CONF_KEEP_KEYS_DEFAULT));
+        p.recv_handshake(*socket);
+        p.send_ctrl(*socket, Ctrl::C_EOF);
+        p.recv_ctrl(*socket);
     }
-    catch (asio::system_error& e)
+    catch (const gu::Exception&)
     {
         // ignore
     }
@@ -966,10 +725,8 @@ galera::ist::Sender::Sender(const gu::Config&  conf,
                             const std::string& peer,
                             int                version)
     :
-    io_service_(),
-    socket_    (io_service_),
-    ssl_ctx_   (io_service_, asio::ssl::context::sslv23),
-    ssl_stream_(0),
+    io_service_(conf),
+    socket_    (),
     conf_      (conf),
     gcache_    (gcache),
     version_   (version),
@@ -978,74 +735,41 @@ galera::ist::Sender::Sender(const gu::Config&  conf,
     gu::URI uri(peer);
     try
     {
-        asio::ip::tcp::resolver resolver(io_service_);
-        asio::ip::tcp::resolver::query
-            query(gu::unescape_addr(uri.get_host()),
-                  uri.get_port(),
-                  asio::ip::tcp::resolver::query::flags(0));
-        asio::ip::tcp::resolver::iterator i(resolver.resolve(query));
-        if (uri.get_scheme() == "ssl")
-        {
-            use_ssl_ = true;
-        }
-        if (use_ssl_ == true)
-        {
-            log_info << "IST sender using ssl";
-            ssl_prepare_context(conf, ssl_ctx_);
-            // ssl_stream must be created after ssl_ctx_ is prepared...
-            ssl_stream_ = new asio::ssl::stream<asio::ip::tcp::socket>(
-                io_service_, ssl_ctx_);
-            ssl_stream_->lowest_layer().connect(*i);
-            gu::set_fd_options(ssl_stream_->lowest_layer());
-            ssl_stream_->handshake(asio::ssl::stream<asio::ip::tcp::socket>::client);
-        }
-        else
-        {
-            socket_.connect(*i);
-            gu::set_fd_options(socket_);
-        }
+        socket_ = io_service_.make_socket(uri);
+        socket_->connect(uri);
     }
-    catch (asio::system_error& e)
+    catch (const gu::Exception& e)
     {
-        gu_throw_error(e.code().value()) << "IST sender, failed to connect '"
-                                         << peer.c_str() << "': " << e.what();
+        gu_throw_error(e.get_errno()) << "IST sender, failed to connect '"
+                                      << peer.c_str() << "': " << e.what();
     }
 }
 
 
 galera::ist::Sender::~Sender()
 {
-    if (use_ssl_ == true)
-    {
-        ssl_stream_->lowest_layer().close();
-        delete ssl_stream_;
-    }
-    else
-    {
-        socket_.close();
-    }
+    socket_->close();
     gcache_.seqno_unlock();
 }
 
-template <class S>
-void send_eof(galera::ist::Proto& p, S& stream)
+void send_eof(galera::ist::Proto& p, gu::AsioSocket& socket)
 {
 
-    p.send_ctrl(stream, galera::ist::Ctrl::C_EOF);
+    p.send_ctrl(socket, galera::ist::Ctrl::C_EOF);
 
     // wait until receiver closes the connection
     try
     {
         gu::byte_t b;
         size_t n;
-        n = asio::read(stream, asio::buffer(&b, 1));
+        n = socket.read(gu::AsioMutableBuffer(&b, 1));
         if (n > 0)
         {
             log_warn << "received " << n
                      << " bytes, expected none";
         }
     }
-    catch (asio::system_error& e)
+    catch (const gu::Exception& e)
     { }
 }
 
@@ -1068,18 +792,9 @@ void galera::ist::Sender::send(wsrep_seqno_t first, wsrep_seqno_t last,
                 version_, conf_.get(CONF_KEEP_KEYS, CONF_KEEP_KEYS_DEFAULT));
         int32_t ctrl;
 
-        if (use_ssl_ == true)
-        {
-            p.recv_handshake(*ssl_stream_);
-            p.send_handshake_response(*ssl_stream_);
-            ctrl = p.recv_ctrl(*ssl_stream_);
-        }
-        else
-        {
-            p.recv_handshake(socket_);
-            p.send_handshake_response(socket_);
-            ctrl = p.recv_ctrl(socket_);
-        }
+        p.recv_handshake(*socket_);
+        p.send_handshake_response(*socket_);
+        ctrl = p.recv_ctrl(*socket_);
 
         if (ctrl < 0)
         {
@@ -1091,14 +806,7 @@ void galera::ist::Sender::send(wsrep_seqno_t first, wsrep_seqno_t last,
         if (first > last || (first == 0 && last == 0))
         {
             log_info << "IST sender notifying joiner, not sending anything";
-            if (use_ssl_ == true)
-            {
-                send_eof(p, *ssl_stream_);
-            }
-            else
-            {
-                send_eof(p, socket_);
-            }
+            send_eof(p, *socket_);
             return;
         }
         else
@@ -1125,25 +833,11 @@ void galera::ist::Sender::send(wsrep_seqno_t first, wsrep_seqno_t last,
                 //log_info << "Sender::send(): seqno " << buf_vec[i].seqno_g()
                 //         << ", size " << buf_vec[i].size() << ", preload: "
                 //         << preload_flag;
-                if (use_ssl_ == true)
-                {
-                    p.send_ordered(*ssl_stream_, buf_vec[i], preload_flag);
-                }
-                else
-                {
-                    p.send_ordered(socket_, buf_vec[i], preload_flag);
-                }
+                p.send_ordered(*socket_, buf_vec[i], preload_flag);
 
                 if (buf_vec[i].seqno_g() == last)
                 {
-                    if (use_ssl_ == true)
-                    {
-                        send_eof(p, *ssl_stream_);
-                    }
-                    else
-                    {
-                        send_eof(p, socket_);
-                    }
+                    send_eof(p, *socket_);
                     return;
                 }
             }
@@ -1157,11 +851,11 @@ void galera::ist::Sender::send(wsrep_seqno_t first, wsrep_seqno_t last,
             }
         }
     }
-    catch (asio::system_error& e)
+    catch (const gu::Exception& e)
     {
-        gu_throw_error(e.code().value()) << "ist send failed: " << e.code()
-                                         << "', asio error '" << e.what()
-                                         << "'";
+        gu_throw_error(e.get_errno()) << "ist send failed: "
+                                      << "', asio error '" << e.what()
+                                      << "'";
     }
 }
 
@@ -1236,12 +930,11 @@ void galera::ist::AsyncSenderMap::run(const gu::Config&   conf,
                                       wsrep_seqno_t const first,
                                       wsrep_seqno_t const last,
                                       wsrep_seqno_t const preload_start,
-                                      int const           version,
-                                      const std::string&  sender_id)
+                                      int const           version)
 {
     gu::Critical crit(monitor_);
     AsyncSender* as(new AsyncSender(conf, peer, first, last, preload_start,
-                                    *this, version, sender_id));
+                                    *this, version));
     int err(gu_thread_create(&as->thread_, 0, &run_async_sender, as));
     if (err != 0)
     {
@@ -1263,34 +956,6 @@ void galera::ist::AsyncSenderMap::remove(AsyncSender* as, wsrep_seqno_t seqno)
     senders_.erase(i);
 }
 
-void galera::ist::AsyncSenderMap::terminate(const std::vector<std::string>& active_peers) 
-{
-    gu::Critical crit(monitor_);
-    std::vector<AsyncSender*> senders_to_remove;
-    for(auto sender : senders_)
-    {
-        auto it = std::find(begin(active_peers), end(active_peers), sender->peer_id());
-        if (it == active_peers.end()) {
-            log_warn << "Peer (IST receiver) " << sender->peer_id().c_str()
-                     << " for IST AsyncSender seems to be disconnected."
-                     << " Terminating IST AsyncSender.\n",
-            senders_to_remove.push_back(sender);
-        }
-    }
-
-    for (auto sender : senders_to_remove) {
-        senders_.erase(sender);
-        int err;
-        sender->terminate();
-        monitor_.leave();
-        if ((err = gu_thread_join(sender->thread_, 0)) != 0)
-        {
-            log_warn << "thread_join() failed: " << err;
-        }
-        monitor_.enter();
-        delete sender;
-    }
-}
 
 void galera::ist::AsyncSenderMap::cancel()
 {

@@ -70,6 +70,7 @@ static const char* Defaults[] =
     "gcs.fc_factor",               "1.0",
     "gcs.fc_limit",                "100",
     "gcs.fc_master_slave",         "no",
+    "gcs.fc_single_primary",       "no",
     "gcs.max_packet_size",         "64500",
     "gcs.max_throttle",            "0.25",
 #if (GU_WORDSIZE == 32)
@@ -111,11 +112,13 @@ static const char* Defaults[] =
     "socket.checksum",             "2",
     "socket.recv_buf_size",        "auto",
     "socket.send_buf_size",        "auto",
+//  "socket.dynamic",              no default,
 //  "socket.ssl",                  no default,
 //  "socket.ssl_cert",             no default,
 //  "socket.ssl_cipher",           no default,
 //  "socket.ssl_compression",      no default,
 //  "socket.ssl_key",              no default,
+//  "socket.ssl_reload"            no default,
     NULL
 };
 

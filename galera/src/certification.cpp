@@ -187,10 +187,7 @@ check_against(const galera::KeyEntryNG*   const found,
             }
             /* fall through */
         case DEPENDENCY:
-            if (conflict)
-                depends_seqno = WSREP_SEQNO_UNDEFINED;
-            else
-                depends_seqno = std::max(ref_trx->global_seqno(), depends_seqno);
+            depends_seqno = std::max(ref_trx->global_seqno(), depends_seqno);
             /* fall through */
         case NOTHING:;
         }
@@ -206,6 +203,7 @@ certify_and_depend_v3to5(const galera::KeyEntryNG*   const found,
                          galera::TrxHandleSlave*     const trx,
                          bool                        const log_conflict)
 {
+    bool ret(false);
     wsrep_seqno_t depends_seqno(trx->depends_seqno());
     wsrep_key_type_t const key_type(key.wsrep_type(trx->version()));
 
@@ -237,14 +235,13 @@ certify_and_depend_v3to5(const galera::KeyEntryNG*   const found,
           check_against<WSREP_KEY_SHARED>
           (found, key, key_type, trx, log_conflict, depends_seqno))))
     {
-        return true;
+        ret = true;
     }
-    else
-    {
-        if (depends_seqno > trx->depends_seqno())
-            trx->set_depends_seqno(depends_seqno);
-        return false;
-    }
+
+    if (depends_seqno > trx->depends_seqno())
+        trx->set_depends_seqno(depends_seqno);
+
+    return ret;
 }
 
 /* returns true on collision, false otherwise */
@@ -378,6 +375,7 @@ galera::Certification::do_test_v3to5(TrxHandleSlave* trx, bool store_keys)
 
         if (certify_v3to5(cert_index_ng_, key, trx, store_keys, log_conflicts_))
         {
+            trx->set_depends_seqno(std::max(trx->depends_seqno(), last_pa_unsafe_));
             goto cert_fail;
         }
     }
@@ -495,8 +493,6 @@ galera::Certification::do_test(const TrxHandleSlavePtr& trx, bool store_keys)
                        << version_ << " not implemented";
     }
 
-    assert(TEST_FAILED == res || trx->depends_seqno() >= 0);
-
     if (store_keys == true && res == TEST_OK)
     {
         ++trx_count_;
@@ -596,7 +592,7 @@ galera::NBOEntry copy_ts(
                                << " out of range";
     gcs_action act = {ts->global_seqno(), ts->local_seqno(),
                       buf->data(), static_cast<int32_t>(buf->size()),
-                      GCS_ACT_WRITESET, 0};
+                      GCS_ACT_WRITESET};
     if (ts->certified() == false)
     {
         // TrxHandleSlave is from group
@@ -1011,6 +1007,20 @@ galera::Certification::~Certification()
     for_each(trx_map_.begin(), trx_map_.end(), PurgeAndDiscard(*this));
     trx_map_.clear();
     nbo_map_.clear();
+    std::for_each(nbo_index_.begin(), nbo_index_.end(),
+                  [](CertIndexNBO::value_type key_entry)
+                  {
+                      for (int i(0); i <= KeySet::Key::TYPE_MAX; ++i)
+                      {
+                          wsrep_key_type_t key_type(static_cast<wsrep_key_type_t>(i));
+                          const TrxHandleSlave* ts(key_entry->ref_trx(key_type));
+                          if (ts)
+                          {
+                              key_entry->unref(key_type, ts);
+                          }
+                      }
+                      delete key_entry;
+                  });
     if (service_thd_)
     {
         service_thd_->release_seqno(position_);
@@ -1147,8 +1157,6 @@ galera::Certification::test(const TrxHandleSlavePtr& trx, bool store_keys)
     const TestResult ret
         (trx->preordered() ?
          do_test_preordered(trx.get()) : do_test(trx, store_keys));
-
-    assert(TEST_FAILED == ret || trx->depends_seqno() >= 0);
 
     if (gu_unlikely(ret != TEST_OK)) { trx->mark_dummy(); }
 
