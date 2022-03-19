@@ -22,9 +22,11 @@ public:
 
     ~RecvLoop () {}
 
+    int returnCode() const { return rcode_; }
+
 private:
 
-    void loop();
+    int loop();
 
     const Config& config_;
     gu::Config    gconf_;
@@ -53,6 +55,7 @@ private:
         parse_;
 
     Gcs           gcs_;
+    int           rcode_;
 }; /* RecvLoop */
 
 } /* namespace garb */

@@ -49,7 +49,7 @@ Gcs::~Gcs ()
     gcs_destroy (gcs_);
 }
 
-void
+long
 Gcs::recv (gcs_action& act)
 {
 again:
@@ -67,6 +67,8 @@ again:
                   << " (" << strerror(-ret) << ")";
         gu_throw_error(-ret) << "Receiving from group failed";
     }
+
+    return ret;
 }
 
 void

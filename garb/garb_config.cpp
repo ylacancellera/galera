@@ -43,6 +43,7 @@ Config::Config (int argc, char* argv[])
       log_     (),
       cfg_     (),
       workdir_ (),
+      recv_script_ (),
       exit_    (false)
 {
     po::options_description other ("Other options");
@@ -64,6 +65,8 @@ Config::Config (int argc, char* argv[])
         ("log,l",    po::value<std::string>(&log_),     "Log file")
         ("workdir,w",po::value<std::string>(&workdir_),
          "Daemon working directory")
+        ("recv-script", po::value<std::string>(&recv_script_),
+         "SST request receive script")
         ;
 
     po::options_description cfg_opt;
@@ -137,6 +140,7 @@ Config::Config (int argc, char* argv[])
     strip_quotes(address_);
     strip_quotes(group_);
     strip_quotes(sst_);
+    strip_quotes(recv_script_);
     strip_quotes(donor_);
     strip_quotes(options_);
     strip_quotes(log_);
@@ -177,7 +181,8 @@ std::ostream& operator << (std::ostream& os, const Config& c)
        << "\n\toptions: " << c.options()
        << "\n\tcfg:     " << c.cfg()
        << "\n\tworkdir: " << c.workdir()
-       << "\n\tlog:     " << c.log();
+       << "\n\tlog:     " << c.log()
+       << "\n\trecv_script: " << c.recv_script();
     return os;
 }
 

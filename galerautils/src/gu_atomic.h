@@ -54,9 +54,15 @@ extern "C" {
 #define gu_atomic_set(ptr, vptr)                        \
     __atomic_store(ptr, vptr, GU_ATOMIC_SYNC_DEFAULT)
 
+#define gu_atomic_set_n(ptr, val)                       \
+    __atomic_store_n(ptr, val, GU_ATOMIC_SYNC_DEFAULT)
+
 // loads contents of ptr to vptr
 #define gu_atomic_get(ptr, vptr)                        \
     __atomic_load(ptr, vptr, GU_ATOMIC_SYNC_DEFAULT)
+
+#define gu_atomic_get_n(ptr)                            \
+    __atomic_load_n(ptr, GU_ATOMIC_SYNC_DEFAULT)
 
 #elif defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8) // use __sync_XXX builtins
 

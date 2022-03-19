@@ -101,7 +101,7 @@ main (int argc, char* argv[])
     try
     {
         RecvLoop loop (config);
-        return 0;
+        return loop.returnCode();
     }
     catch (std::exception& e)
     {

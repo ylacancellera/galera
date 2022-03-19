@@ -3,6 +3,9 @@
 #include "garb_recv_loop.hpp"
 
 #include <signal.h>
+#include <gu_thread.hpp>
+#include "process.h"
+#include "gu_atomic.h"
 
 namespace garb
 {
@@ -24,7 +27,8 @@ RecvLoop::RecvLoop (const Config& config)
     gconf_ (),
     params_(gconf_),
     parse_ (gconf_, config_.options()),
-    gcs_   (gconf_, config_.name(), config_.address(), config_.group())
+    gcs_   (gconf_, config_.name(), config_.address(), config_.group()),
+    rcode_ (0)
 {
     /* set up signal handlers */
     global_gcs = &gcs_;
@@ -47,12 +51,47 @@ RecvLoop::RecvLoop (const Config& config)
                               << "SIGINT";
     }
 
-    loop();
+    rcode_ = loop();
 }
 
-void
+void* pipe_to_log(void* pipe) {
+    const int out_len = 1024;
+    char out_buf[out_len];
+    char* p;
+    while ((p = fgets(out_buf, out_len, static_cast<FILE*>(pipe))) != NULL) {
+        log_info << "[SST script] " << out_buf;
+    }
+    return NULL;
+}
+
+struct err_log_args {
+    FILE* pipe;
+    bool* sst_ended;
+    Gcs* gcs;
+};
+
+void* err_log(void* arg)
+{
+    err_log_args* args(static_cast<err_log_args*>(arg));
+
+    pipe_to_log(args->pipe);
+    log_info << "SST script ended";
+    gu_atomic_set_n(args->sst_ended, true);
+    args->gcs->close();
+    return NULL;
+}
+
+int
 RecvLoop::loop()
 {
+    process p(config_.recv_script().c_str(), "rw", NULL, false);
+    gu_thread_t sst_out_log_thread;
+    gu_thread_t sst_err_log_thread;
+
+    err_log_args err_args;
+    err_args.gcs = &gcs_;
+
+    bool sst_ended = false;
     while (1)
     {
         gcs_action act;
@@ -83,19 +122,56 @@ RecvLoop::loop()
                 if (GCS_NODE_STATE_PRIM == cc->my_state)
                 {
                     gcs_.request_state_transfer (config_.sst(),config_.donor());
-                    gcs_.join(cc->seqno);
+                    if(config_.recv_script().empty()) {
+                        gcs_.join(cc->seqno);
+                    } else {
+                        log_info << "Starting SST script";
+                        p.execute("rw", NULL);
+
+                        err_args.pipe = p.err_pipe();
+                        err_args.sst_ended = &sst_ended;
+                        gu_thread_create(&sst_err_log_thread, NULL, err_log, &err_args);
+                        gu_thread_create(&sst_out_log_thread, NULL, pipe_to_log, p.pipe());
+                    }
                 }
             }
             else if (cc->memb_num == 0) // SELF-LEAVE after closing connection
             {
-                log_info << "Exiting main loop";
-                return;
+                if(!config_.recv_script().empty()) {
+                    if(gu_atomic_get_n(&sst_ended)) {
+                        // Good path: we decided to close the connection after the receiver script closed its
+                        // standard output. We wait for it to exit and return its error code.
+                        log_info << "Waiting for SST script to stop";
+                        const int ret = p.wait();
+                        log_info << "SST script stopped";
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return ret;
+                    } else {
+                        // Error path: we are closing the connection because there is an SST error,
+                        // such as a non existent donor side SST script was specified
+                        // As the receiver side script is already running, and is most likely waiting for a TCP
+                        // connection, we terminate it and report an error.
+                        log_info << "Terminating SST script";
+                        p.terminate();
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return 1;
+                    }
+                } else {
+                        log_info << "Exiting main loop";
+                        return 0;
+                }
             }
 
             if (config_.sst() != Config::DEFAULT_SST)
             {
                 // we requested custom SST, so we're done here
-                gcs_.close();
+                if(config_.recv_script().empty()) {
+                    gcs_.close();
+                }
             }
 
             break;
@@ -103,7 +179,7 @@ RecvLoop::loop()
         case GCS_ACT_INCONSISTENCY:
             // something went terribly wrong, restart needed
             gcs_.close();
-            return;
+            return 0;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
         case GCS_ACT_FLOW:
@@ -118,6 +194,7 @@ RecvLoop::loop()
             free (const_cast<void*>(act.buf));
         }
     }
+    return 0;
 }
 
 } /* namespace garb */
