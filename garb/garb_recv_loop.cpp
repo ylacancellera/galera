@@ -6,6 +6,7 @@
 #include <gu_thread.hpp>
 #include "process.h"
 #include "gu_atomic.h"
+#include "garb_raii.h" // Garb_gcs_action_buffer_guard
 
 namespace garb
 {
@@ -127,6 +128,7 @@ RecvLoop::loop()
         gcs_action act;
 
         gcs_.recv (act);
+        Garb_gcs_action_buffer_guard ag(&act);
 
         switch (act.type)
         {
@@ -223,11 +225,6 @@ RecvLoop::loop()
         case GCS_ACT_ERROR:
         case GCS_ACT_UNKNOWN:
             break;
-        }
-
-        if (act.buf)
-        {
-            free (const_cast<void*>(act.buf));
         }
     }
     return 0;
