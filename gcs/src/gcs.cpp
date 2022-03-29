@@ -1615,7 +1615,7 @@ long gcs_close (gcs_conn_t *conn)
 /* Frees resources associated with GCS connection handle */
 long gcs_destroy (gcs_conn_t *conn)
 {
-    long err;
+    long err = 0;
 
     gu_cond_t tmp_cond;
     gu_cond_init (&tmp_cond, NULL);
@@ -1627,10 +1627,7 @@ long gcs_destroy (gcs_conn_t *conn)
             if (GCS_CONN_CLOSED > conn->state)
                 gu_error ("Attempt to call gcs_destroy() before gcs_close(): "
                           "state = %d", conn->state);
-
-            gu_cond_destroy (&tmp_cond);
-
-            return -EBADFD;
+            err = -EBADFD;
         }
 
         gcs_sm_leave (conn->sm);
@@ -1645,19 +1642,24 @@ long gcs_destroy (gcs_conn_t *conn)
         // We should still cleanup resources
     }
 
-    gu_fifo_destroy (conn->recv_q);
-
     gu_cond_destroy (&tmp_cond);
     gcs_sm_destroy (conn->sm);
+    /* this should cancel all recv calls */
+    gu_fifo_destroy (conn->recv_q);
 
-    if ((err = gcs_fifo_lite_destroy (conn->repl_q))) {
-        gu_debug ("Error destroying repl FIFO: %d (%s)", err, strerror(-err));
-        return err;
+    if ((err = gcs_fifo_lite_destroy (conn->repl_q)))
+    {
+        gu_debug ("Error destroying repl FIFO: %ld (%s)", err, strerror(-err));
     }
 
-    if ((err = gcs_core_destroy (conn->core))) {
-        gu_debug ("Error destroying core: %d (%s)", err, strerror(-err));
-        return err;
+    if ((err = gcs_core_close(conn->core)))
+    {
+        gu_debug ("Failed to close GCS: error: %ld (%s)",-err, strerror(-err));
+    }
+
+    if ((err = gcs_core_destroy (conn->core)))
+    {
+        gu_debug ("Error destroying core: %ld (%s)", err, strerror(-err));
     }
 
     /* This must not last for long */
@@ -1667,7 +1669,7 @@ long gcs_destroy (gcs_conn_t *conn)
 
     gu_free (conn);
 
-    return 0;
+    return err;
 }
 
 /* Puts action in the send queue and returns */
