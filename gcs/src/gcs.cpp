@@ -199,6 +199,20 @@ struct gcs_conn
     int outer_close_count; // how many times gcs_close has been called.
 };
 
+gcs_node_state_t gcs_get_state_for_idx(gcs_conn_t* conn, ssize_t idx) {
+  const gcs_group_t* group = gcs_core_get_group(conn->core);
+  if (idx >= group->num) {
+    // XXX: Dirty fix.
+    // After backporing PXC-3031 sometimes trying to get index of unexisting node.
+    // Maybe some other required patch from 4-x branch is missed.
+    // How to reproduce: run galera_garbd_backup MTR test several times,
+    // you should get segfault.
+    return GCS_NODE_STATE_MAX;
+  }
+  gcs_node_t& node = group->nodes[idx];
+  return node.status;
+}
+
 // Oh C++, where art thou?
 struct gcs_recv_act
 {

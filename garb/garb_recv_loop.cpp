@@ -81,17 +81,47 @@ void* err_log(void* arg)
     return NULL;
 }
 
+struct status_args {
+    Gcs* gcs;
+    ssize_t sst_source;
+    process* proc;
+};
+
+void* status(void* arg)
+{
+    status_args* args(static_cast<status_args*>(arg));
+
+    while (true) {
+        gcs_node_state_t st = args->gcs->state_for(args->sst_source);
+        if(st != GCS_NODE_STATE_DONOR) {
+            // The donor is going back to SYNCED. If SST streaming didn't start yet,
+            // it won't.
+            // Send SIGINT to the script and let it handle this situation.
+            args->proc->interrupt();
+            break;
+        }
+        sleep(1);
+    }
+    return NULL;
+}
+
 int
 RecvLoop::loop()
 {
     process p(config_.recv_script().c_str(), "rw", NULL, false);
     gu_thread_t sst_out_log_thread;
     gu_thread_t sst_err_log_thread;
+    gu_thread_t sst_status_thread;
 
     err_log_args err_args;
     err_args.gcs = &gcs_;
+    status_args st_args;
+    st_args.proc = &p;
+    st_args.gcs = &gcs_;
 
     bool sst_ended = false;
+    ssize_t sst_source = 0;
+
     while (1)
     {
         gcs_action act;
@@ -121,7 +151,7 @@ RecvLoop::loop()
             {
                 if (GCS_NODE_STATE_PRIM == cc->my_state)
                 {
-                    gcs_.request_state_transfer (config_.sst(),config_.donor());
+                    sst_source = gcs_.request_state_transfer (config_.sst(),config_.donor());
                     if(config_.recv_script().empty()) {
                         gcs_.join(cc->seqno);
                     } else {
@@ -132,6 +162,8 @@ RecvLoop::loop()
                         err_args.sst_ended = &sst_ended;
                         gu_thread_create(&sst_err_log_thread, NULL, err_log, &err_args);
                         gu_thread_create(&sst_out_log_thread, NULL, pipe_to_log, p.pipe());
+                        st_args.sst_source = sst_source;
+                        gu_thread_create(&sst_status_thread, NULL, status, &st_args);
                     }
                 }
             }
@@ -146,6 +178,8 @@ RecvLoop::loop()
                         log_info << "SST script stopped";
                         gu_thread_join(sst_err_log_thread, NULL);
                         gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
                         log_info << "Exiting main loop";
                         return ret;
                     } else {
@@ -157,6 +191,8 @@ RecvLoop::loop()
                         p.terminate();
                         gu_thread_join(sst_err_log_thread, NULL);
                         gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
                         log_info << "Exiting main loop";
                         return 1;
                     }

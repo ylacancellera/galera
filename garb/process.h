@@ -85,6 +85,7 @@ class process {
   int wait();
   const char *cmd() { return str_; }
   void terminate();
+  void interrupt();
 
  private:
   process(const process &); // copy constructor

@@ -606,6 +606,16 @@ int process::wait() {
   return err_;
 }
 
+void process::interrupt() {
+  if (pid_) {
+    if (kill(pid_, SIGINT))
+    {
+      WSREP_WARN("Unable to interrupt process: %s: %d (%s)", str_, errno,
+                 strerror(errno));
+    }
+  }
+}
+
 void process::terminate() {
   WSREP_WARN("Terminating process");
   if (pid_) {

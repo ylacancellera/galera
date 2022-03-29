@@ -1439,6 +1439,12 @@ void gcs_core_get_status(gcs_core_t* core, gu::Status& status)
     gu_mutex_unlock(&core->send_lock);
 }
 
+const gcs_group_t*
+gcs_core_get_group (const gcs_core_t* core)
+{
+    return &core->group;
+}
+
 #ifdef GCS_CORE_TESTING
 
 gcs_backend_t*
@@ -1463,12 +1469,6 @@ void
 gcs_core_set_state_uuid (gcs_core_t* core, const gu_uuid_t* uuid)
 {
     core->state_uuid = *uuid;
-}
-
-const gcs_group_t*
-gcs_core_get_group (const gcs_core_t* core)
-{
-    return &core->group;
 }
 
 gcs_fifo_lite_t*
