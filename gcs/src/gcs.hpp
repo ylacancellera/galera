@@ -107,7 +107,11 @@ extern long gcs_open  (gcs_conn_t *conn,
  * @param  conn connection handle
  * @return negative error code or 0 in case of success.
  */
+#ifdef GCS_FOR_GARB
+extern long gcs_close (gcs_conn_t *conn, bool explicit_close = false);
+#else
 extern long gcs_close (gcs_conn_t *conn);
+#endif
 
 /*! @brief Frees resources associuated with connection handle.
  *

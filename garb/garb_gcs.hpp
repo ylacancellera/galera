@@ -31,7 +31,7 @@ public:
 
     gcs_node_state_t state_for(ssize_t idx);
 
-    void close ();
+    void close (bool explicit_close = false);
 
 private:
 

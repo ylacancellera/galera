@@ -77,7 +77,7 @@ void* err_log(void* arg)
     pipe_to_log(args->pipe);
     log_info << "SST script ended";
     gu_atomic_set_n(args->sst_ended, true);
-    args->gcs->close();
+    args->gcs->close(true);
     return NULL;
 }
 
@@ -206,7 +206,7 @@ RecvLoop::loop()
             {
                 // we requested custom SST, so we're done here
                 if(config_.recv_script().empty()) {
-                    gcs_.close();
+                    gcs_.close(true);
                 }
             }
 
@@ -214,7 +214,7 @@ RecvLoop::loop()
         }
         case GCS_ACT_INCONSISTENCY:
             // something went terribly wrong, restart needed
-            gcs_.close();
+            gcs_.close(true);
             return 0;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:

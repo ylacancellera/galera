@@ -149,11 +149,11 @@ Gcs::set_last_applied (gcs_seqno_t seqno)
 }
 
 void
-Gcs::close ()
+Gcs::close (bool explicit_close)
 {
     if (!closed_)
     {
-        ssize_t ret = gcs_close (gcs_);
+        ssize_t ret = gcs_close (gcs_, explicit_close);
 
         if (ret < 0)
         {
