@@ -106,16 +106,12 @@ galera::ist::Receiver::Receiver(gu::Config&           conf,
 #else
     mutex_        (),
     cond_         (),
-<<<<<<< HEAD
 #endif /* HAVE_PSI_INTERFACE */
 #else
     mutex_        (),
     cond_         (),
 #endif /* PXC */
-||||||| 7fce2d9f
-=======
     progress_cb_  (cb),
->>>>>>> refs/heads/release_26.4.11
     first_seqno_  (WSREP_SEQNO_UNDEFINED),
     last_seqno_   (WSREP_SEQNO_UNDEFINED),
     current_seqno_(WSREP_SEQNO_UNDEFINED),

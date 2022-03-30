@@ -76,15 +76,11 @@ namespace gcache
                             int const          dbg,
                             bool const         recover)
     :
-<<<<<<< HEAD
+        pcb_       (pcb),
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         fd_        (name, WSREP_PFS_INSTR_TAG_RINGBUFFER_FILE, check_size(size)),
 #else
-||||||| 7fce2d9f
-=======
-        pcb_       (pcb),
->>>>>>> refs/heads/release_26.4.11
         fd_        (name, check_size(size)),
 #endif /* HAVE_PSI_INTERFACE */
 #else

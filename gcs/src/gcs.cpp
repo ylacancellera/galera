@@ -1356,11 +1356,12 @@ GCS_FIFO_PUSH_TAIL (gcs_conn_t* conn, ssize_t size)
 static inline void
 GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
 {
+    if (conn->progress_) conn->progress_->update(1);
+
     assert (conn->recv_q_size >= size);
     conn->recv_q_size -= size;
     gu_fifo_pop_head (conn->recv_q);
 }
-
 /* Returns true if timeout was handled and false otherwise */
 static bool
 _handle_timeout (gcs_conn_t* conn)
@@ -2207,28 +2208,6 @@ long gcs_desync (gcs_conn_t* conn, gcs_seqno_t& order)
     }
 }
 
-<<<<<<< HEAD
-||||||| 7fce2d9f
-static inline void
-GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
-{
-    assert (conn->recv_q_size >= size);
-    conn->recv_q_size -= size;
-    gu_fifo_pop_head (conn->recv_q);
-}
-
-=======
-static inline void
-GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
-{
-    if (conn->progress_) conn->progress_->update(1);
-
-    assert (conn->recv_q_size >= size);
-    conn->recv_q_size -= size;
-    gu_fifo_pop_head (conn->recv_q);
-}
-
->>>>>>> refs/heads/release_26.4.11
 /* Returns when an action from another process is received */
 long gcs_recv (gcs_conn_t*        conn,
                struct gcs_action* action)
@@ -2478,7 +2457,6 @@ cleanup:
 long
 gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
 {
-<<<<<<< HEAD
 #ifdef PXC
     // Even when node is evicted from the cluster in middle of SST,
     // the SST may completes normally. After this, the node calls
@@ -2498,10 +2476,6 @@ gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
     }
 #endif /* PXC */
 
-    if (code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
-||||||| 7fce2d9f
-    if (code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
-=======
     /*
      * Always allow sending of join messages when not in JOINER state.
      * This is required for correct handling of desync counter,
@@ -2514,7 +2488,6 @@ gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
      */
     if (conn->state != GCS_CONN_JOINER ||
         code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
->>>>>>> refs/heads/release_26.4.11
     {
         conn->join_gtid    = gtid;
         conn->join_code    = code;

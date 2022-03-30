@@ -149,22 +149,14 @@ galera::ReplicatorSMM::ReplicatorSMM(const struct wsrep_init_args* args)
                          args->node_name, args->node_incoming),
     service_thd_        (gcs_, gcache_),
     slave_pool_         (sizeof(TrxHandleSlave), 1024, "TrxHandleSlave"),
-<<<<<<< HEAD
-    as_                 (new GcsActionSource(slave_pool_, gcs_, *this, gcache_)),
-    ist_receiver_       (config_, gcache_, slave_pool_,*this,args->node_address),
-#ifdef PXC
-    ist_prepared_       (false),
-#endif /* PXC */
-||||||| 7fce2d9f
-    as_                 (new GcsActionSource(slave_pool_, gcs_, *this, gcache_)),
-    ist_receiver_       (config_, gcache_, slave_pool_,*this,args->node_address),
-=======
     as_                 (new GcsActionSource(slave_pool_, gcs_, *this,gcache_)),
     ist_progress_cb_    (ProgressCallback<wsrep_seqno_t>(WSREP_MEMBER_JOINER,
                                                          WSREP_MEMBER_JOINED)),
     ist_receiver_       (config_, gcache_, slave_pool_, *this,
                          args->node_address, &ist_progress_cb_),
->>>>>>> refs/heads/release_26.4.11
+#ifdef PXC
+    ist_prepared_       (false),
+#endif /* PXC */
     ist_senders_        (gcache_),
     wsdb_               (),
 #ifdef PXC

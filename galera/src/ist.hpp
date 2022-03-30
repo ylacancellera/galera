@@ -95,12 +95,8 @@ namespace galera
 #else
             gu::Mutex                                     mutex_;
             gu::Cond                                      cond_;
-<<<<<<< HEAD
 #endif /* PXC */
-||||||| 7fce2d9f
-=======
             gu::Progress<wsrep_seqno_t>::Callback*        progress_cb_;
->>>>>>> refs/heads/release_26.4.11
 
             wsrep_seqno_t         first_seqno_;
             wsrep_seqno_t         last_seqno_;
