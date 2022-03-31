@@ -997,16 +997,23 @@ core_msg_to_action (gcs_core_t*          core,
         case GCS_MSG_JOIN:
             ret = gcs_group_handle_join_msg (group, msg);
             assert (gcs_group_my_idx(group) == msg->sender_idx || 0 >= ret);
+            act_type = GCS_ACT_JOIN;
             if (-ENOTRECOVERABLE == ret) {
                 core->backend.close(&core->backend);
+#ifdef GCS_FOR_GARB
                 // A negative return value ends the receive loop, as this is
                 // an unrecoverable error.
-                // There was originally an abort here, which prevents
-                // proper cleanup
                 ret = -1;
+#else
+                // See #165.
+                // There is nobody to pass this error to for graceful shutdown:
+                // application thread is blocked waiting for SST.
+                // Also note that original ret value is not preserved on return
+                // so this must be done here.
+                gu_abort();
+#endif
                 break;
             }
-            act_type = GCS_ACT_JOIN;
             break;
         case GCS_MSG_SYNC:
             ret = gcs_group_handle_sync_msg (group, msg);
