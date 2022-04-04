@@ -864,6 +864,19 @@ start_progress(gcs_conn_t* conn)
 {
     gu_fifo_lock(conn->recv_q);
     {
+        /* It is possible that progress_ object already exists.
+           The "normal case" is that it is created here, when we start moving
+           DONOR/DESYNCED -> JOINED, and we expect it to be deleted when we move
+           JOINED -> SYNCED. However we can go back to DONOR/DESYNCED from JOINED
+           and then when moving again DONOR/DESYNCED -> JOINED we miss one deallocation.
+        */
+        if (conn->progress_)
+        {
+            conn->progress_->finish();
+            delete conn->progress_;
+            conn->progress_ = nullptr;
+        }
+
         conn->progress_ = new gu::Progress<gcs_seqno_t>(
             conn->progress_cb_,
             "Processing event queue:", " events",
