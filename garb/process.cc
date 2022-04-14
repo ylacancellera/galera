@@ -56,7 +56,7 @@ void process::execute(const char *type, char **env) {
   struct sigaction sa;
 
   if (0 == str_) {
-    WSREP_ERROR("Can't allocate command line of size: %zu", strlen(str_));
+    WSREP_ERROR("Can't allocate command line.");
     err_ = ENOMEM;
     return;
   }
@@ -564,7 +564,7 @@ int process::wait() {
       err_ = errno;
       assert(err_);
       WSREP_ERROR("Waiting for process failed: %s, PID(%ld): %d (%s)", str_,
-                  (long)pid_, err_, strerror(err_));
+                  static_cast<long>(pid_), err_, strerror(err_));
     } else {  // command completed, check exit status
       if (WIFEXITED(status)) {
         err_ = WEXITSTATUS(status);
