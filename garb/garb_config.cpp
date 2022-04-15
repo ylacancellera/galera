@@ -151,6 +151,20 @@ Config::Config (int argc, char* argv[])
     if (options_.length() > 0) options_ += "; ";
     options_ += "gcs.fc_limit=9999999; gcs.fc_factor=1.0; gcs.fc_master_slave=yes";
 
+    // Add implicit socket.ssl=YES if needed.
+    // We need to add it if socket.ssl_key or socket.ssl_cert is specified
+    // and socket.ssl is not specified.
+    // This is the same logic as Galera does in gu_asio.cpp::init_use_ssl()
+    if ((options_.find("socket.ssl_key") != std::string::npos ||
+         options_.find("socket.ssl_cert") != std::string::npos)
+         &&
+         // this way we avoid tokenizing and stripping the string
+        (options_.find("socket.ssl=") == std::string::npos &&
+         options_.find("socket.ssl ") == std::string::npos))
+    {
+        options_ += "; socket.ssl=YES";
+    }
+
     // this block must be the very last.
     gu_conf_self_tstamp_on();
     if (vm.count("log"))
