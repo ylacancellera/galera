@@ -77,6 +77,7 @@ RecvLoop::loop()
     std::thread sst_err_log;
 
     ssize_t sst_source = 0;
+    bool sst_requested = false;
     std::atomic_bool sst_status_keep_running{true};
     std::thread sst_status_thread;
 
@@ -115,10 +116,11 @@ RecvLoop::loop()
 
                 gcs_node_state const my_state(cc.memb[my_idx].state_);
 
-                if (GCS_NODE_STATE_PRIM == my_state)
+                if (GCS_NODE_STATE_PRIM == my_state && !sst_requested)
                 {
                     uuid_  = cc.uuid;
                     seqno_ = cc.seqno;
+                    sst_requested = true;
                     sst_source =  gcs_.request_state_transfer (config_.sst(),config_.donor());
                     if(config_.recv_script().empty()) {
                         gcs_.join(gu::GTID(cc.uuid, cc.seqno), 0);
