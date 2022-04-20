@@ -2528,16 +2528,25 @@ galera::ReplicatorSMM::update_incoming_list(const wsrep_view_info_t& view)
     gu::Lock lock(incoming_mutex_);
 
     incoming_list_.clear();
-    incoming_list_.resize(new_size);
+    incoming_list_.reserve(new_size);
 
     if (new_size <= 0) return;
 
-    incoming_list_ = view.members[0].incoming;
-
-    for (int i = 1; i < view.memb_num; ++i)
+    bool add_separator(false);
+    for (int i = 0; i < view.memb_num; ++i)
     {
-        incoming_list_ += separator;
-        incoming_list_ += view.members[i].incoming;
+        /* This is somehow naive but working approach.
+           We already use this method of arbitrator detection
+           when we calculate 'non_arb_memb_count' */
+        if (strlen(view.members[i].incoming) > 0)
+        {
+            if (add_separator)
+            {
+                incoming_list_ += separator;
+            }
+            incoming_list_ += view.members[i].incoming;
+            add_separator = true;
+        }
     }
 }
 
