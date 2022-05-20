@@ -232,6 +232,10 @@ struct gcs_conn
 
     int inner_close_count; // how many times _close has been called.
     int outer_close_count; // how many times gcs_close has been called.
+
+    /* JOINED -> SYNCED catch-up progress */
+    gu::Progress<gcs_seqno_t>::Callback* progress_cb_;
+    gu::Progress<gcs_seqno_t>* progress_;
 };
 
 gcs_node_state_t gcs_get_state_for_idx(gcs_conn_t* conn, ssize_t idx) {
@@ -304,6 +308,7 @@ enomem:
 /* Creates a group connection handle */
 gcs_conn_t*
 gcs_create (gu_config_t* const conf, gcache_t* const gcache,
+            gu::Progress<gcs_seqno_t>::Callback* const progress_cb,
             const char* const node_name, const char* const inc_addr,
             int const repl_proto_ver, int const appl_proto_ver)
 {
@@ -389,6 +394,9 @@ gcs_create (gu_config_t* const conf, gcache_t* const gcache,
     gu_mutex_init (&conn->fc_lock, NULL);
     gu_mutex_init (&conn->vote_lock_, NULL);
     gu_cond_init  (&conn->vote_cond_, NULL);
+
+    conn->progress_cb_ = progress_cb;
+    conn->progress_ = NULL;
 
     return conn; // success
 
@@ -750,7 +758,7 @@ gcs_become_primary (gcs_conn_t* conn)
     assert(conn->join_gtid.seqno() <= 0      ||
            conn->state == GCS_CONN_PRIMARY   ||
            conn->state == GCS_CONN_JOINER    ||
-           conn->state == GCS_CONN_OPEN /* joiner that has received NON_PRIM */);
+           conn->state == GCS_CONN_OPEN /* joiner that has received NON_PRIM*/);
 
     if (!gcs_shift_state (conn, GCS_CONN_PRIMARY)) {
         gu_fatal ("Protocol violation, can't continue");
@@ -852,6 +860,32 @@ _release_sst_flow_control (gcs_conn_t* conn)
 }
 
 static void
+start_progress(gcs_conn_t* conn)
+{
+    gu_fifo_lock(conn->recv_q);
+    {
+        /* It is possible that progress_ object already exists.
+           The "normal case" is that it is created here, when we start moving
+           DONOR/DESYNCED -> JOINED, and we expect it to be deleted when we move
+           JOINED -> SYNCED. However we can go back to DONOR/DESYNCED from JOINED
+           and then when moving again DONOR/DESYNCED -> JOINED we miss one deallocation.
+        */
+        if (conn->progress_)
+        {
+            conn->progress_->finish();
+            delete conn->progress_;
+            conn->progress_ = nullptr;
+        }
+
+        conn->progress_ = new gu::Progress<gcs_seqno_t>(
+            conn->progress_cb_,
+            "Processing event queue:", " events",
+            gu_fifo_length(conn->recv_q), 16);
+    }
+    gu_fifo_release(conn->recv_q);
+}
+
+static void
 gcs_become_joined (gcs_conn_t* conn)
 {
     int ret;
@@ -871,6 +905,7 @@ gcs_become_joined (gcs_conn_t* conn)
         conn->fc_offset    = conn->queue_len;
         conn->join_gtid    = gu::GTID();
         conn->need_to_join = false;
+        start_progress(conn);
         gu_debug("Become joined, FC offset %ld", conn->fc_offset);
         /* One of the cases when the node can become SYNCED */
         if ((ret = gcs_send_sync (conn))) {
@@ -887,6 +922,12 @@ gcs_become_synced (gcs_conn_t* conn)
 {
     gu_fifo_lock(conn->recv_q);
     {
+        if (conn->progress_)
+        {
+            conn->progress_->finish();
+            delete conn->progress_;
+            conn->progress_ = nullptr;
+        }
         gcs_shift_state (conn, GCS_CONN_SYNCED);
         conn->sync_sent(false);
     }
@@ -1296,6 +1337,7 @@ gcs_handle_actions (gcs_conn_t* conn, struct gcs_act_rcvd& rcvd)
         break;
     case GCS_ACT_SYNC:
         if (rcvd.id < 0) {
+            /* sending SYNC failed, need to resend */
             gu_fifo_lock(conn->recv_q);
             conn->sync_sent(false);
             gu_fifo_release(conn->recv_q);
@@ -1318,6 +1360,8 @@ gcs_handle_actions (gcs_conn_t* conn, struct gcs_act_rcvd& rcvd)
 static inline void
 GCS_FIFO_PUSH_TAIL (gcs_conn_t* conn, ssize_t size)
 {
+    if (conn->progress_) conn->progress_->update_total(1);
+
     conn->recv_q_size += size;
     gu_fifo_push_tail(conn->recv_q);
 }
@@ -1325,11 +1369,12 @@ GCS_FIFO_PUSH_TAIL (gcs_conn_t* conn, ssize_t size)
 static inline void
 GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
 {
+    if (conn->progress_) conn->progress_->update(1);
+
     assert (conn->recv_q_size >= size);
     conn->recv_q_size -= size;
     gu_fifo_pop_head (conn->recv_q);
 }
-
 /* Returns true if timeout was handled and false otherwise */
 static bool
 _handle_timeout (gcs_conn_t* conn)
@@ -2444,7 +2489,18 @@ gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
     }
 #endif /* PXC */
 
-    if (code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
+    /*
+     * Always allow sending of join messages when not in JOINER state.
+     * This is required for correct handling of desync counter,
+     * especially in DONOR state:
+     * If the DONOR does desync in combination with SST donation, the
+     * gcs_join() calls from resync() and sst_sent() might
+     * come with out of order seqnos, leaving the desync_count in gcs_group
+     * permanently in non-zero value. In this case the node will not become
+     * synced again unless it is temporarily removed from the group.
+     */
+    if (conn->state != GCS_CONN_JOINER ||
+        code < 0 || gtid.seqno() >= conn->join_gtid.seqno())
     {
         conn->join_gtid    = gtid;
         conn->join_code    = code;

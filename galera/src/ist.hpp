@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2011-2017 Codership Oy <info@codership.com>
+// Copyright (C) 2011-2021 Codership Oy <info@codership.com>
 //
 
 
@@ -53,7 +53,8 @@ namespace galera
 
             Receiver(gu::Config& conf, gcache::GCache&,
                      TrxHandleSlave::Pool& slave_pool,
-                     EventHandler&, const char* addr);
+                     EventHandler&, const char* addr,
+                     gu::Progress<wsrep_seqno_t>::Callback* callback);
             ~Receiver();
 
             std::string   prepare(wsrep_seqno_t       first_seqno,
@@ -95,6 +96,7 @@ namespace galera
             gu::Mutex                                     mutex_;
             gu::Cond                                      cond_;
 #endif /* PXC */
+            gu::Progress<wsrep_seqno_t>::Callback*        progress_cb_;
 
             wsrep_seqno_t         first_seqno_;
             wsrep_seqno_t         last_seqno_;
