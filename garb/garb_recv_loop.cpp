@@ -200,12 +200,13 @@ RecvLoop::loop()
                 if(!config_.recv_script().empty()) {
                     if (gu_atomic_get_n(&sst_terminated)) {
                         log_info << "SST script already terminated";
+                        int ret = p.wait();
                         gu_thread_join(sst_err_log_thread, NULL);
                         gu_thread_join(sst_out_log_thread, NULL);
                         gu_thread_cancel(sst_status_thread);
                         gu_thread_join(sst_status_thread, NULL);
                         log_info << "Exiting main loop";
-                        return 1;
+                        return ret;
                     } else if(gu_atomic_get_n(&sst_ended)) {
                         // Good path: we decided to close the connection after the receiver script closed its
                         // standard output. We wait for it to exit and return its error code.
