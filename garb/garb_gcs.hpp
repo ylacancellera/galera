@@ -29,7 +29,7 @@ public:
 
     void set_last_applied(gcs_seqno_t);
 
-    gcs_node_state_t state_for(ssize_t idx);
+    gcs_node_state_t state_for(gu_uuid_t uuid);
 
     void close (bool explicit_close = false);
 

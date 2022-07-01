@@ -4,6 +4,7 @@
 
 #include <signal.h>
 #include <gu_thread.hpp>
+#include <gu_uuid.hpp>
 #include "process.h"
 #include "gu_atomic.h"
 #include "garb_raii.h" // Garb_gcs_action_buffer_guard
@@ -84,7 +85,8 @@ void* err_log(void* arg)
 
 struct status_args {
     Gcs* gcs;
-    ssize_t sst_source;
+    gu_uuid_t sst_source_uuid;
+    bool* sst_terminated;
     process* proc;
 };
 
@@ -93,12 +95,19 @@ void* status(void* arg)
     status_args* args(static_cast<status_args*>(arg));
 
     while (true) {
-        gcs_node_state_t st = args->gcs->state_for(args->sst_source);
-        if(st != GCS_NODE_STATE_DONOR) {
+        gcs_node_state_t st = args->gcs->state_for(args->sst_source_uuid);
+        if (st == GCS_NODE_STATE_MAX) {
+            log_info << "Donor is no longer in the cluster, interrupting script";
+            gu_atomic_set_n(args->sst_terminated, true);
+            args->proc->terminate();
+            break;
+        } else if (st != GCS_NODE_STATE_DONOR) {
             // The donor is going back to SYNCED. If SST streaming didn't start yet,
             // it won't.
-            // Send SIGINT to the script and let it handle this situation.
-            args->proc->interrupt();
+            // Send SIGTERM to the script and let it handle this situation.
+            log_info << "Donor no longer in donor state, interrupting script";
+            gu_atomic_set_n(args->sst_terminated, true);
+            args->proc->terminate();
             break;
         }
         sleep(1);
@@ -120,8 +129,10 @@ RecvLoop::loop()
     st_args.proc = &p;
     st_args.gcs = &gcs_;
 
+    gu_uuid_t sst_source_uuid;
+
     bool sst_ended = false;
-    ssize_t sst_source = 0;
+    bool sst_terminated = false;
 
     while (1)
     {
@@ -153,7 +164,21 @@ RecvLoop::loop()
             {
                 if (GCS_NODE_STATE_PRIM == cc->my_state)
                 {
-                    sst_source = gcs_.request_state_transfer (config_.sst(),config_.donor());
+                    ssize_t sst_source_idx = gcs_.request_state_transfer (config_.sst(),config_.donor());
+                    const char* str = cc->data;
+
+                    for (long i = 0; i < cc->memb_num; i++) {
+                      if (i == sst_source_idx) {
+                        gu_uuid_from_string(str, sst_source_uuid);
+                        break;
+                      }
+                      // Skip all another packed data
+                      str = str + strlen(str) + 1;
+                      str = str + strlen(str) + 1;
+                      str = str + strlen(str) + 1;
+                      str += sizeof(gcs_seqno_t);
+                    }
+
                     if(config_.recv_script().empty()) {
                         gcs_.join(cc->seqno);
                     } else {
@@ -164,7 +189,8 @@ RecvLoop::loop()
                         err_args.sst_ended = &sst_ended;
                         gu_thread_create(&sst_err_log_thread, NULL, err_log, &err_args);
                         gu_thread_create(&sst_out_log_thread, NULL, pipe_to_log, p.pipe());
-                        st_args.sst_source = sst_source;
+                        st_args.sst_source_uuid = sst_source_uuid;
+                        st_args.sst_terminated = &sst_terminated;
                         gu_thread_create(&sst_status_thread, NULL, status, &st_args);
                     }
                 }
@@ -172,7 +198,15 @@ RecvLoop::loop()
             else if (cc->memb_num == 0) // SELF-LEAVE after closing connection
             {
                 if(!config_.recv_script().empty()) {
-                    if(gu_atomic_get_n(&sst_ended)) {
+                    if (gu_atomic_get_n(&sst_terminated)) {
+                        log_info << "SST script already terminated";
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return 1;
+                    } else if(gu_atomic_get_n(&sst_ended)) {
                         // Good path: we decided to close the connection after the receiver script closed its
                         // standard output. We wait for it to exit and return its error code.
                         log_info << "Waiting for SST script to stop";

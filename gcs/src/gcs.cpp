@@ -17,6 +17,7 @@
 
 #include <galerautils.h>
 #include "gu_debug_sync.hpp"
+#include <gu_uuid.hpp>
 
 #include "gcs_priv.hpp"
 #include "gcs_params.hpp"
@@ -199,18 +200,18 @@ struct gcs_conn
     int outer_close_count; // how many times gcs_close has been called.
 };
 
-gcs_node_state_t gcs_get_state_for_idx(gcs_conn_t* conn, ssize_t idx) {
+gcs_node_state_t gcs_get_state_for_uuid(gcs_conn_t* conn, gu_uuid_t uuid) {
+  std::stringstream ss;
+  ss << uuid;
+
   const gcs_group_t* group = gcs_core_get_group(conn->core);
-  if (idx >= group->num) {
-    // XXX: Dirty fix.
-    // After backporing PXC-3031 sometimes trying to get index of unexisting node.
-    // Maybe some other required patch from 4-x branch is missed.
-    // How to reproduce: run galera_garbd_backup MTR test several times,
-    // you should get segfault.
-    return GCS_NODE_STATE_MAX;
+  for(int idx = 0; idx < group->num; ++idx) {
+    gcs_node_t const& node = group->nodes[idx];
+    if(ss.str() == node.id) {
+      return node.status;
+    }
   }
-  gcs_node_t& node = group->nodes[idx];
-  return node.status;
+  return GCS_NODE_STATE_MAX; // node gone
 }
 
 // Oh C++, where art thou?
