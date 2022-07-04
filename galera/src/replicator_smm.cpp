@@ -3078,7 +3078,7 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
                                                      int const my_index,
                                                      void* cc_buf)
 {
-    assert(conf.seqno > 0);
+    assert(conf.seqno >= 0);
     assert(my_index >= 0);
 
     GU_DBUG_SYNC_WAIT("process_primary_configuration");
