@@ -49,7 +49,7 @@ Gcs::~Gcs ()
     gcs_destroy (gcs_);
 }
 
-void
+long
 Gcs::recv (gcs_action& act)
 {
 again:
@@ -67,9 +67,11 @@ again:
                   << " (" << strerror(-ret) << ")";
         gu_throw_error(-ret) << "Receiving from group failed";
     }
+
+    return ret;
 }
 
-void
+ssize_t
 Gcs::request_state_transfer (const std::string& request,
                              const std::string& donor)
 {
@@ -123,6 +125,8 @@ Gcs::request_state_transfer (const std::string& request,
                   << " (" << strerror(-ret) << ")";
         gu_throw_error(-ret) << "State transfer request failed";
     }
+
+    return ret;
 }
 
 void
@@ -145,11 +149,11 @@ Gcs::set_last_applied (gcs_seqno_t seqno)
 }
 
 void
-Gcs::close ()
+Gcs::close (bool explicit_close)
 {
     if (!closed_)
     {
-        ssize_t ret = gcs_close (gcs_);
+        ssize_t ret = gcs_close (gcs_, explicit_close);
 
         if (ret < 0)
         {
@@ -164,6 +168,10 @@ Gcs::close ()
     {
         log_warn << "Attempt to close a closed connection";
     }
+}
+
+gcs_node_state_t Gcs::state_for(gu_uuid_t uuid) {
+  return gcs_get_state_for_uuid(gcs_, uuid);
 }
 
 } /* namespace garb */

@@ -20,16 +20,18 @@ public:
 
     ~Gcs ();
 
-    void recv (gcs_action& act);
+    long recv (gcs_action& act);
 
-    void request_state_transfer (const std::string& request,
+    ssize_t request_state_transfer (const std::string& request,
                                  const std::string& donor);
 
     void join (gcs_seqno_t);
 
     void set_last_applied(gcs_seqno_t);
 
-    void close ();
+    gcs_node_state_t state_for(gu_uuid_t uuid);
+
+    void close (bool explicit_close = false);
 
 private:
 

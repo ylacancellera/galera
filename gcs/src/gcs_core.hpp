@@ -171,6 +171,10 @@ gcs_core_fetch_pfs_info(
     wsrep_node_info_t* entries,
     uint32_t size);
 
+#include "gcs_group.hpp"
+extern const gcs_group_t*
+gcs_core_get_group (const gcs_core_t* core);
+
 #ifdef GCS_CORE_TESTING
 
 /* gcs_core_send() interface does not allow enough concurrency control to model
@@ -194,10 +198,6 @@ gcs_core_send_step (gcs_core_t* core, long timeout_ms);
 
 extern void
 gcs_core_set_state_uuid (gcs_core_t* core, const gu_uuid_t* uuid);
-
-#include "gcs_group.hpp"
-extern const gcs_group_t*
-gcs_core_get_group (const gcs_core_t* core);
 
 #include "gcs_fifo_lite.hpp"
 extern gcs_fifo_lite_t*

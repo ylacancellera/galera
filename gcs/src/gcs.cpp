@@ -17,6 +17,7 @@
 
 #include <galerautils.h>
 #include "gu_debug_sync.hpp"
+#include <gu_uuid.hpp>
 
 #include "gcs_priv.hpp"
 #include "gcs_params.hpp"
@@ -198,6 +199,20 @@ struct gcs_conn
     int inner_close_count; // how many times _close has been called.
     int outer_close_count; // how many times gcs_close has been called.
 };
+
+gcs_node_state_t gcs_get_state_for_uuid(gcs_conn_t* conn, gu_uuid_t uuid) {
+  std::stringstream ss;
+  ss << uuid;
+
+  const gcs_group_t* group = gcs_core_get_group(conn->core);
+  for(int idx = 0; idx < group->num; ++idx) {
+    gcs_node_t const& node = group->nodes[idx];
+    if(ss.str() == node.id) {
+      return node.status;
+    }
+  }
+  return GCS_NODE_STATE_MAX; // node gone
+}
 
 // Oh C++, where art thou?
 struct gcs_recv_act
@@ -1156,6 +1171,14 @@ GCS_FIFO_PUSH_TAIL (gcs_conn_t* conn, ssize_t size)
     gu_fifo_push_tail(conn->recv_q);
 }
 
+static inline void
+GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
+{
+    assert (conn->recv_q_size >= size);
+    conn->recv_q_size -= size;
+    gu_fifo_pop_head (conn->recv_q);
+}
+
 /* Returns true if timeout was handled and false otherwise */
 static bool
 _handle_timeout (gcs_conn_t* conn)
@@ -1222,7 +1245,11 @@ _check_recv_queue_growth (gcs_conn_t* conn, ssize_t size)
 }
 
 static long
+#ifdef GCS_FOR_GARB
+_close(gcs_conn_t* conn, bool join_recv_thread, bool explicit_close = false)
+#else
 _close(gcs_conn_t* conn, bool join_recv_thread)
+#endif
 {
     /* all possible races in connection closing should be resolved by
      * the following call, it is thread-safe */
@@ -1280,6 +1307,29 @@ _close(gcs_conn_t* conn, bool join_recv_thread)
         // FIXME: this can block waiting for applicaiton threads to fetch all
         // items. In certain situations this can block forever. Ticket #113
         gu_info ("Closing slave action queue.");
+
+#ifdef GCS_FOR_GARB
+        // We are at a state where both the gcomm thread and the receiver
+        // thread are no longer running. Empty the contents of the receiver
+        // queue and release the buffer before we destroy the gcs object in
+        // gcs_destroy().
+        if (GCS_CONN_CLOSED == conn->state && !explicit_close) {
+            int err = 0;
+            struct gcs_recv_act* recv_act = NULL;
+
+            // Reopen the queue if it is either in closed or in cancelled state (for getters).
+            gu_fifo_open(conn->recv_q);
+            while (gu_fifo_length(conn->recv_q) != 0 &&
+                   (recv_act = static_cast<gcs_recv_act*>
+                    (gu_fifo_get_head (conn->recv_q, &err))))
+            {
+                ::free(const_cast<void*>(recv_act->rcvd.act.buf));
+                recv_act->rcvd.act.buf = NULL;
+                GCS_FIFO_POP_HEAD (conn, recv_act->rcvd.act.buf_len); // release the queue
+            }
+        }
+#endif /* GCS_FOR_GARB */
+
         gu_fifo_close (conn->recv_q);
     }
 
@@ -1544,7 +1594,11 @@ out:
 /* After it returns, application should have all time in the world to cancel
  * and join threads which try to access the handle, before calling gcs_destroy()
  * on it. */
+#ifdef GCS_FOR_GARB
+long gcs_close (gcs_conn_t *conn, bool explicit_close)
+#else
 long gcs_close (gcs_conn_t *conn)
+#endif
 {
     long ret;
 
@@ -1552,7 +1606,11 @@ long gcs_close (gcs_conn_t *conn)
         return -EALREADY;
     }
 
+#ifdef GCS_FOR_GARB
+    if ((ret = _close(conn, true, explicit_close)) == -EALREADY)
+#else
     if ((ret = _close(conn, true)) == -EALREADY)
+#endif
     {
         gu_info("recv_thread() already closing, joining thread.");
         /* _close() has already been called by gcs_recv_thread() and it
@@ -1576,7 +1634,7 @@ long gcs_close (gcs_conn_t *conn)
 /* Frees resources associated with GCS connection handle */
 long gcs_destroy (gcs_conn_t *conn)
 {
-    long err;
+    long err = 0;
 
     gu_cond_t tmp_cond;
     gu_cond_init (&tmp_cond, NULL);
@@ -1588,10 +1646,7 @@ long gcs_destroy (gcs_conn_t *conn)
             if (GCS_CONN_CLOSED > conn->state)
                 gu_error ("Attempt to call gcs_destroy() before gcs_close(): "
                           "state = %d", conn->state);
-
-            gu_cond_destroy (&tmp_cond);
-
-            return -EBADFD;
+            err = -EBADFD;
         }
 
         gcs_sm_leave (conn->sm);
@@ -1606,19 +1661,24 @@ long gcs_destroy (gcs_conn_t *conn)
         // We should still cleanup resources
     }
 
-    gu_fifo_destroy (conn->recv_q);
-
     gu_cond_destroy (&tmp_cond);
     gcs_sm_destroy (conn->sm);
+    /* this should cancel all recv calls */
+    gu_fifo_destroy (conn->recv_q);
 
-    if ((err = gcs_fifo_lite_destroy (conn->repl_q))) {
-        gu_debug ("Error destroying repl FIFO: %d (%s)", err, strerror(-err));
-        return err;
+    if ((err = gcs_fifo_lite_destroy (conn->repl_q)))
+    {
+        gu_debug ("Error destroying repl FIFO: %ld (%s)", err, strerror(-err));
     }
 
-    if ((err = gcs_core_destroy (conn->core))) {
-        gu_debug ("Error destroying core: %d (%s)", err, strerror(-err));
-        return err;
+    if ((err = gcs_core_close(conn->core)))
+    {
+        gu_debug ("Failed to close GCS: error: %ld (%s)",-err, strerror(-err));
+    }
+
+    if ((err = gcs_core_destroy (conn->core)))
+    {
+        gu_debug ("Error destroying core: %ld (%s)", err, strerror(-err));
     }
 
     /* This must not last for long */
@@ -1628,7 +1688,7 @@ long gcs_destroy (gcs_conn_t *conn)
 
     gu_free (conn);
 
-    return 0;
+    return err;
 }
 
 /* Puts action in the send queue and returns */
@@ -1920,14 +1980,6 @@ long gcs_desync (gcs_conn_t* conn, gcs_seqno_t* local)
     else {
         return ret;
     }
-}
-
-static inline void
-GCS_FIFO_POP_HEAD (gcs_conn_t* conn, ssize_t size)
-{
-    assert (conn->recv_q_size >= size);
-    conn->recv_q_size -= size;
-    gu_fifo_pop_head (conn->recv_q);
 }
 
 /* Returns when an action from another process is received */

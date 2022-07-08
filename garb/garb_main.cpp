@@ -101,15 +101,15 @@ main (int argc, char* argv[])
     try
     {
         RecvLoop loop (config);
-        return 0;
+        return loop.returnCode();
     }
     catch (std::exception& e)
     {
-        log_fatal << "Exception in creating receive loop: " << e.what();
+        log_fatal << "Garbd exiting with error: " << e.what();
     }
     catch (...)
     {
-        log_fatal << "Exception in creating receive loop.";
+        log_fatal << "Garbd exiting.";
     }
 
     return EXIT_FAILURE;

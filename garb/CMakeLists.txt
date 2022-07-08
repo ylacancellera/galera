@@ -3,6 +3,7 @@
 #
 
 add_executable(garbd
+  process.cc
   garb_config.cpp
   garb_logger.cpp
   garb_gcs.cpp

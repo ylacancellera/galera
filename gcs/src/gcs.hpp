@@ -107,7 +107,11 @@ extern long gcs_open  (gcs_conn_t *conn,
  * @param  conn connection handle
  * @return negative error code or 0 in case of success.
  */
+#ifdef GCS_FOR_GARB
+extern long gcs_close (gcs_conn_t *conn, bool explicit_close = false);
+#else
 extern long gcs_close (gcs_conn_t *conn);
+#endif
 
 /*! @brief Frees resources associuated with connection handle.
  *
@@ -458,6 +462,8 @@ extern void gcs_join_notification(gcs_conn_t *conn);
 
 extern void
 gcs_fetch_pfs_info (gcs_conn_t* conn, wsrep_node_info_t* entries, uint32_t size);
+
+gcs_node_state_t gcs_get_state_for_uuid(gcs_conn_t* conn, gu_uuid_t uuid);
 
 /*! A node with this name will be treated as a stateless arbitrator */
 #define GCS_ARBITRATOR_NAME "garb"

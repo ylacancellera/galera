@@ -3,6 +3,11 @@
 #include "garb_recv_loop.hpp"
 
 #include <signal.h>
+#include <gu_thread.hpp>
+#include <gu_uuid.hpp>
+#include "process.h"
+#include "gu_atomic.h"
+#include "garb_raii.h" // Garb_gcs_action_buffer_guard
 
 namespace garb
 {
@@ -24,7 +29,8 @@ RecvLoop::RecvLoop (const Config& config)
     gconf_ (),
     params_(gconf_),
     parse_ (gconf_, config_.options()),
-    gcs_   (gconf_, config_.name(), config_.address(), config_.group())
+    gcs_   (gconf_, config_.name(), config_.address(), config_.group()),
+    rcode_ (0)
 {
     /* set up signal handlers */
     global_gcs = &gcs_;
@@ -47,17 +53,93 @@ RecvLoop::RecvLoop (const Config& config)
                               << "SIGINT";
     }
 
-    loop();
+    rcode_ = loop();
 }
 
-void
+void* pipe_to_log(void* pipe) {
+    const int out_len = 1024;
+    char out_buf[out_len];
+    char* p;
+    while ((p = fgets(out_buf, out_len, static_cast<FILE*>(pipe))) != NULL) {
+        log_info << "[SST script] " << out_buf;
+    }
+    return NULL;
+}
+
+struct err_log_args {
+    FILE* pipe;
+    bool* sst_ended;
+    Gcs* gcs;
+};
+
+void* err_log(void* arg)
+{
+    err_log_args* args(static_cast<err_log_args*>(arg));
+
+    pipe_to_log(args->pipe);
+    log_info << "SST script ended";
+    gu_atomic_set_n(args->sst_ended, true);
+    args->gcs->close(true);
+    return NULL;
+}
+
+struct status_args {
+    Gcs* gcs;
+    gu_uuid_t sst_source_uuid;
+    bool* sst_terminated;
+    process* proc;
+};
+
+void* status(void* arg)
+{
+    status_args* args(static_cast<status_args*>(arg));
+
+    while (true) {
+        gcs_node_state_t st = args->gcs->state_for(args->sst_source_uuid);
+        if (st == GCS_NODE_STATE_MAX) {
+            log_info << "Donor is no longer in the cluster, interrupting script";
+            gu_atomic_set_n(args->sst_terminated, true);
+            args->proc->terminate();
+            break;
+        } else if (st != GCS_NODE_STATE_DONOR) {
+            // The donor is going back to SYNCED. If SST streaming didn't start yet,
+            // it won't.
+            // Send SIGTERM to the script and let it handle this situation.
+            log_info << "Donor no longer in donor state, interrupting script";
+            gu_atomic_set_n(args->sst_terminated, true);
+            args->proc->terminate();
+            break;
+        }
+        sleep(1);
+    }
+    return NULL;
+}
+
+int
 RecvLoop::loop()
 {
+    process p(config_.recv_script().c_str(), "rw", NULL, false);
+    gu_thread_t sst_out_log_thread;
+    gu_thread_t sst_err_log_thread;
+    gu_thread_t sst_status_thread;
+
+    err_log_args err_args;
+    err_args.gcs = &gcs_;
+    status_args st_args;
+    st_args.proc = &p;
+    st_args.gcs = &gcs_;
+
+    gu_uuid_t sst_source_uuid;
+
+    bool sst_ended = false;
+    bool sst_terminated = false;
+
     while (1)
     {
         gcs_action act;
 
         gcs_.recv (act);
+        Garb_gcs_action_buffer_guard ag(&act);
 
         switch (act.type)
         {
@@ -82,28 +164,95 @@ RecvLoop::loop()
             {
                 if (GCS_NODE_STATE_PRIM == cc->my_state)
                 {
-                    gcs_.request_state_transfer (config_.sst(),config_.donor());
-                    gcs_.join(cc->seqno);
+                    ssize_t sst_source_idx = gcs_.request_state_transfer (config_.sst(),config_.donor());
+                    const char* str = cc->data;
+
+                    for (long i = 0; i < cc->memb_num; i++) {
+                      if (i == sst_source_idx) {
+                        gu_uuid_from_string(str, sst_source_uuid);
+                        break;
+                      }
+                      // Skip all another packed data
+                      str = str + strlen(str) + 1;
+                      str = str + strlen(str) + 1;
+                      str = str + strlen(str) + 1;
+                      str += sizeof(gcs_seqno_t);
+                    }
+
+                    if(config_.recv_script().empty()) {
+                        gcs_.join(cc->seqno);
+                    } else {
+                        log_info << "Starting SST script";
+                        p.execute("rw", NULL);
+
+                        err_args.pipe = p.err_pipe();
+                        err_args.sst_ended = &sst_ended;
+                        gu_thread_create(&sst_err_log_thread, NULL, err_log, &err_args);
+                        gu_thread_create(&sst_out_log_thread, NULL, pipe_to_log, p.pipe());
+                        st_args.sst_source_uuid = sst_source_uuid;
+                        st_args.sst_terminated = &sst_terminated;
+                        gu_thread_create(&sst_status_thread, NULL, status, &st_args);
+                    }
                 }
             }
             else if (cc->memb_num == 0) // SELF-LEAVE after closing connection
             {
-                log_info << "Exiting main loop";
-                return;
+                if(!config_.recv_script().empty()) {
+                    if (gu_atomic_get_n(&sst_terminated)) {
+                        log_info << "SST script already terminated";
+                        int ret = p.wait();
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return ret;
+                    } else if(gu_atomic_get_n(&sst_ended)) {
+                        // Good path: we decided to close the connection after the receiver script closed its
+                        // standard output. We wait for it to exit and return its error code.
+                        log_info << "Waiting for SST script to stop";
+                        const int ret = p.wait();
+                        log_info << "SST script stopped";
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return ret;
+                    } else {
+                        // Error path: we are closing the connection because there is an SST error,
+                        // such as a non existent donor side SST script was specified
+                        // As the receiver side script is already running, and is most likely waiting for a TCP
+                        // connection, we terminate it and report an error.
+                        log_info << "Terminating SST script";
+                        p.terminate();
+                        gu_thread_join(sst_err_log_thread, NULL);
+                        gu_thread_join(sst_out_log_thread, NULL);
+                        gu_thread_cancel(sst_status_thread);
+                        gu_thread_join(sst_status_thread, NULL);
+                        log_info << "Exiting main loop";
+                        return 1;
+                    }
+                } else {
+                        log_info << "Exiting main loop";
+                        return 0;
+                }
             }
 
             if (config_.sst() != Config::DEFAULT_SST)
             {
                 // we requested custom SST, so we're done here
-                gcs_.close();
+                if(config_.recv_script().empty()) {
+                    gcs_.close(true);
+                }
             }
 
             break;
         }
         case GCS_ACT_INCONSISTENCY:
             // something went terribly wrong, restart needed
-            gcs_.close();
-            return;
+            gcs_.close(true);
+            return 0;
         case GCS_ACT_JOIN:
         case GCS_ACT_SYNC:
         case GCS_ACT_FLOW:
@@ -112,12 +261,8 @@ RecvLoop::loop()
         case GCS_ACT_UNKNOWN:
             break;
         }
-
-        if (act.buf)
-        {
-            free (const_cast<void*>(act.buf));
-        }
     }
+    return 0;
 }
 
 } /* namespace garb */

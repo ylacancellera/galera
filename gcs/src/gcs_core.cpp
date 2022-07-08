@@ -997,16 +997,23 @@ core_msg_to_action (gcs_core_t*          core,
         case GCS_MSG_JOIN:
             ret = gcs_group_handle_join_msg (group, msg);
             assert (gcs_group_my_idx(group) == msg->sender_idx || 0 >= ret);
+            act_type = GCS_ACT_JOIN;
             if (-ENOTRECOVERABLE == ret) {
                 core->backend.close(&core->backend);
+#ifdef GCS_FOR_GARB
+                // A negative return value ends the receive loop, as this is
+                // an unrecoverable error.
+                ret = -1;
+#else
                 // See #165.
                 // There is nobody to pass this error to for graceful shutdown:
                 // application thread is blocked waiting for SST.
                 // Also note that original ret value is not preserved on return
                 // so this must be done here.
                 gu_abort();
+#endif
+                break;
             }
-            act_type = GCS_ACT_JOIN;
             break;
         case GCS_MSG_SYNC:
             ret = gcs_group_handle_sync_msg (group, msg);
@@ -1161,7 +1168,7 @@ out:
     assert (recv_act->sender_idx >= 0 ||
             recv_act->act.type   != GCS_ACT_TORDERED);
 
-//    gu_debug ("Returning %d", ret);
+    gu_debug ("Returning %d", ret);
 
     if (ret < 0) {
         assert (recv_act->id < 0);
@@ -1439,6 +1446,12 @@ void gcs_core_get_status(gcs_core_t* core, gu::Status& status)
     gu_mutex_unlock(&core->send_lock);
 }
 
+const gcs_group_t*
+gcs_core_get_group (const gcs_core_t* core)
+{
+    return &core->group;
+}
+
 #ifdef GCS_CORE_TESTING
 
 gcs_backend_t*
@@ -1463,12 +1476,6 @@ void
 gcs_core_set_state_uuid (gcs_core_t* core, const gu_uuid_t* uuid)
 {
     core->state_uuid = *uuid;
-}
-
-const gcs_group_t*
-gcs_core_get_group (const gcs_core_t* core)
-{
-    return &core->group;
 }
 
 gcs_fifo_lite_t*

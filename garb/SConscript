@@ -30,6 +30,7 @@ conf_env.Append(CPPFLAGS = ' -DGALERA_REV=\\"' + GALERA_REV + '\\"')
 
 garb = garb_env.Program(target = 'garbd',
                         source = Split('''
+                                       process.cc
                                        garb_logger.cpp
                                        garb_gcs.cpp
                                        garb_recv_loop.cpp
