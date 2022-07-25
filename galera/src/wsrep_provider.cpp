@@ -28,7 +28,7 @@ using galera::TrxHandleLock;
 
 
 extern "C" {
-    const char* wsrep_interface_version = (char*)WSREP_INTERFACE_VERSION;
+    const char* wsrep_interface_version = (const char*)WSREP_INTERFACE_VERSION;
 }
 
 

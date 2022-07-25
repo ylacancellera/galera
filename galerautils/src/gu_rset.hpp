@@ -64,7 +64,7 @@ public:
     CheckType check_type() const { return CheckType(check_type_); }
 
     /*! return alignment of the records */
-    int       alignment()  const { return alignment_; };
+    int       alignment()  const { return alignment_; }
 
     typedef gu::Vector<gu::Buf, 16> GatherVector;
 

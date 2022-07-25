@@ -86,7 +86,7 @@ private:
     const char* const       str_;
     bool const              own_;
 
-    ssize_t my_serial_size () const { return size_; };
+    ssize_t my_serial_size () const { return size_; }
 
     ssize_t my_serialize_to (void* buf, ssize_t size) const
     {

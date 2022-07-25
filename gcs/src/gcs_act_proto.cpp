@@ -82,7 +82,7 @@ gcs_act_proto_write (gcs_act_frag_t* frag, void* buf, size_t buf_len)
 long
 gcs_act_proto_read (gcs_act_frag_t* frag, const void* buf, size_t buf_len)
 {
-    frag->proto_ver = ((uint8_t*)buf)[PROTO_PV_OFFSET];
+    frag->proto_ver = ((const uint8_t*)buf)[PROTO_PV_OFFSET];
 
     if (gu_unlikely(buf_len < PROTO_DATA_OFFSET)) {
         gu_error ("Action message too short: %zu, expected at least %d",
@@ -96,13 +96,13 @@ gcs_act_proto_read (gcs_act_frag_t* frag, const void* buf, size_t buf_len)
         return -EPROTO; // this fragment should be dropped
     }
 
-    ((uint8_t*)buf)[PROTO_PV_OFFSET] = 0x0;
-    frag->act_id   = gu_be64(*(uint64_t*)buf);
-    frag->act_size = gtohl  (((uint32_t*)buf)[2]);
-    frag->frag_no  = gtohl  (((uint32_t*)buf)[3]);
+    (static_cast<uint8_t*>(const_cast<void*>(buf)))[PROTO_PV_OFFSET] = 0x0;
+    frag->act_id   = gu_be64(*(const uint64_t*)buf);
+    frag->act_size = gtohl  (((const uint32_t*)buf)[2]);
+    frag->frag_no  = gtohl  (((const uint32_t*)buf)[3]);
     frag->act_type = static_cast<gcs_act_type_t>(
-        ((uint8_t*)buf)[PROTO_AT_OFFSET]);
-    frag->frag     = ((uint8_t*)buf) + PROTO_DATA_OFFSET;
+        ((const uint8_t*)buf)[PROTO_AT_OFFSET]);
+    frag->frag     = ((const uint8_t*)buf) + PROTO_DATA_OFFSET;
     frag->frag_len = buf_len - PROTO_DATA_OFFSET;
 
     /* return 0 or -EMSGSIZE */

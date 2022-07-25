@@ -204,7 +204,7 @@ START_TEST (gu_fast_hash_test)
 }
 END_TEST
 
-#if SKIP_TABLE_FUNCTIONS
+#ifdef SKIP_TABLE_FUNCTIONS
 
 /* Tests table hash functions:
  * - for 64-bit platforms table hash should be identical to fast 64-bit hash,

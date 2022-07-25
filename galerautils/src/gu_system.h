@@ -9,7 +9,10 @@
 #ifndef _gu_system_h_
 #define _gu_system_h_
 
-#define _GNU_SOURCE // program_invocation_name, program_invocation_short_name
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <errno.h>
 
 #include <stdlib.h> // getexecname, getprogname

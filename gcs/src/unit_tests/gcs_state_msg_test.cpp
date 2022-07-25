@@ -237,7 +237,7 @@ START_TEST (gcs_state_msg_test_quorum_inherit)
     ck_assert(NULL != st[2]);
 
     gu_info ("                  Inherited 1");
-    int ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    int ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                         sizeof(st)/sizeof(gcs_state_msg_t*),
                                         &quorum);
     ck_assert(0 == ret);
@@ -263,7 +263,7 @@ START_TEST (gcs_state_msg_test_quorum_inherit)
     ck_assert(NULL != st[1]);
 
     gu_info ("                  Inherited 2");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -289,7 +289,7 @@ START_TEST (gcs_state_msg_test_quorum_inherit)
     ck_assert(NULL != st[0]);
 
     gu_info ("                  Inherited 3");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -315,7 +315,7 @@ START_TEST (gcs_state_msg_test_quorum_inherit)
     ck_assert(NULL != st[1]);
 
     gu_info ("                  Inherited 4");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -341,7 +341,7 @@ START_TEST (gcs_state_msg_test_quorum_inherit)
     ck_assert(NULL != st[2]);
 
     gu_info ("                  Inherited 5");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -417,7 +417,7 @@ START_TEST (gcs_state_msg_test_quorum_remerge)
     ck_assert(NULL != st[2]);
 
     gu_info ("                  Remerged 1");
-    int ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    int ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                         sizeof(st)/sizeof(gcs_state_msg_t*),
                                         &quorum);
     ck_assert(0 == ret);
@@ -444,7 +444,7 @@ START_TEST (gcs_state_msg_test_quorum_remerge)
     ck_assert(3 == gcs_state_msg_get_desync_count(st[0]));
 
     gu_info ("                  Remerged 2");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -470,7 +470,7 @@ START_TEST (gcs_state_msg_test_quorum_remerge)
     ck_assert(NULL != st[2]);
 
     gu_info ("                  Remerged 3");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -496,7 +496,7 @@ START_TEST (gcs_state_msg_test_quorum_remerge)
     ck_assert(NULL != st[1]);
 
     gu_info ("                  Remerged 4");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -522,7 +522,7 @@ START_TEST (gcs_state_msg_test_quorum_remerge)
     ck_assert(NULL != st[1]);
 
     gu_info ("                  Remerged 5");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -636,7 +636,7 @@ void gcs_state_msg_test_gh24(int const gcs_proto_ver)
                                  gcs_proto_ver, 4, 2, 0, 0, 0,
                                  0, 2);
     ck_assert(st[6] != 0);
-    int ret = gcs_state_msg_get_quorum((const gcs_state_msg_t**)st, 7,
+    int ret = gcs_state_msg_get_quorum(const_cast<const gcs_state_msg_t**>(st), 7,
                                        &quorum);
     ck_assert(ret == 0);
     ck_assert(quorum.primary == true);
@@ -727,7 +727,7 @@ gcs_state_msg_test_v6_upgrade(int const from_ver)
 
     gu_info ("                  proto_ver I");
     int
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     sizeof(st)/sizeof(gcs_state_msg_t*),
                                     &quorum);
     ck_assert(0 == ret);
@@ -754,7 +754,7 @@ gcs_state_msg_test_v6_upgrade(int const from_ver)
     UPDATE_STATE_MSG(0);
     UPDATE_STATE_MSG(1);
     gu_info ("                  proto_ver II");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     2,
                                     &quorum);
     ck_assert(0 == ret);
@@ -775,7 +775,7 @@ gcs_state_msg_test_v6_upgrade(int const from_ver)
     UPDATE_STATE_MSG(0);
     UPDATE_STATE_MSG(1);
     gu_info ("                  proto_ver III");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     3,
                                     &quorum);
     ck_assert(0 == ret);
@@ -796,7 +796,7 @@ gcs_state_msg_test_v6_upgrade(int const from_ver)
     UPDATE_STATE_MSG(0);
     UPDATE_STATE_MSG(1);
     gu_info ("                  proto_ver IV");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     2,
                                     &quorum);
     ck_assert(0 == ret);
@@ -822,7 +822,7 @@ gcs_state_msg_test_v6_upgrade(int const from_ver)
     UPDATE_STATE_MSG(0);
     UPDATE_STATE_MSG(1);
     gu_info ("                  proto_ver V");
-    ret = gcs_state_msg_get_quorum ((const gcs_state_msg_t**)st,
+    ret = gcs_state_msg_get_quorum (const_cast<const gcs_state_msg_t**>(st),
                                     3,
                                     &quorum);
     ck_assert(0 == ret);

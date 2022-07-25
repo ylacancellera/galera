@@ -36,7 +36,7 @@ msg_write (gcs_recv_msg_t* msg,
                   "Resulting frag_len %lu is less than required act_len %lu\n"
                   "Refactor the test and increase buf_len.",
                   frg->frag_len, data_len);
-    memcpy ((void*)frg->frag, data, data_len);
+    memcpy (const_cast<void*>(frg->frag), data, data_len);
 
     msg->buf        = buf;
     msg->buf_len    = buf_len;
@@ -209,7 +209,7 @@ START_TEST (gcs_group_configuration)
                   seqno, r_act.id);
     seqno++;
     // cleanup
-    free ((void*)act->buf);
+    free (const_cast<void*>(act->buf));
     r_act = gcs_act_rcvd();
 
     // 10. New component message
@@ -254,7 +254,7 @@ START_TEST (gcs_group_configuration)
                   seqno, r_act.id);
     seqno++;
     // cleanup
-    free ((void*)act->buf);
+    free (const_cast<void*>(act->buf));
     r_act = gcs_act_rcvd();
 
     // 12. Try foreign action with a new node joined in the middle.
@@ -300,7 +300,7 @@ START_TEST (gcs_group_configuration)
                   seqno, r_act.id);
     seqno++;
     // cleanup
-    free ((void*)act->buf);
+    free (const_cast<void*>(act->buf));
     r_act = gcs_act_rcvd();
 
     // 13. Try to send an action with one node disappearing in the middle
@@ -366,7 +366,7 @@ START_TEST (gcs_group_configuration)
     ck_assert_msg(r_act.id == -ERESTART, "Expected seqno %d, found %" PRId64,
                   -ERESTART, r_act.id);
     // cleanup
-    free ((void*)act->buf);
+    free (const_cast<void*>(act->buf));
     r_act = gcs_act_rcvd();
 
     // foreign message - action must be dropped (ignored)
@@ -386,7 +386,7 @@ START_TEST (gcs_group_configuration)
                   GCS_SEQNO_ILL, r_act.id);
     ck_assert(group.act_id_ + 1 == seqno);
     // cleanup
-    free ((void*)act->buf);
+    free (const_cast<void*>(act->buf));
     r_act = gcs_act_rcvd();
 
     // Leave group

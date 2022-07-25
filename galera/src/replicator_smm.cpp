@@ -346,7 +346,7 @@ galera::ReplicatorSMM::~ReplicatorSMM()
     case S_DONOR:
         start_closing();
         wait_for_CLOSED(lock);
-        // fall through
+        __attribute__((fallthrough));
     case S_CLOSED:
         ist_senders_.cancel();
         break;
@@ -1025,7 +1025,7 @@ galera::ReplicatorSMM::abort_trx(TrxHandleMaster& trx, wsrep_seqno_t bf_seqno,
     case TrxHandle::S_ROLLING_BACK:
         log_error << "Attempt to enter commit monitor while holding "
             "locks in rollback by " << trx;
-        // fallthrough
+        __attribute__((fallthrough));
     default:
         log_warn << "invalid state " << trx.state()
                  << " in abort_trx for trx"
@@ -1156,7 +1156,7 @@ wsrep_status_t galera::ReplicatorSMM::replay_trx(TrxHandleMaster& trx,
             assert(ts.is_dummy());
             break;
         }
-        // fall through
+        __attribute__((fallthrough));
     case TrxHandle::S_CERTIFYING:
     {
         assert(ts.state() == TrxHandle::S_CERTIFYING);
@@ -1165,8 +1165,8 @@ wsrep_status_t galera::ReplicatorSMM::replay_trx(TrxHandleMaster& trx,
         assert(apply_monitor_.entered(ao) == false);
         gu_trace(apply_monitor_.enter(ao));
         TX_SET_STATE(ts, TrxHandle::S_APPLYING);
+        __attribute__((fallthrough));
     }
-    // fall through
     case TrxHandle::S_APPLYING:
         //
         // Commit monitor will be entered from commit_order_enter_remote.
@@ -3750,7 +3750,7 @@ void galera::ReplicatorSMM::enter_apply_monitor_for_local_not_committing(
     {
     case TrxHandle::S_REPLICATING:
         TX_SET_STATE(ts, TrxHandle::S_CERTIFYING);
-        // fall through
+        __attribute__((fallthrough));
     case TrxHandle::S_CERTIFYING:
     {
         ApplyOrder ao(ts);

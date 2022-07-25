@@ -45,11 +45,11 @@ gcs_node_init (gcs_node_t* const node,
 void
 gcs_node_move (gcs_node_t* dst, gcs_node_t* src)
 {
-    if (dst->name)      free ((char*)dst->name);
-    if (dst->inc_addr)  free ((char*)dst->inc_addr);
+    if (dst->name)      free (const_cast<char*>(dst->name));
+    if (dst->inc_addr)  free (const_cast<char*>(dst->inc_addr));
 
     if (dst->state_msg)
-        gcs_state_msg_destroy ((gcs_state_msg_t*)dst->state_msg);
+        gcs_state_msg_destroy (const_cast<gcs_state_msg_t*>(dst->state_msg));
 
     memcpy (dst, src, sizeof (gcs_node_t));
     gcs_defrag_forget (&src->app);
@@ -82,17 +82,17 @@ gcs_node_free (gcs_node_t* node)
     gcs_node_reset (node);
 
     if (node->name) {
-        free ((char*)node->name);     // was strdup'ed
+        free (const_cast<char*>(node->name));     // was strdup'ed
         node->name = NULL;
     }
 
     if (node->inc_addr) {
-        free ((char*)node->inc_addr); // was strdup'ed
+        free (const_cast<char*>(node->inc_addr)); // was strdup'ed
         node->inc_addr = NULL;
     }
 
     if (node->state_msg) {
-        gcs_state_msg_destroy ((gcs_state_msg_t*)node->state_msg);
+        gcs_state_msg_destroy (const_cast<gcs_state_msg_t*>(node->state_msg));
         node->state_msg = NULL;
     }
 }
@@ -102,7 +102,7 @@ void
 gcs_node_record_state (gcs_node_t* node, gcs_state_msg_t* state_msg)
 {
     if (node->state_msg) {
-        gcs_state_msg_destroy ((gcs_state_msg_t*)node->state_msg);
+        gcs_state_msg_destroy (const_cast<gcs_state_msg_t*>(node->state_msg));
     }
     node->state_msg = state_msg;
 
@@ -121,10 +121,10 @@ gcs_node_record_state (gcs_node_t* node, gcs_state_msg_t* state_msg)
                                  &node->repl_proto_ver,
                                  &node->appl_proto_ver);
 
-    if (node->name) free ((char*)node->name);
+    if (node->name) free (const_cast<char*>(node->name));
     node->name = strdup (gcs_state_msg_name (state_msg));
 
-    if (node->inc_addr) free ((char*)node->inc_addr);
+    if (node->inc_addr) free (const_cast<char*>(node->inc_addr));
     node->inc_addr = strdup (gcs_state_msg_inc_addr (state_msg));
 }
 
@@ -221,7 +221,7 @@ gcs_node_update_status (gcs_node_t* node, const gcs_state_quorum_t* quorum)
             else {
                 node->desync_count = 1;
             }
-            // fall through
+            __attribute((fallthrough));
         case GCS_NODE_STATE_SYNCED:
             node->count_last_applied = true;
             break;
@@ -233,7 +233,7 @@ gcs_node_update_status (gcs_node_t* node, const gcs_state_quorum_t* quorum)
             node->last_applied = 0;
             node->vote_seqno   = GCS_NO_VOTE_SEQNO;
             node->vote_res     = 0;
-            // fall through
+            __attribute((fallthrough));
         case GCS_NODE_STATE_JOINER:
             node->count_last_applied = false;
             break;

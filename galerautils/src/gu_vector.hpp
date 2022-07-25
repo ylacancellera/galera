@@ -105,7 +105,7 @@ public:
         container().resize(n, val);
     }
 
-    void push_back (const value_type& val) { container().push_back(val); };
+    void push_back (const value_type& val) { container().push_back(val); }
 
           T& front()       { return container().front(); }
     const T& front() const { return container().front(); }

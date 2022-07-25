@@ -80,7 +80,7 @@ private:
               left_    (size)
         {}
 
-        virtual ~Page() {};
+        virtual ~Page() {}
 
         byte_t* alloc (size_t size)
         {

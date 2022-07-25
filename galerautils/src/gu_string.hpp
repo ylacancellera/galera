@@ -171,7 +171,7 @@ public:
     template <typename X>
     bool operator!= (const X& x) { return !operator==(x); }
 
-    void clear() { derived_clear(); };
+    void clear() { derived_clear(); }
 
     StringBase& operator= (const StringBase& other)
     {

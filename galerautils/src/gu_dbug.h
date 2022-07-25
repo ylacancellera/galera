@@ -116,7 +116,8 @@ extern "C"
     extern void  _gu_db_pargs_  (uint _line_,
                                  const char* keyword);
     extern void  _gu_db_doprnt_ (const char* format,
-                                 ...);
+                                 ...)
+                                __attribute__ ((format (printf, 1, 0)));
     extern void  _gu_db_dump_   (uint _line_,
                                  const char *keyword,
                                  const char *memory,

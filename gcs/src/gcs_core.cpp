@@ -364,7 +364,7 @@ gcs_core_send (gcs_core_t*          const conn,
             act_size < frg.frag_len ? act_size : frg.frag_len;
 
         /* Here is the only time we have to cast frg.frag */
-        char* dst = (char*)frg.frag;
+        char* dst = static_cast<char*>(const_cast<void*>(frg.frag));
         size_t to_copy = chunk_size;
 
         while (to_copy > 0) {        // gather action bufs into one
@@ -416,7 +416,7 @@ gcs_core_send (gcs_core_t*          const conn,
 
                 /* 2. move ptr back to point at the first unsent byte */
                 size_t move_back = chunk_size - ret;
-                size_t ptrdiff   = ptr - (uint8_t*)action[idx].ptr;
+                size_t ptrdiff   = ptr - static_cast<const uint8_t*>(action[idx].ptr);
                 do {
                     if (move_back <= ptrdiff) {
                         ptr -= move_back;
@@ -428,7 +428,7 @@ gcs_core_send (gcs_core_t*          const conn,
                         move_back -= ptrdiff;
                         idx--;
                         ptrdiff = action[idx].size;
-                        ptr = (uint8_t*)action[idx].ptr + ptrdiff;
+                        ptr = static_cast<uint8_t*>(const_cast<void*>(action[idx].ptr)) + ptrdiff;
                     }
                 } while (true);
             }

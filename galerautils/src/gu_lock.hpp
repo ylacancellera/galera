@@ -34,7 +34,7 @@ namespace gu
 
         Lock (const Mutex& mtx) : mtx_(&mtx)
 #ifdef PXC
-#if HAVE_PSI_INTERFACE
+#ifdef HAVE_PSI_INTERFACE
             , pfs_mtx_()
 #endif
 #endif /* PXC */

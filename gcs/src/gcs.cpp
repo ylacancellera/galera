@@ -1232,7 +1232,7 @@ gcs_handle_state_change (gcs_conn_t*           conn,
                          const struct gcs_act* act)
 {
     gu_debug ("Got '%s' dated %lld", gcs_act_type_to_str (act->type),
-              gcs_seqno_gtoh(*(gcs_seqno_t*)act->buf));
+              gcs_seqno_gtoh(*(const gcs_seqno_t*)act->buf));
 
     void* buf = malloc (act->buf_len);
 
@@ -1240,7 +1240,7 @@ gcs_handle_state_change (gcs_conn_t*           conn,
         memcpy (buf, act->buf, act->buf_len);
         /* Initially act->buf points to internal static recv buffer.
          * No leak here. */
-        ((struct gcs_act*)act)->buf = buf;
+        const_cast<gcs_act*>(act)->buf = buf;
         return 1;
     }
     else {
@@ -1337,7 +1337,7 @@ gcs_handle_actions (gcs_conn_t* conn, struct gcs_act_rcvd& rcvd)
         break;
     case GCS_ACT_JOIN:
         ret = gcs_handle_state_change (conn, &rcvd.act);
-        if (gcs_seqno_gtoh(*(gcs_seqno_t*)rcvd.act.buf) < 0 &&
+        if (gcs_seqno_gtoh(*(const gcs_seqno_t*)rcvd.act.buf) < 0 &&
             GCS_CONN_JOINER == conn->state)
             gcs_become_primary (conn);
         else
@@ -2173,7 +2173,7 @@ long gcs_request_state_transfer (gcs_conn_t*    conn,
             offset = ist_gtid.serialize(rst, rst_size, offset);
             memcpy (rst + offset, req, size);
             assert(offset + size == rst_size);
-            log_debug << "SST sending: " << (char*)req << ", " << rst_size;
+            log_debug << "SST sending: " << (const char*)req << ", " << rst_size;
         }
 
         struct gcs_action action;
@@ -2244,7 +2244,7 @@ long gcs_recv (gcs_conn_t*        conn,
         bool send_cont  = gcs_fc_cont_begin   (conn);
         bool send_sync  = gcs_send_sync_begin (conn);
 
-        action->buf     = (void*)recv_act->rcvd.act.buf;
+        action->buf     = const_cast<void*>(recv_act->rcvd.act.buf);
         action->size    = recv_act->rcvd.act.buf_len;
         action->type    = recv_act->rcvd.act.type;
         action->seqno_g = recv_act->rcvd.id;

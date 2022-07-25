@@ -286,9 +286,9 @@ GCS_BACKEND_CREATE_FN(gcs_dummy_create)
         goto out0;
 
     dummy->state = DUMMY_CLOSED;
-    *(size_t*)(&dummy->max_pkt_size)  = (size_t) sysconf (_SC_PAGESIZE);
-    *(size_t*)(&dummy->hdr_size)      = sizeof(dummy_msg_t);
-    *(size_t*)(&dummy->max_send_size) = dummy->max_pkt_size - dummy->hdr_size;
+    *const_cast<size_t*>(&dummy->max_pkt_size)  = (size_t) sysconf (_SC_PAGESIZE);
+    *const_cast<size_t*>(&dummy->hdr_size)      = sizeof(dummy_msg_t);
+    *const_cast<size_t*>(&dummy->max_send_size) = dummy->max_pkt_size - dummy->hdr_size;
 
     if (!(dummy->gc_q = gu_fifo_create (1 << 16, sizeof(void*))))
         goto out1;

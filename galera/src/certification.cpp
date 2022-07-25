@@ -185,10 +185,10 @@ check_against(const galera::KeyEntryNG*   const found,
                          << " for key " << key << ": "
                          << *trx << " <---> " << *ref_trx;
             }
-            /* fall through */
+            __attribute__((fallthrough));
         case DEPENDENCY:
             depends_seqno = std::max(ref_trx->global_seqno(), depends_seqno);
-            /* fall through */
+            __attribute__((fallthrough));
         case NOTHING:;
         }
     }
