@@ -955,8 +955,14 @@ _set_fc_limits (gcs_conn_t* conn)
         (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->non_arb_memb_count)));
 #else
     double const fn
+<<<<<<< HEAD
         (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->memb_num)));
 #endif /* PXC */
+||||||| 7b59af73
+        (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->memb_num)));
+=======
+        (conn->params.fc_single_primary ? 1.0 : sqrt(double(conn->memb_num)));
+>>>>>>> release_26.4.12
 
     conn->upper_limit = conn->params.fc_base_limit * fn + .5;
     conn->lower_limit = conn->upper_limit * conn->params.fc_resume_factor + .5;
