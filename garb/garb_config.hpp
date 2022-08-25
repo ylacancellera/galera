@@ -42,12 +42,8 @@ private:
     std::string options_;
     std::string log_;
     std::string cfg_;
-<<<<<<< HEAD
     std::string recv_script_;
-||||||| 7b59af73
-=======
     std::string workdir_;
->>>>>>> release_26.4.12
     bool exit_; /* Exit on --help or --version */
 
 }; /* class Config */

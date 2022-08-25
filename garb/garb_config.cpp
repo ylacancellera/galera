@@ -44,12 +44,8 @@ Config::Config (int argc, char* argv[])
       options_ (),
       log_     (),
       cfg_     (),
-<<<<<<< HEAD
       recv_script_ (),
-||||||| 7b59af73
-=======
       workdir_ (),
->>>>>>> release_26.4.12
       exit_    (false)
 {
     po::options_description other ("Other options");
@@ -62,7 +58,6 @@ Config::Config (int argc, char* argv[])
     po::options_description config ("Configuration");
     config.add_options()
         ("daemon,d", "Become daemon")
-<<<<<<< HEAD
         ("name,n",      po::value<std::string>(&name_),        "Node name")
         ("address,a",   po::value<std::string>(&address_),     "Group address")
         ("group,g",     po::value<std::string>(&group_),       "Group name")
@@ -71,25 +66,8 @@ Config::Config (int argc, char* argv[])
         ("options,o",   po::value<std::string>(&options_),     "GCS/GCOMM option list")
         ("log,l",       po::value<std::string>(&log_),         "Log file")
         ("recv-script", po::value<std::string>(&recv_script_), "SST request receive script")
-||||||| 7b59af73
-        ("name,n",   po::value<std::string>(&name_),    "Node name")
-        ("address,a",po::value<std::string>(&address_), "Group address")
-        ("group,g",  po::value<std::string>(&group_),   "Group name")
-        ("sst",      po::value<std::string>(&sst_),     "SST request string")
-        ("donor",    po::value<std::string>(&donor_),   "SST donor name")
-        ("options,o",po::value<std::string>(&options_), "GCS/GCOMM option list")
-        ("log,l",    po::value<std::string>(&log_),     "Log file")
-=======
-        ("name,n",   po::value<std::string>(&name_),    "Node name")
-        ("address,a",po::value<std::string>(&address_), "Group address")
-        ("group,g",  po::value<std::string>(&group_),   "Group name")
-        ("sst",      po::value<std::string>(&sst_),     "SST request string")
-        ("donor",    po::value<std::string>(&donor_),   "SST donor name")
-        ("options,o",po::value<std::string>(&options_), "GCS/GCOMM option list")
-        ("log,l",    po::value<std::string>(&log_),     "Log file")
         ("workdir,w",po::value<std::string>(&workdir_),
          "Daemon working directory")
->>>>>>> release_26.4.12
         ;
 
     po::options_description cfg_opt;
@@ -213,7 +191,6 @@ Config::Config (int argc, char* argv[])
 
 std::ostream& operator << (std::ostream& os, const Config& c)
 {
-<<<<<<< HEAD
     os << "\n\tdaemon:      " << c.daemon()
        << "\n\tname:        " << c.name()
        << "\n\taddress:     " << c.address()
@@ -223,29 +200,8 @@ std::ostream& operator << (std::ostream& os, const Config& c)
        << "\n\toptions:     " << c.options()
        << "\n\tcfg:         " << c.cfg()
        << "\n\tlog:         " << c.log()
-       << "\n\trecv_script: " << c.recv_script();
-||||||| 7b59af73
-    os << "\n\tdaemon:  " << c.daemon()
-       << "\n\tname:    " << c.name()
-       << "\n\taddress: " << c.address()
-       << "\n\tgroup:   " << c.group()
-       << "\n\tsst:     " << c.sst()
-       << "\n\tdonor:   " << c.donor()
-       << "\n\toptions: " << c.options()
-       << "\n\tcfg:     " << c.cfg()
-       << "\n\tlog:     " << c.log();
-=======
-    os << "\n\tdaemon:  " << c.daemon()
-       << "\n\tname:    " << c.name()
-       << "\n\taddress: " << c.address()
-       << "\n\tgroup:   " << c.group()
-       << "\n\tsst:     " << c.sst()
-       << "\n\tdonor:   " << c.donor()
-       << "\n\toptions: " << c.options()
-       << "\n\tcfg:     " << c.cfg()
-       << "\n\tworkdir: " << c.workdir()
-       << "\n\tlog:     " << c.log();
->>>>>>> release_26.4.12
+       << "\n\trecv_script: " << c.recv_script()
+       << "\n\tworkdir: " << c.workdir();
     return os;
 }
 
