@@ -27,6 +27,7 @@ public:
     const std::string& options() const { return options_; }
     const std::string& cfg()     const { return cfg_    ; }
     const std::string& log()     const { return log_    ; }
+    const std::string& workdir() const { return workdir_; }
     bool               exit()    const { return exit_   ; }
     const std::string& recv_script() const { return recv_script_    ; }
 
@@ -42,6 +43,7 @@ private:
     std::string log_;
     std::string cfg_;
     std::string recv_script_;
+    std::string workdir_;
     bool exit_; /* Exit on --help or --version */
 
 }; /* class Config */

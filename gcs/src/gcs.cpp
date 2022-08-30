@@ -952,10 +952,10 @@ _set_fc_limits (gcs_conn_t* conn)
      * plus #440: giving single node some slack at some math correctness exp.*/
 #ifdef PXC
     double const fn
-        (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->non_arb_memb_count)));
+        (conn->params.fc_single_primary ? 1.0 : sqrt(double(conn->non_arb_memb_count)));
 #else
     double const fn
-        (conn->params.fc_master_slave ? 1.0 : sqrt(double(conn->memb_num)));
+        (conn->params.fc_single_primary ? 1.0 : sqrt(double(conn->memb_num)));
 #endif /* PXC */
 
     conn->upper_limit = conn->params.fc_base_limit * fn + .5;
