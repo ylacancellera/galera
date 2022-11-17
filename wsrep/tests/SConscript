@@ -10,9 +10,11 @@
 
 Import('check_env', 'GALERA_VER', 'GALERA_REV')
 
+# Galera reports whatever is specified in version build parameter, like 'scons version=my_version',
+# so the test should validate against the same.
 # make sure API version is present once in GALERA_VER string
-API = '26.'
-GALERA_VER = API + GALERA_VER.replace(API, '')
+# API = '26.'
+# GALERA_VER = API + GALERA_VER.replace(API, '')
 
 # Clone environment as we need to tune compilation flags
 env = check_env.Clone()

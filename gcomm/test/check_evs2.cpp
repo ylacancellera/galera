@@ -2513,7 +2513,8 @@ START_TEST(test_out_queue_limit)
                            new gu::Buffer(data.begin(), data.end())));
     // Default user send window is 2 and out queue limit is 1M,
     // so we can write 2 + 32 messages without blocking.
-    for (size_t i(0); i < 34; ++i)
+    // For PXC evs.user_send_window is 4, hence 4 + 32
+    for (size_t i(0); i < 36; ++i)
     {
         ck_assert(f.evs1.handle_down(dg, ProtoDownMeta(O_SAFE)) == 0);
     }

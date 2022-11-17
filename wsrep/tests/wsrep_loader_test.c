@@ -43,7 +43,7 @@ int wsrep_load_unload()
         abort();
     }
     snprintf(expected_version, sizeof(expected_version) - 1,
-             "%s(r%s)", GALERA_VERSION, GALERA_GIT_REVISION);
+             "%s(%s)", GALERA_VERSION, GALERA_GIT_REVISION);
     if (strcmp(wsrep->provider_version, expected_version))
     {
         fprintf(stderr, "Provider version string '%s' not expected '%s'\n",
