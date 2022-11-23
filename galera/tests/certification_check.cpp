@@ -215,10 +215,12 @@ START_TEST(test_certification_trx_v3)
           { {void_cast("1"), 1}, {void_cast("1"), 1}, {void_cast("1"), 1} }, 3, true,
           9, 9, 0, 5, TrxHandle::F_BEGIN | TrxHandle::F_COMMIT,
           Certification::TEST_OK, {0}, 0},
-        // 10: depends on 5
+        // 10: depends on 5 if optimistic_pa=yes
+        // for PXC, by defult optimistic_pa=no, so
+        // 10: depends on 6
         { { {2, } }, 1, 10,
           { {void_cast("1"), 1}, {void_cast("1"), 1}, {void_cast("1"), 1} }, 3, true,
-          10, 10, 6, 5, TrxHandle::F_BEGIN | TrxHandle::F_COMMIT,
+          10, 10, 6, 6, TrxHandle::F_BEGIN | TrxHandle::F_COMMIT,
           Certification::TEST_OK, {0}, 0},
         // 11 - 13: exclusive - shared - exclusive dependency
         { { {2, } }, 1, 11,
