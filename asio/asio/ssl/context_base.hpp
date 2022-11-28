@@ -113,6 +113,10 @@ public:
 
   /// Disable compression. Compression is disabled by default.
   static const long no_compression = implementation_defined;
+
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+  static const long ignore_unexpected_eof = implementation_defined;
+#endif // (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 #else
   ASIO_STATIC_CONSTANT(long, default_workarounds = SSL_OP_ALL);
   ASIO_STATIC_CONSTANT(long, single_dh_use = SSL_OP_SINGLE_DH_USE);
@@ -135,7 +139,9 @@ public:
   ASIO_STATIC_CONSTANT(long, no_compression = 0x20000L);
 # endif // defined(SSL_OP_NO_COMPRESSION)
 #endif
-
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+  ASIO_STATIC_CONSTANT(long, ignore_unexpected_eof = SSL_OP_IGNORE_UNEXPECTED_EOF);
+#endif // (OPENSSL_VERSION_NUMBER >= 0x30000000L)
   /// File format types.
   enum file_format
   {
