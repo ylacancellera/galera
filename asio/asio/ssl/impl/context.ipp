@@ -197,6 +197,10 @@ context::context(context::method m)
   }
 
   set_options(no_compression);
+
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+  set_options(ignore_unexpected_eof);
+#endif // (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 }
 
 context::context(asio::io_service&, context::method m)
