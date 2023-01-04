@@ -46,6 +46,9 @@ Config::Config (int argc, char* argv[])
       cfg_     (),
       recv_script_ (),
       workdir_ (),
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+      coredumper_ (),
+#endif
       exit_    (false)
 {
     po::options_description other ("Other options");
@@ -58,6 +61,9 @@ Config::Config (int argc, char* argv[])
     po::options_description config ("Configuration");
     config.add_options()
         ("daemon,d", "Become daemon")
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+        ("coredumper", po::value<std::string>(&coredumper_), "Path to dump core file on crash")
+#endif
         ("name,n",      po::value<std::string>(&name_),        "Node name")
         ("address,a",   po::value<std::string>(&address_),     "Group address")
         ("group,g",     po::value<std::string>(&group_),       "Group name")
