@@ -399,7 +399,7 @@ static void ssl_prepare_context(const gu::Config& conf, asio::ssl::context& ctx,
         {
             throw_last_SSL_error("SSL_CTX_set_ecdh_auto() failed");
         }
-#elif defined(OPENSSL_HAS_SET_TMP_ECDH)
+#elif defined(OPENSSL_HAS_SET_TMP_ECDH) && OPENSSL_VERSION_NUMBER < 0x10002000L
         {
             EC_KEY* const ecdh(EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
             if (ecdh == NULL)

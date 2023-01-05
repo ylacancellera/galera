@@ -58,8 +58,12 @@ target_link_libraries(gcs gcomm gcache)
 add_library(gcs4garb STATIC ${GCS_SOURCES})
 
 target_compile_definitions(gcs4garb
-  PRIVATE
+  PUBLIC
   -DGCS_FOR_GARB
+)
+
+target_compile_definitions(gcs4garb
+  PRIVATE
   -DGALERA_LOG_H_ENABLE_CXX
   -DGCS_USE_GCOMM
   )

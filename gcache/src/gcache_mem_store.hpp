@@ -113,7 +113,12 @@ namespace gcache
 
             if (tmp)
             {
+#pragma GCC diagnostic push
+#if __GNUC__ > 12 || (__GNUC__ == 12 && __GNUC_MINOR__ >= 1)
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
                 allocd_.erase(bh);
+#pragma GCC diagnostic pop
                 allocd_.insert(tmp);
 
                 bh = BH_cast(tmp);
@@ -133,8 +138,8 @@ namespace gcache
             assert (BH_is_released(bh));
 
             size_ -= bh->size;
-            ::free (bh);
             allocd_.erase(bh);
+            ::free (bh);
         }
 
         void set_max_size (size_t size) { max_size_ = size; }

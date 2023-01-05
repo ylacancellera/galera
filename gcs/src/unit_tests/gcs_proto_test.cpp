@@ -51,7 +51,7 @@ START_TEST (gcs_proto_test)
                   " - increase send action length");
 
     // write action to the buffer, it should not fit
-    strncpy ((char*)frg_send.frag, act_send_ptr, frg_send.frag_len);
+    strncpy (static_cast<char*>(const_cast<void*>(frg_send.frag)), act_send_ptr, frg_send.frag_len);
     act_send_ptr += frg_send.frag_len;
 
     // message was sent and received, now parse the header
@@ -75,7 +75,7 @@ START_TEST (gcs_proto_test)
     gcs_act_proto_inc (buf); // should be 1 now
 
     // write action to the buffer, it should fit now
-    strncpy ((char*)frg_send.frag, act_send_ptr, frg_send.frag_len);
+    strncpy (static_cast<char*>(const_cast<void*>(frg_send.frag)), act_send_ptr, frg_send.frag_len);
     //    act_send_ptr += frg_send.frag_len;
 
     // message was sent and received, now parse the header

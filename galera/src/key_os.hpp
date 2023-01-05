@@ -235,7 +235,7 @@ namespace galera
         {
         case 2:
             os << std::hex << static_cast<int>(key.flags()) << " ";
-            // Fall through
+            __attribute((fallthrough));
         case 1:
         {
             std::deque<KeyPartOS> dq(key.key_parts<std::deque<KeyPartOS> >());

@@ -99,11 +99,16 @@ include(cmake/maintainer_mode.cmake)
 
 include(CTest)
 enable_testing()
+
+if(DEFINED WITH_PERFSCHEMA_STORAGE_ENGINE)
+  add_definitions(-DHAVE_PSI_INTERFACE=1)
+endif()
+
 add_subdirectory(galerautils)
+add_subdirectory(garb)
 add_subdirectory(gcomm)
 add_subdirectory(gcache)
 add_subdirectory(gcs)
-add_subdirectory(garb)
 add_subdirectory(galera)
 add_subdirectory(scripts/packages)
 add_subdirectory(wsrep/tests)

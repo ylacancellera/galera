@@ -1302,7 +1302,7 @@ namespace gcache
         size_t chain_count[] = { 0, 0, 0, 0 };
 
         chain_t chain(NONE);
-        const uint8_t* chain_start;
+        const uint8_t* chain_start = nullptr;
         size_t count;
 
         bool next(false);

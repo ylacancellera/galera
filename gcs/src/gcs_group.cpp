@@ -87,9 +87,9 @@ gcs_group_init (gcs_group_t* group, gu::Config* const cnf, gcache_t* const cache
     group->prim_repl_ver = 0;
     group->prim_appl_ver = 0;
 
-    *(gcs_proto_t*)&group->gcs_proto_ver = gcs_proto_ver;
-    *(int*)&group->repl_proto_ver = repl_proto_ver;
-    *(int*)&group->appl_proto_ver = appl_proto_ver;
+    *const_cast<gcs_proto_t*>(&group->gcs_proto_ver) = gcs_proto_ver;
+    *const_cast<int*>(&group->repl_proto_ver) = repl_proto_ver;
+    *const_cast<int*>(&group->appl_proto_ver) = appl_proto_ver;
 
     group->quorum = GCS_QUORUM_NON_PRIMARY;
 
@@ -150,7 +150,7 @@ group_nodes_init (const gcs_group_t* group, const gcs_comp_msg_t* comp)
         }
     }
     else {
-        gu_error ("Could not allocate %ld x %z bytes", nodes_num,
+        gu_error ("Could not allocate %ld x %zu bytes", nodes_num,
                   sizeof(gcs_node_t));
     }
     return ret;
@@ -180,8 +180,8 @@ group_nodes_free (gcs_group_t* group)
 void
 gcs_group_free (gcs_group_t* group)
 {
-    if (group->my_name)    free ((char*)group->my_name);
-    if (group->my_address) free ((char*)group->my_address);
+    if (group->my_name)    free (const_cast<char*>(group->my_name));
+    if (group->my_address) free (const_cast<char*>(group->my_address));
     group_nodes_free (group);
     delete group->vote_history;
 }
@@ -1959,8 +1959,8 @@ gcs_group_handle_state_request (gcs_group_t*         group,
 
         // change act.buf's content to original version.
         // and it's safe to change act.buf_len
-        ::memmove((char*)act->act.buf + donor_name_len,
-                  (char*)act->act.buf + sst_offset,
+        ::memmove(static_cast<char*>(const_cast<void*>(act->act.buf)) + donor_name_len,
+                  static_cast<char*>(const_cast<void*>(act->act.buf)) + sst_offset,
                   act->act.buf_len - sst_offset);
         act->act.buf_len -= sst_offset - donor_name_len;
     }
@@ -2060,8 +2060,8 @@ gcs_group_handle_state_request (gcs_group_t*         group,
     }
     else if (group->my_idx == donor_idx) {
         act->act.buf_len -= donor_name_len;
-        memmove (*(void**)&act->act.buf,
-                 ((char*)act->act.buf) + donor_name_len,
+        memmove (*const_cast<void**>(&act->act.buf),
+                 static_cast<char*>((const_cast<void*>(act->act.buf))) + donor_name_len,
                  act->act.buf_len);
         // now action starts with request, like it was supplied by application,
         // see gcs_request_state_transfer()

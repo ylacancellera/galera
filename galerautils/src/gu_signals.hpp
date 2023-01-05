@@ -29,7 +29,7 @@ namespace gu
     private:
         Signals()
           : signal_()
-        { };
+        { }
         ~Signals() = default;
         signal_t signal_;
     };

@@ -35,6 +35,9 @@ target_compile_options(gu_tests
   -Wno-unused-parameter
   -Wno-declaration-after-statement
   -Wno-vla
+  -Wno-format-extra-args # check_if is deprecated, fails format checks
+  -Wno-format
+  -Wno-format-security
   )
 
 target_link_libraries(gu_tests galerautils ${GALERA_UNIT_TEST_LIBS})

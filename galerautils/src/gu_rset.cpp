@@ -253,7 +253,8 @@ RecordSetOutBase::write_header (byte_t* const buf, ssize_t const size)
             /* zero up potential padding bytes */
             ::memset(buf + off + 4, 0, hdr_size - 8);
         }
-        /* fall through *//* to uleb encoding */
+        buf[off+4] = 0;
+        __attribute__((fallthrough));
     case VER1:
         buf[off] = ver_byte; off += 1;
         off += uleb128_encode(size_, buf + off, size - off);

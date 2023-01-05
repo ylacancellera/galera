@@ -1249,7 +1249,7 @@ public:
     std::string scheme() const GALERA_OVERRIDE
     {
         return "mock";
-    };
+    }
     void assign_fd(int fd) GALERA_OVERRIDE
     {
         fd_ = fd;
@@ -1308,8 +1308,9 @@ public:
         {
             return {eof, size_t(result)};
         }
-        else if (errno == EAGAIN || errno == EWOULDBLOCK)
+        else if (errno == EAGAIN)
         {
+            static_assert(EAGAIN == EWOULDBLOCK);
             last_error_ = errno;
             return {return_on_block, size_t(result)};
         }

@@ -8,7 +8,6 @@
  *
  */
 
-#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <string.h>
 #include <galerautils.h>
@@ -97,9 +96,9 @@ gcs_state_msg_create (const gu_uuid_t* state_uuid,
         // tmp is a workaround for some combination of GCC flags which don't
         // allow passing ret->name and ret->inc_addr directly even with casting
         // char* tmp = (char*)ret->name;
-        strcpy ((char*)ret->name, name);
+        strcpy (const_cast<char*>(ret->name), name);
         // tmp = (char*)ret->inc_addr;
-        strcpy ((char*)ret->inc_addr, inc_addr);
+        strcpy (const_cast<char*>(ret->inc_addr), inc_addr);
     }
 
     return ret;
@@ -165,19 +164,19 @@ gcs_state_msg_len (gcs_state_msg_t* state)
     char*      name           = (char*)(prim_seqno + 1);
 
 #define CONST_STATE_MSG_FIELDS_V0(buf)                                  \
-    const int8_t*    version        = (int8_t*)buf;                     \
+    const int8_t*    version        = (const int8_t*)buf;               \
     const int8_t*    flags          = version        + 1;               \
     const int8_t*    gcs_proto_ver  = flags          + 1;               \
     const int8_t*    repl_proto_ver = gcs_proto_ver  + 1;               \
     const int8_t*    prim_state     = repl_proto_ver + 1;               \
     const int8_t*    curr_state     = prim_state     + 1;               \
-    const int16_t*   prim_joined    = (int16_t*)(curr_state + 1);       \
-    const gu_uuid_t* state_uuid     = (gu_uuid_t*)(prim_joined + 1);    \
+    const int16_t*   prim_joined    = (const int16_t*)(curr_state + 1); \
+    const gu_uuid_t* state_uuid     = (const gu_uuid_t*)(prim_joined + 1);    \
     const gu_uuid_t* group_uuid     = state_uuid     + 1;               \
     const gu_uuid_t* prim_uuid      = group_uuid     + 1;               \
-    const int64_t*   received       = (int64_t*)(prim_uuid + 1);        \
+    const int64_t*   received       = (const int64_t*)(prim_uuid + 1);  \
     const int64_t*   prim_seqno     = received       + 1;               \
-    const char*      name           = (char*)(prim_seqno + 1);
+    const char*      name           = (const char*)(prim_seqno + 1);
 
 
 /* Serialize gcs_state_msg_t into buf */
@@ -257,23 +256,23 @@ gcs_state_msg_read (const void* const buf, ssize_t const buf_len)
     const char* inc_addr = name + strlen (name) + 1;
 
     int      appl_proto_ver = 0;
-    uint8_t* appl_ptr = (uint8_t*)(inc_addr + strlen(inc_addr) + 1);
+    uint8_t* appl_ptr = reinterpret_cast<uint8_t*>(const_cast<char*>(inc_addr + strlen(inc_addr) + 1));
     if (*version >= 1) {
-        assert(buf_len >= (uint8_t*)(appl_ptr + 1) - (uint8_t*)buf);
+        assert(buf_len >= (uint8_t*)(appl_ptr + 1) - (const uint8_t*)buf);
         appl_proto_ver = *appl_ptr;
     }
 
     int64_t  cached = GCS_SEQNO_ILL;
     int64_t* cached_ptr = (int64_t*)(appl_ptr + 1);
     if (*version >= 3) {
-        assert(buf_len >= (uint8_t*)(cached_ptr + 1) - (uint8_t*)buf);
+        assert(buf_len >= (uint8_t*)(cached_ptr + 1) - (const uint8_t*)buf);
         gu::unserialize8(cached_ptr, 0, cached);
     }
 // v4 stuff
     int32_t  desync_count = 0;
     int32_t* desync_count_ptr = (int32_t*)(cached_ptr + 1);
     if (*version >= 4) {
-        assert(buf_len >= (uint8_t*)(desync_count_ptr + 1) - (uint8_t*)buf);
+        assert(buf_len >= (uint8_t*)(desync_count_ptr + 1) - (const uint8_t*)buf);
         gu::unserialize4(desync_count_ptr, 0, desync_count);
     }
 // v5 stuff
@@ -283,7 +282,7 @@ gcs_state_msg_read (const void* const buf, ssize_t const buf_len)
     uint8_t vote_policy  = GCS_VOTE_ZERO_WINS; // backward compatibility
     int64_t* last_applied_ptr = (int64_t*)(desync_count_ptr + 1);
     if (*version >= 5 && *gcs_proto_ver >= 2) {
-        assert(buf_len > (uint8_t*)(last_applied_ptr + 3) - (uint8_t*)buf);
+        assert(buf_len > (uint8_t*)(last_applied_ptr + 3) - (const uint8_t*)buf);
         gu::unserialize8(last_applied_ptr, 0, last_applied);
 
         gu::unserialize8(last_applied_ptr + 1, 0, vote_seqno);
@@ -298,7 +297,7 @@ gcs_state_msg_read (const void* const buf, ssize_t const buf_len)
     uint8_t prim_appl_ver  = 0;
     uint8_t* prim_appl_ptr = (uint8_t*)(prim_repl_ptr + 1);
     if (*version >= 6) {
-        assert(buf_len >= (uint8_t*)(prim_appl_ptr + 1) - (uint8_t*)buf);
+        assert(buf_len >= (uint8_t*)(prim_appl_ptr + 1) - (const uint8_t*)buf);
         prim_gcs_ver    = *prim_gcs_ptr;
         prim_repl_ver   = *prim_repl_ptr;
         prim_appl_ver   = *prim_appl_ptr;

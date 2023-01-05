@@ -6,7 +6,10 @@
  * $Id$
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #include "gu_abort.h"
 
 #include "gu_system.h"

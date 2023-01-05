@@ -56,8 +56,9 @@ public:
         {
             return op_result{eof, 0};
         }
-        else if (errno == EAGAIN || errno == EWOULDBLOCK)
+        else if (errno == EAGAIN)
         {
+            static_assert(EAGAIN == EWOULDBLOCK, "EAGAIN and EWOULDBLOCK are the same");
             return op_result{want_read, 0};
         }
         else
@@ -75,8 +76,9 @@ public:
         {
             return op_result{success, static_cast<size_t>(bytes_written) };
         }
-        else if (errno == EAGAIN || errno == EWOULDBLOCK)
+        else if (errno == EAGAIN)
         {
+            static_assert(EAGAIN == EWOULDBLOCK, "EAGAIN and EWOULDBLOCK are the same");
             return op_result{want_write, 0};
         }
         else

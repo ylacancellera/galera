@@ -91,7 +91,7 @@ public:
     ~DeqMap()
     {
         GU_DEQMAP_ASSERT_CONSISTENCY;
-    };
+    }
 
     /** total number of elements allocated (not all of them set) */
     size_type size()  const { return base_.size();  }

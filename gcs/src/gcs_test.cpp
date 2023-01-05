@@ -525,7 +525,7 @@ void *gcs_test_recv (void *arg)
             //puts (thread->log_msg); fflush (stdout);
             break;
         case GCS_ACT_COMMIT_CUT:
-            group_seqno = *(gcs_seqno_t*)thread->act.buf;
+            group_seqno = *(const gcs_seqno_t*)thread->act.buf;
             gu_to_self_cancel (to, thread->act.seqno_l);
             break;
         case GCS_ACT_CCHANGE:
@@ -617,7 +617,7 @@ static long gcs_test_thread_pool_stop (const gcs_test_thread_pool_t *pool)
 long gcs_test_thread_pool_cancel (const gcs_test_thread_pool_t *pool)
 {
     long i;
-    printf ("Canceling pool: %p\n", (void*)pool); fflush(stdout);
+    printf ("Canceling pool: %p\n", (const void*)pool); fflush(stdout);
     printf ("pool type: %u, pool threads: %ld\n", pool->type, pool->n_started);
     fflush(stdout);
     for (i = 0; i < pool->n_started; i++) {
@@ -656,19 +656,19 @@ static long gcs_test_conf (gcs_test_conf_t *conf, long argc, char *argv[])
     case 6:
         conf->n_recv = strtol (argv[5], &endptr, 10);
         if ('\0' != *endptr) goto error;
-        // fall through
+        __attribute__((fallthrough));
     case 5:
         conf->n_send = strtol (argv[4], &endptr, 10);
         if ('\0' != *endptr) goto error;
-        // fall through
+        __attribute__((fallthrough));
     case 4:
         conf->n_repl = strtol (argv[3], &endptr, 10);
         if ('\0' != *endptr) goto error;
-        // fall through
+        __attribute__((fallthrough));
     case 3:
         conf->n_tries = strtol (argv[2], &endptr, 10);
         if ('\0' != *endptr) goto error;
-        // fall through
+        __attribute__((fallthrough));
     case 2:
         conf->backend = argv[1];
         break;

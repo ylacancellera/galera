@@ -119,9 +119,14 @@ main (int argc, char* argv[])
 
 } /* namespace garb */
 
+void pfs_noop(wsrep_pfs_instr_type_t, wsrep_pfs_instr_ops_t,
+              wsrep_pfs_instr_tag_t, void **, void **alliedvalue,
+              const void *ts) {}
+
 int
 main (int argc, char* argv[])
 {
+    gu_conf_set_pfs_instr_callback(pfs_noop);
     try
     {
         return garb::main (argc, argv);

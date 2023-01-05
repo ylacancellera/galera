@@ -32,6 +32,9 @@ target_compile_options(garbd
 target_link_libraries(garbd gcs4garb gcomm gcache
   ${Boost_PROGRAM_OPTIONS_LIBRARIES})
 
+set_target_properties( garbd PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+  ${CMAKE_CURRENT_BINARY_DIR}/../bin/ )
+
 install(TARGETS garbd DESTINATION bin)
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES ".*BSD")
   install(FILES
