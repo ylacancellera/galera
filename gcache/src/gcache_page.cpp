@@ -56,7 +56,7 @@ gcache::Page::drop_fs_cache() const
 #endif
 }
 
-gcache::Page::Page (void* ps, const std::string& name, size_t size, int dbg, bool encrypt, size_t encryptCachePageSize, size_t encryptCacheSize)
+gcache::Page::Page (void* ps, const std::string& name, size_t size, int dbg, bool encrypt, size_t encrypt_cache_page_size, size_t encrypt_cache_size)
     :
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
@@ -67,7 +67,7 @@ gcache::Page::Page (void* ps, const std::string& name, size_t size, int dbg, boo
 #else
     fd_   (name, size, true, false),
 #endif /* PXC */
-    mmapptr_   (gu::MMapFactory::create(fd_, encrypt, encryptCachePageSize, encryptCacheSize, false, 0)),
+    mmapptr_   (gu::MMapFactory::create(fd_, encrypt, encrypt_cache_page_size, encrypt_cache_size, false, 0)),
     mmap_      (*mmapptr_),
     ps_   (ps),
     next_ (static_cast<uint8_t*>(mmap_.get_ptr())),

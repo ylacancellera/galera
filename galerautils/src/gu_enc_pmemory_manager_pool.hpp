@@ -30,8 +30,8 @@ struct PMemoryManagerHolder {
 
     uint64_t timestamp_;
     std::shared_ptr<PMemoryManager> manager_;
-    size_t mgrSize_;
-    size_t mgrAllocPageSize_;
+    size_t mgr_size_;
+    size_t mgr_alloc_page_size_;
 };
 
 /* PMemoryManagerPool is the pool of physical memory managers used by
@@ -42,11 +42,11 @@ struct PMemoryManagerHolder {
 */
 class PMemoryManagerPool {
 public:
-    PMemoryManagerPool(size_t managersPoolSize);
+    PMemoryManagerPool(size_t managers_pool_size);
     PMemoryManagerPool(const PMemoryManagerPool&) = delete;
     PMemoryManagerPool& operator=(const PMemoryManagerPool&) = delete;
 
-    std::shared_ptr<PMemoryManager> allocate(size_t allocPageSize, size_t size);
+    std::shared_ptr<PMemoryManager> allocate(size_t alloc_page_size, size_t size);
     void free(std::shared_ptr<PMemoryManager>mgr);
 
 private:
@@ -55,8 +55,8 @@ private:
     // when the client request creation of new EncMMap object.
     std::mutex mtx_;
     std::set<PMemoryManagerHolder> managers_;
-    size_t poolSizeMax_;
-    size_t poolSize_;
+    size_t pool_size_max_;
+    size_t pool_size_;
 };
 
 }  // namespace

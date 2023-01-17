@@ -40,7 +40,7 @@ enum DebugLevel {
 
 
 void swrite(DebugLevel level, const char* format, ...);
-void dumpMemory(void *ptr, size_t size);
+void dump_memory(void *ptr, size_t size);
 
 }  // namespace
 

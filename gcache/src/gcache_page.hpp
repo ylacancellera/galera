@@ -24,7 +24,7 @@ namespace gcache
     {
     public:
 
-        Page (void* ps, const std::string& name, size_t size, int dbg, bool encrypt, size_t encryptCachePageSize, size_t encryptCachePagesCount);
+        Page (void* ps, const std::string& name, size_t size, int dbg, bool encrypt, size_t encrypt_cache_page_size, size_t encrypt_cache_pages_count);
         ~Page () {}
 
         void* malloc  (size_type size);

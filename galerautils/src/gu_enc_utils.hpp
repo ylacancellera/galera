@@ -29,24 +29,28 @@ class Config;
 
 std::string encode64(const std::string& binary);
 std::string decode64(const std::string& base64);
-std::string generateRandomKey();
-std::string EncryptKey(const std::string &keyToBeEncrypted, const std::string &key);
-std::string DecryptKey(const std::string &keyToBeDecrypted, const std::string &key);
-std::string CreateMasterKeyName(const UUID& const_uuid, const UUID& uuid, int keyId);
+std::string generate_random_key();
+std::string encrypt_key(const std::string &key_to_be_encrypted, const std::string &key);
+std::string decrypt_key(const std::string &key_to_be_decrypted, const std::string &key);
+std::string create_master_key_name(const UUID& const_uuid, const UUID& uuid, int keyId);
 
 class MasterKeyProvider {
 public:
-    MasterKeyProvider(std::function<std::string(const std::string&)> getKeyCb,
-      std::function<bool(const std::string&)> createKeyCb);
-    void RegisterKeyRotationRequestObserver(std::function<bool()> fn);
-    bool NotifyKeyRotationObserver();
-    std::string GetKey(const std::string& keyId);
-    bool CreateKey(const std::string& keyId);
+    MasterKeyProvider(std::function<std::string(const std::string&)> get_key_cb,
+      std::function<bool(const std::string&)> create_key_cb);
+    MasterKeyProvider(const MasterKeyProvider&) = delete;
+    MasterKeyProvider& operator=(const MasterKeyProvider&) = delete;
+
+    void register_key_rotation_request_observer(std::function<bool()> fn);
+    bool notify_key_rotation_observer();
+    std::string get_key(const std::string& keyId);
+    bool create_key(const std::string& keyId);
+
 
 private:
-    std::function<bool()> keyRotationObserver_;
-    std::function<std::string(const std::string&)> getKeyCb_;
-    std::function<bool(const std::string&)> createKeyCb_;
+    std::function<bool()> key_rotation_observer;
+    std::function<std::string(const std::string&)> get_key_cb_;
+    std::function<bool(const std::string&)> create_key_cb_;
 };
 
 }

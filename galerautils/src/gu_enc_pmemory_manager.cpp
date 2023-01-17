@@ -40,36 +40,36 @@ static inline std::size_t getCpuPageSize() {
     return nbytes;
 };
 
-PMemoryManager::PMemoryManager(size_t size, size_t allocPageSize)
-: createSize_(size)  // actual size may differ because of limits
+PMemoryManager::PMemoryManager(size_t size, size_t alloc_page_size)
+: create_size_(size)  // actual size may differ because of limits
 , base_(0)
 , size_(0)
-, freePages_()
-, myPages_()
+, free_pages_()
+, my_pages_()
 , fd_(-1)
 , mapped_(false)
-, allocPagesCnt_(0)
-, allocPageSize_(allocPageSize) {
-    S_DEBUG_N("+++PMemoryManager::PMemoryManager() size: %ld, allocPageSize: %ld\n",
-      size, allocPageSize);
+, alloc_pages_cnt_(0)
+, alloc_page_size_(alloc_page_size) {
+    S_DEBUG_N("+++PMemoryManager::PMemoryManager() size: %ld, alloc_page_size: %ld\n",
+      size, alloc_page_size);
 
-    // allocPageSize has to be CPU page aligned
-    if (allocPageSize_ % getCpuPageSize() || allocPageSize_ < getCpuPageSize()) {
-        S_DEBUG_E("PMemoryManager::PMemoryManager() allocPageSize not aligned. Requested: %ld. "
-                  "Should be multiply of CPU page size %ld\n", allocPageSize, getCpuPageSize());
-        gu_throw_error(errno) << "PMemoryManager::PMemoryManager() allocPageSize not aligned";
+    // alloc_page_size has to be CPU page aligned
+    if (alloc_page_size_ % getCpuPageSize() || alloc_page_size_ < getCpuPageSize()) {
+        S_DEBUG_E("PMemoryManager::PMemoryManager() alloc_page_size not aligned. Requested: %ld. "
+                  "Should be multiply of CPU page size %ld\n", alloc_page_size, getCpuPageSize());
+        gu_throw_error(errno) << "PMemoryManager::PMemoryManager() alloc_page_size not aligned";
     }
 
     // how many pages do we need to satisfy size?
-    allocPagesCnt_ = size / allocPageSize_;
-    if (size % allocPageSize_) {
+    alloc_pages_cnt_ = size / alloc_page_size_;
+    if (size % alloc_page_size_) {
         S_DEBUG_N("PMemoryManager::PMemoryManager() adding page, size %ld is not aligned to allocation unit\n", size);
-        allocPagesCnt_++;
+        alloc_pages_cnt_++;
     }
-    allocPagesCnt_ = allocPagesCnt_ < CACHE_ALLOC_PAGES_MAX ? allocPagesCnt_ : CACHE_ALLOC_PAGES_MAX;
+    alloc_pages_cnt_ = alloc_pages_cnt_ < CACHE_ALLOC_PAGES_MAX ? alloc_pages_cnt_ : CACHE_ALLOC_PAGES_MAX;
 
-    size_ = allocPagesCnt_ * allocPageSize_;
-    if (createTmpFile()) {
+    size_ = alloc_pages_cnt_ * alloc_page_size_;
+    if (creae_tmp_file()) {
         gu_throw_error(errno) << "PMemoryManager::PMemoryManager() creation of tempfile failed";
     }
     base_ = static_cast<unsigned char*>(mmap(nullptr, size_, PROT_READ|PROT_WRITE, MAP_SHARED, fd_, 0));
@@ -86,19 +86,19 @@ PMemoryManager::PMemoryManager(size_t size, size_t allocPageSize)
     memset(base_, FREE_PAGE_PATTERN, size_);
 #endif
     S_DEBUG_N("PMemoryManager::PMemoryManager() (x%llX - x%llX). "
-              "CpuPageSize: %ld, allocPageSize: %ld, allocPagesCnt: %ld, "
+              "CpuPageSize: %ld, alloc_page_size: %ld, allocPagesCnt: %ld, "
               "size requested: %ld, size allocated: %ld\n",
       ptr2ull(base_), ptr2ull(base_) + size_,
-      getCpuPageSize(), allocPageSize_, allocPagesCnt_, createSize_, size_);
+      getCpuPageSize(), alloc_page_size_, alloc_pages_cnt_, create_size_, size_);
 
-    for (size_t i = 0; i < allocPagesCnt_; ++i) {
+    for (size_t i = 0; i < alloc_pages_cnt_; ++i) {
         auto page = std::make_shared<PPage>();
         page->fd_ = fd_;
-        page->offset_ = i*allocPageSize_;
+        page->offset_ = i*alloc_page_size_;
         page->ptr_ = base_ + page->offset_;
-        myPages_.push_back(page);
+        my_pages_.push_back(page);
     }
-    freePages_ = myPages_;
+    free_pages_ = my_pages_;
     S_DEBUG_N("---PMemoryManager::PMemoryManager()\n");
 }
 
@@ -106,8 +106,8 @@ PMemoryManager::~PMemoryManager() {
     S_DEBUG_N("+++PMemoryManager::~PMemoryManager() (x%llX - x%llX)\n",
       ptr2ull(base_), ptr2ull(base_) + size_);
 
-    if (freePages_.size() != allocPagesCnt_) {
-        S_DEBUG_W("Some pages still allocated. Free pages cnt: %d\n", freePages_.size());
+    if (free_pages_.size() != alloc_pages_cnt_) {
+        S_DEBUG_W("Some pages still allocated. Free pages cnt: %d\n", free_pages_.size());
     }
 
     if (mapped_) {
@@ -120,49 +120,49 @@ PMemoryManager::~PMemoryManager() {
       ptr2ull(base_), ptr2ull(base_) + size_);
 }
 
-void PMemoryManager::GetCreateParams(size_t* size, size_t* allocPageSize) {
-    *size = createSize_;
-    *allocPageSize = allocPageSize_;
+void PMemoryManager::get_create_params(size_t* size, size_t* alloc_page_size) {
+    *size = create_size_;
+    *alloc_page_size = alloc_page_size_;
 }
 
 
 std::shared_ptr<PPage> PMemoryManager::alloc() {
     // no free pages. Need to free some pages before allocating.
-    S_DEBUG_N("PMemoryManager::alloc() freePages: %d\n", freePages_.size());
-    if (freePages_.empty()) {
+    S_DEBUG_N("PMemoryManager::alloc() freePages: %d\n", free_pages_.size());
+    if (free_pages_.empty()) {
         S_DEBUG_N("PMemoryManager::alloc() no free pages\n");
         return std::shared_ptr<PPage>();
     }
-    auto p = freePages_.back();
-    freePages_.pop_back();
+    auto p = free_pages_.back();
+    free_pages_.pop_back();
 
 #if CLEAR_BUFFERS
-    for(size_t i = 0; i < allocPageSize_; ++i){
+    for(size_t i = 0; i < alloc_page_size_; ++i){
         if ((unsigned char)(p->ptr_[i]) != FREE_PAGE_PATTERN) {
             S_DEBUG_E("Free page pattern does not mach\n");
             assert(0);
         }
     }
-    memset(p->ptr_, ALLOCATED_PAGE_PATTERN, allocPageSize_);
+    memset(p->ptr_, ALLOCATED_PAGE_PATTERN, alloc_page_size_);
 #endif
     return p;
 }
 
 void PMemoryManager::free(std::shared_ptr<PPage> page) {
 #if CLEAR_BUFFERS
-    memset(page->ptr_, FREE_PAGE_PATTERN, allocPageSize_);
+    memset(page->ptr_, FREE_PAGE_PATTERN, alloc_page_size_);
 #endif
-    freePages_.push_back(page);
+    free_pages_.push_back(page);
 }
 
-void PMemoryManager::freeAll() {
-    if(myPages_.size() != freePages_.size()) {
+void PMemoryManager::free_all() {
+    if(my_pages_.size() != free_pages_.size()) {
         // some pages were not released, restore clean state
-        freePages_ = myPages_;
+        free_pages_ = my_pages_;
     }
 }
 
-bool PMemoryManager::createTmpFile()
+bool PMemoryManager::creae_tmp_file()
 {
     char path_template[] = "/tmp/XXXXXX";
     int fd (mkstemp(path_template));

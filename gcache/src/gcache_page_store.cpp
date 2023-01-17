@@ -197,7 +197,7 @@ gcache::PageStore::new_page (size_type size)
 {
     Page* const page(new Page
                      (this, make_page_name (base_name_, count_), size, debug_,
-                      encrypt_, encryptCachePageSize_, encryptCacheSize_));
+                      encrypt_, encrypt_cache_page_size_, encrypt_cache_size_));
 
     pages_.push_back (page);
     total_size_ += page->size();
@@ -211,8 +211,8 @@ gcache::PageStore::PageStore (const std::string& dir_name,
                               int                dbg,
                               size_t             keep_page,
                               bool               encrypt,
-                              size_t             encryptCachePageSize,
-                              size_t             encryptCacheSize)
+                              size_t             encrypt_cache_page_size,
+                              size_t             encrypt_cache_size)
     :
     base_name_ (make_base_name(dir_name)),
     keep_size_ (keep_size),
@@ -228,8 +228,8 @@ gcache::PageStore::PageStore (const std::string& dir_name,
     , delete_thr_(pthread_t(-1))
 #endif /* GCACHE_DETACH_THREAD */
     , encrypt_(encrypt)
-    , encryptCachePageSize_(encryptCachePageSize)
-    , encryptCacheSize_(encryptCacheSize)
+    , encrypt_cache_page_size_(encrypt_cache_page_size)
+    , encrypt_cache_size_(encrypt_cache_size)
 {
     int err = pthread_attr_init (&delete_page_attr_);
 

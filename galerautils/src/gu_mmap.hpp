@@ -30,7 +30,7 @@ public:
         READ_WRITE
     };
     virtual void set_access_mode(AccessMode mode) = 0;
-    virtual ~IMMap(){};
+    virtual ~IMMap() = default;
 };
 
 class MMap : public IMMap

@@ -35,7 +35,7 @@ struct PPage {
 */
 class PMemoryManager {
 public:
-    PMemoryManager(size_t pagesCnt, size_t allocPageSize);
+    PMemoryManager(size_t pagesCnt, size_t alloc_page_size);
     ~PMemoryManager();
     PMemoryManager(const gu::PMemoryManager&) = delete;
     PMemoryManager operator=(const gu::PMemoryManager&) = delete;
@@ -46,21 +46,21 @@ public:
        This is useful for clients who decide to stop usage of physical memory
        without freeing allocated pages (e.g. they no longer care about the data)
     */
-    void freeAll();
-    void GetCreateParams(size_t* size, size_t* allocPageSize);
+    void free_all();
+    void get_create_params(size_t* size, size_t* alloc_page_size);
 
 private:
-    size_t createSize_;
+    size_t create_size_;
     unsigned char* base_;
     size_t size_;
-    std::vector<std::shared_ptr<PPage>> freePages_;
-    std::vector<std::shared_ptr<PPage>> myPages_;
+    std::vector<std::shared_ptr<PPage>> free_pages_;
+    std::vector<std::shared_ptr<PPage>> my_pages_;
     int fd_;
     bool mapped_;
-    size_t allocPagesCnt_;
-    size_t allocPageSize_;
+    size_t alloc_pages_cnt_;
+    size_t alloc_page_size_;
 
-    bool createTmpFile();
+    bool creae_tmp_file();
 };
 
 }  // namespace

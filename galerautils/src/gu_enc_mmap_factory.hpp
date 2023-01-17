@@ -28,7 +28,9 @@ class FileDescriptor;
 class MMapFactory {
 public:
     static std::shared_ptr<IMMap> create(FileDescriptor& fd, bool encrypt,
-        size_t cachePageSize, size_t cacheSize, bool syncOnDestroy, size_t unencryptedHeaderSize);
+        size_t cache_page_size, size_t cache_size, bool sync_on_destroy, size_t unencrypted_header_size);
+
+    MMapFactory() = delete;
 };
 }
 

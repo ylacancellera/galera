@@ -26,8 +26,8 @@ namespace gcache
                    int                dbg,
                    size_t             keep_page,
                    bool               encrypt = false,
-                   size_t             encryptCachePageSize = 0,
-                   size_t             encryptCacheSize = 0);
+                   size_t             encrypt_cache_page_size = 0,
+                   size_t             encrypt_cache_size = 0);
 
         ~PageStore ();
 
@@ -94,8 +94,8 @@ namespace gcache
         pthread_t         delete_thr_;
 #endif /* GCACHE_DETACH_THREAD */
         bool              encrypt_;
-        size_t            encryptCachePageSize_;
-        size_t            encryptCacheSize_;
+        size_t            encrypt_cache_page_size_;
+        size_t            encrypt_cache_size_;
 
         void new_page    (size_type size);
 

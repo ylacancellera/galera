@@ -42,7 +42,7 @@ class EncMMap : public IMMap
 {
 public:
     EncMMap(const std::string &key, std::shared_ptr<MMap> mmap,
-            size_t cachePageSize, size_t cacheSize, bool syncOnDestroy = false,
+            size_t cache_page_size, size_t cache_size, bool sync_on_destroy = false,
             size_t encryptionStartOffset = 0);
     ~EncMMap();
 
@@ -73,31 +73,31 @@ private:
     void dump_mappings();
 
     std::shared_ptr<MMap> mmapraw_;
-    size_t pageSize_;
-    unsigned char* mmaprawPtr_;
-    size_t vMemSize_;
+    size_t page_size_;
+    unsigned char* mmapraw_ptr_;
+    size_t vmem_size_;
     unsigned char* mmap_ptr_;
     unsigned char* base_;
-    std::shared_ptr<PMemoryManager> memoryManagerP_;
-    PMemoryManager &memoryManager_;
-    std::shared_ptr<int> vpage2protectionGuard_;
+    std::shared_ptr<PMemoryManager> memory_manager_ptr_;
+    PMemoryManager &memory_manager_;
+    std::shared_ptr<int> vpage2protection_guard_;
     // virtual page to its actual mprotect map
     int* vpage2protection_;
     // virtual page to physical page map
     std::map<unsigned char*, std::shared_ptr<PPage>> vpage2ppage_;
-    size_t pagesCnt_;
+    size_t pages_cnt_;
     bool mapped_;
-    size_t lastPageSize_;
-    size_t encryptionStartOffset_;
-    int defaultPageProtection_;
-    size_t readAheadCnt_;
+    size_t last_page_size_;
+    size_t encryption_start_offset_;
+    int default_page_protection_;
+    size_t read_ahead_cnt_;
     mutable std::atomic_flag lock_;
     mutable Aes_ctr_encryptor encryptor_;
     mutable Aes_ctr_decryptor decryptor_;
-    bool syncOnDestroy_;
+    bool sync_on_destroy_;
 
     inline bool is_last_page(size_t page) const {
-        return page == pagesCnt_-1;
+        return page == pages_cnt_-1;
     }
     unsigned char* page_start(unsigned long long pageNo) const;
     unsigned char* page_start(unsigned char* addr) const;

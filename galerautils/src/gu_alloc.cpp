@@ -16,9 +16,9 @@
 #include <sstream>
 #include <iomanip> // for std::setfill() and std::setw()
 
-static bool g_encryptOffPages = false;
-static size_t g_encryptCachePageSize = 0;
-static size_t g_encryptCacheSize = 0;
+static bool g_encrypt_off_pages = false;
+static size_t g_encrypt_cache_page_size = 0;
+static size_t g_encrypt_cache_size = 0;
 
 gu::Allocator::HeapPage::HeapPage (page_size_type const size) :
     Page (static_cast<byte_t*>(::malloc(size)), size)
@@ -65,8 +65,8 @@ gu::Allocator::FilePage::FilePage (const std::string& name,
 #else
     fd_  (name, size, false, false),
 #endif /* PXC */
-    mmapptr_   (MMapFactory::create(fd_, g_encryptOffPages,
-                g_encryptCachePageSize, std::min(g_encryptCacheSize, (size_t)size), false, 0)),
+    mmapptr_   (MMapFactory::create(fd_, g_encrypt_off_pages,
+                g_encrypt_cache_page_size, std::min(g_encrypt_cache_size, (size_t)size), false, 0)),
     mmap_      (*mmapptr_)
 {
     base_ptr_ = static_cast<byte_t*>(mmap_.get_ptr());
@@ -242,9 +242,9 @@ void gu::Allocator::configure_encryption(gu::Config& conf)
         gu_throw_fatal << "Allocator does not allow reconfiguration. Already configured.";
     }
 
-    g_encryptOffPages = conf.get<bool>(ALLOCATOR_PARAMS_DISK_PAGES_ENCRYPTION);
-    g_encryptCachePageSize = conf.get<size_t>(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE);
-    g_encryptCacheSize = conf.get<size_t>(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_SIZE);
+    g_encrypt_off_pages = conf.get<bool>(ALLOCATOR_PARAMS_DISK_PAGES_ENCRYPTION);
+    g_encrypt_cache_page_size = conf.get<size_t>(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE);
+    g_encrypt_cache_size = conf.get<size_t>(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_SIZE);
     configured = true;
 }
 

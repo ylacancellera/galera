@@ -95,7 +95,7 @@ void swrite(DebugLevel level, const char* format, ...)
     va_end(args);
 }
 
-void dumpMemory(void *ptr, size_t size) {
+void dump_memory(void *ptr, size_t size) {
     S_DEBUG_N("DUMP START x%llX, size: %ld", (unsigned long long)ptr, size);
     unsigned char *p = (unsigned char*)ptr;
     p = p;  // make the compile happy when debug macros are disabled

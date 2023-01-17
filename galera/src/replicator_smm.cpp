@@ -2411,7 +2411,7 @@ out:
 }
 
 wsrep_status_t galera::ReplicatorSMM::rotate_gcache_key() {
-    bool res = master_key_provider_.NotifyKeyRotationObserver();
+    bool res = master_key_provider_.notify_key_rotation_observer();
     return res ? WSREP_FATAL : WSREP_OK;
 }
 
@@ -3829,8 +3829,10 @@ galera::ReplicatorSMM::get_encryption_key(const std::string& keyId)
     id.ptr = keyId.c_str();
     id.len = keyId.length();
 
-    if(!enc_get_key_cb_ ||
-       WSREP_CB_SUCCESS != enc_get_key_cb_(&id, &key)) {
+    if (!enc_get_key_cb_ ||
+       WSREP_CB_SUCCESS != enc_get_key_cb_(&id, &key) ||
+       key.len != KEY_LENGTH)
+    {
         return std::string();
     }
 
@@ -3844,8 +3846,9 @@ galera::ReplicatorSMM::new_encryption_key(const std::string& keyId)
     id.ptr = keyId.c_str();
     id.len = keyId.length();
 
-    if(!enc_new_key_cb_ ||
-       WSREP_CB_SUCCESS != enc_new_key_cb_(&id)) {
+    if (!enc_new_key_cb_ ||
+       WSREP_CB_SUCCESS != enc_new_key_cb_(&id))
+    {
         return true;
     }
 

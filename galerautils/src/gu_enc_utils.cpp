@@ -60,7 +60,7 @@ std::string decode64(const std::string& base64)
     return binary;
 }
 
-std::string generateRandomKey() {
+std::string generate_random_key() {
     char buf[Aes_ctr::FILE_KEY_LENGTH];
     int rc = RAND_bytes(reinterpret_cast<unsigned char*>(buf), Aes_ctr::FILE_KEY_LENGTH);
     if (!rc) {
@@ -75,74 +75,88 @@ std::string generateRandomKey() {
 }
 
 static unsigned char iv[gu::Aes_ctr_decryptor::AES_BLOCK_SIZE] = {0};
-std::string EncryptKey(const std::string &keyToBeEncrypted, const std::string &key)
+std::string encrypt_key(const std::string &key_to_be_encrypted, const std::string &key)
 {
-    assert(keyToBeEncrypted.length() == Aes_ctr::FILE_KEY_LENGTH);
-    assert(key.length() == Aes_ctr::FILE_KEY_LENGTH);
+    if (key_to_be_encrypted.length() != Aes_ctr::FILE_KEY_LENGTH ||
+        key.length() != Aes_ctr::FILE_KEY_LENGTH) {
+        log_fatal << "Encryption key length mismatch."
+                    << " key_to_be_encrypted.length(): " << key_to_be_encrypted.length()
+                    << " key.length(): " << key.length()
+                    << " Expected: " << Aes_ctr::FILE_KEY_LENGTH
+                    << " Aborting.";
+        abort();
+    }
 
-    const unsigned char* keyPtr = reinterpret_cast<const unsigned char*>(key.c_str());
-    const unsigned char* keyToBeEncryptedPtr = reinterpret_cast<const unsigned char*>(keyToBeEncrypted.c_str());
-    char resultBuf[gu::Aes_ctr::FILE_KEY_LENGTH];
-    unsigned char* resultBufPtr = reinterpret_cast<unsigned char*>(resultBuf);
+    const unsigned char* key_ptr = reinterpret_cast<const unsigned char*>(key.c_str());
+    const unsigned char* key_to_be_encrypted_ptr = reinterpret_cast<const unsigned char*>(key_to_be_encrypted.c_str());
+    char result_buf[gu::Aes_ctr::FILE_KEY_LENGTH];
+    unsigned char* result_buf_ptr = reinterpret_cast<unsigned char*>(result_buf);
 
     Aes_ctr_encryptor encryptor;
-    encryptor.open(keyPtr, iv);
-    encryptor.encrypt(resultBufPtr, keyToBeEncryptedPtr, keyToBeEncrypted.length());
+    encryptor.open(key_ptr, iv);
+    encryptor.encrypt(result_buf_ptr, key_to_be_encrypted_ptr, key_to_be_encrypted.length());
     encryptor.close();
 
-    return std::string(resultBuf, gu::Aes_ctr::FILE_KEY_LENGTH);
+    return std::string(result_buf, gu::Aes_ctr::FILE_KEY_LENGTH);
 }
 
-std::string DecryptKey(const std::string &keyToBeDecrypted, const std::string &key)
+std::string decrypt_key(const std::string &key_to_be_decrypted, const std::string &key)
 {
-    assert(keyToBeDecrypted.length() == gu::Aes_ctr::FILE_KEY_LENGTH);
-    assert(key.length() == gu::Aes_ctr::FILE_KEY_LENGTH);
+    if (key_to_be_decrypted.length() != Aes_ctr::FILE_KEY_LENGTH ||
+        key.length() != Aes_ctr::FILE_KEY_LENGTH) {
+        log_fatal << "Encryption key length mismatch."
+                    << " key_to_be_decrypted.length(): " << key_to_be_decrypted.length()
+                    << " key.length(): " << key.length()
+                    << " Expected: " << Aes_ctr::FILE_KEY_LENGTH
+                    << " Aborting.";
+        abort();
+    }
 
-    const unsigned char* keyPtr = reinterpret_cast<const unsigned char*>(key.c_str());
-    const unsigned char* keyToBeDecryptedPtr = reinterpret_cast<const unsigned char*>(keyToBeDecrypted.c_str());
-    char resultBuf[gu::Aes_ctr::FILE_KEY_LENGTH];
-    unsigned char* resultBufPtr = reinterpret_cast<unsigned char*>(resultBuf);
+    const unsigned char* key_ptr = reinterpret_cast<const unsigned char*>(key.c_str());
+    const unsigned char* key_to_be_decrypted_ptr = reinterpret_cast<const unsigned char*>(key_to_be_decrypted.c_str());
+    char result_buf[gu::Aes_ctr::FILE_KEY_LENGTH];
+    unsigned char* result_buf_ptr = reinterpret_cast<unsigned char*>(result_buf);
 
     Aes_ctr_decryptor decryptor;
-    decryptor.open(keyPtr, iv);
-    decryptor.decrypt(resultBufPtr, keyToBeDecryptedPtr, keyToBeDecrypted.length());
+    decryptor.open(key_ptr, iv);
+    decryptor.decrypt(result_buf_ptr, key_to_be_decrypted_ptr, key_to_be_decrypted.length());
     decryptor.close();
-    return std::string(resultBuf, gu::Aes_ctr_decryptor::FILE_KEY_LENGTH);
+    return std::string(result_buf, gu::Aes_ctr_decryptor::FILE_KEY_LENGTH);
 }
 
-std::string CreateMasterKeyName(const UUID& const_uuid, const UUID& uuid, int keyId) {
-    static const std::string MASTER_KEY_PREFIX = "GaleraKey-";
-    static const std::string MASTER_KEY_SEQNO_SEPARATOR = "-";
-    static const std::string MASTER_KEY_ID_SEPARATOR = "@";
-    std::ostringstream os;
-    os << uuid << MASTER_KEY_ID_SEPARATOR << const_uuid;
+std::string create_master_key_name(const UUID& const_uuid, const UUID& uuid, int keyId) {
+    static const char* MASTER_KEY_PREFIX = "GaleraKey-";
+    static const char* MASTER_KEY_SEQNO_SEPARATOR = "-";
+    static const char* MASTER_KEY_ID_SEPARATOR = "@";
+    std::ostringstream oss;
 
-    return MASTER_KEY_PREFIX + os.str() + MASTER_KEY_SEQNO_SEPARATOR +
-      std::to_string(keyId);
+    oss << MASTER_KEY_PREFIX << uuid << MASTER_KEY_ID_SEPARATOR << const_uuid
+       << MASTER_KEY_SEQNO_SEPARATOR << std::to_string(keyId);
+    return oss.str();
 }
 
 
-MasterKeyProvider::MasterKeyProvider(std::function<std::string(const std::string&)> getKeyCb,
-  std::function<bool(const std::string&)> createKeyCb)
-: keyRotationObserver_([](){return true;})
-, getKeyCb_(getKeyCb)
-, createKeyCb_(createKeyCb) {
+MasterKeyProvider::MasterKeyProvider(std::function<std::string(const std::string&)> get_key_cb,
+  std::function<bool(const std::string&)> create_key_cb)
+: key_rotation_observer([](){return true;})
+, get_key_cb_(get_key_cb)
+, create_key_cb_(create_key_cb) {
 }
 
-void MasterKeyProvider::RegisterKeyRotationRequestObserver(std::function<bool()> fn) {
-    keyRotationObserver_ = fn;
+void MasterKeyProvider::register_key_rotation_request_observer(std::function<bool()> fn) {
+    key_rotation_observer = fn;
 }
 
-bool MasterKeyProvider::NotifyKeyRotationObserver() {
-    return keyRotationObserver_();
+bool MasterKeyProvider::notify_key_rotation_observer() {
+    return key_rotation_observer();
 }
 
-std::string MasterKeyProvider::GetKey(const std::string& keyId) {
-    return getKeyCb_(keyId);
+std::string MasterKeyProvider::get_key(const std::string& keyId) {
+    return get_key_cb_(keyId);
 }
 
-bool MasterKeyProvider::CreateKey(const std::string& keyId) {
-    return createKeyCb_(keyId);
+bool MasterKeyProvider::create_key(const std::string& keyId) {
+    return create_key_cb_(keyId);
 }
 
 

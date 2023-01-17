@@ -22,7 +22,6 @@
 
 #include "gcs.hpp"
 #include "gcs_test.hpp"
-#include "gu_enc_utils.hpp"
 
 #define USE_WAIT
 
