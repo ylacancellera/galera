@@ -32,7 +32,7 @@ std::string decode64(const std::string& base64);
 std::string generateRandomKey();
 std::string EncryptKey(const std::string &keyToBeEncrypted, const std::string &key);
 std::string DecryptKey(const std::string &keyToBeDecrypted, const std::string &key);
-std::string CreateMasterKeyName(UUID& uuid, int keyId);
+std::string CreateMasterKeyName(const UUID& const_uuid, const UUID& uuid, int keyId);
 
 class MasterKeyProvider {
 public:

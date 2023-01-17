@@ -61,8 +61,9 @@ public:
 
     void handle_signal(siginfo_t*);
 
-    bool lock();
-    void unlock();
+    bool try_lock() const;
+    void lock() const;
+    void unlock() const;
 
 private:
     void encrypt(unsigned char* dst, unsigned char* src, size_t size, size_t pageNumber) const;
@@ -90,7 +91,7 @@ private:
     size_t encryptionStartOffset_;
     int defaultPageProtection_;
     size_t readAheadCnt_;
-    std::atomic_flag lock_;
+    mutable std::atomic_flag lock_;
     mutable Aes_ctr_encryptor encryptor_;
     mutable Aes_ctr_decryptor decryptor_;
     bool syncOnDestroy_;

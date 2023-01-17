@@ -160,16 +160,6 @@ wsrep_status_t galera_enc_set_key(wsrep_t* gh, const wsrep_enc_key_t*key)
 }
 
 extern "C"
-wsrep_status_t galera_rotate_gcache_key(wsrep_t* gh)
-{
-    assert(gh != 0);
-    assert(gh->ctx != 0);
-
-    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
-    return repl->rotate_gcache_key();
-}
-
-extern "C"
 wsrep_status_t galera_connect (wsrep_t*     gh,
                                const char*  cluster_name,
                                const char*  cluster_url,
@@ -1477,6 +1467,16 @@ void galera_fetch_pfs_info (wsrep_t* gh, wsrep_node_info_t* nodes, uint32_t size
 
     repl->fetch_pfs_info(nodes, size);
 }
+
+extern "C"
+wsrep_status_t galera_rotate_gcache_key(wsrep_t* gh)
+{
+    assert(gh != 0);
+    assert(gh->ctx != 0);
+
+    REPL_CLASS * repl(reinterpret_cast< REPL_CLASS * >(gh->ctx));
+    return repl->rotate_gcache_key();
+}
 #endif /* PXC */
 
 extern "C"
@@ -1605,7 +1605,6 @@ static wsrep_t galera_str = {
     &galera_parameters_set,
     &galera_parameters_get,
     &galera_enc_set_key,
-    &galera_rotate_gcache_key,
     &galera_connect,
     &galera_disconnect,
     &galera_recv,
@@ -1634,6 +1633,7 @@ static wsrep_t galera_str = {
     &galera_stats_reset,
 #ifdef PXC
     &galera_fetch_pfs_info,
+    &galera_rotate_gcache_key,
 #endif /* PXC */
     &galera_pause,
     &galera_resume,

@@ -110,13 +110,14 @@ std::string DecryptKey(const std::string &keyToBeDecrypted, const std::string &k
     return std::string(resultBuf, gu::Aes_ctr_decryptor::FILE_KEY_LENGTH);
 }
 
-std::string CreateMasterKeyName(UUID& uuid, int keyId) {
+std::string CreateMasterKeyName(const UUID& const_uuid, const UUID& uuid, int keyId) {
     static const std::string MASTER_KEY_PREFIX = "GaleraKey-";
-    static const std::string MASTER_KEY_SEPARATOR = "-";
+    static const std::string MASTER_KEY_SEQNO_SEPARATOR = "-";
+    static const std::string MASTER_KEY_ID_SEPARATOR = "@";
     std::ostringstream os;
-    os << uuid;
+    os << uuid << MASTER_KEY_ID_SEPARATOR << const_uuid;
 
-    return MASTER_KEY_PREFIX + os.str() + MASTER_KEY_SEPARATOR +
+    return MASTER_KEY_PREFIX + os.str() + MASTER_KEY_SEQNO_SEPARATOR +
       std::to_string(keyId);
 }
 

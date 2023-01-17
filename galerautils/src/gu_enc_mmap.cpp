@@ -325,11 +325,17 @@ EncMMap::~EncMMap() {
     memoryManagerPool.free(memoryManagerP_);
 }
 
-bool EncMMap::lock() {
+bool EncMMap::try_lock() const {
     return !lock_.test_and_set(std::memory_order_acquire);
 }
 
-void EncMMap::unlock() {
+void EncMMap::lock() const {
+    while (!try_lock()) {
+        std::this_thread::yield();
+    }
+}
+
+void EncMMap::unlock() const {
     assert(lock_.test_and_set(std::memory_order_acquire));
     lock_.clear(std::memory_order_release);
 }
@@ -380,6 +386,7 @@ void EncMMap::sync(void *addr, size_t length) const {
     size_t realSyncLen = syncAddrEnd - syncAddrStart;
     size_t syncStartOffset = base_ - addrU;
 
+    lock();
     for (auto kv = vpage2ppage_.begin(); kv != vpage2ppage_.end(); ++kv) {
         size_t pageNo = page_number(kv->first);
         if(pageNo < firstPageToSync || pageNo > lastPageToSync) {
@@ -401,12 +408,14 @@ void EncMMap::sync(void *addr, size_t length) const {
             mprotectd(vpageStart, pageSize_, defaultPageProtection_);
         }
     }
+    unlock();
     // sync the underlying file
     // we need to sync whole alloc pages
     mmapraw_->sync(mmaprawPtr_+syncStartOffset, realSyncLen);
  }
 
 void EncMMap::sync() const {
+    lock();
     for (auto kv = vpage2ppage_.begin(); kv != vpage2ppage_.end(); ++kv) {
         int pageNo = page_number(kv->first);
         int protection = vpage2protection_[pageNo];
@@ -422,6 +431,7 @@ void EncMMap::sync() const {
             mprotectd(vpageStart, pageSize_, defaultPageProtection_);
         }
     }
+    unlock();
     // sync the underlying file
     mmapraw_->sync();
 }
@@ -450,6 +460,7 @@ void EncMMap::unmap() {
 void EncMMap::set_key(const std::string& key) {
     static unsigned char iv[Aes_ctr_encryptor::AES_BLOCK_SIZE] = {0};
 
+    lock();
     assert(key.length() >= Aes_ctr_encryptor::FILE_KEY_LENGTH);
     unsigned char *kkey = (unsigned char*)key.c_str();
     encryptor_.close();
@@ -463,6 +474,7 @@ void EncMMap::set_key(const std::string& key) {
     mprotectd(base_, vMemSize_, PROT_NONE);
     memoryManager_.freeAll();
     vpage2ppage_.clear();
+    unlock();
 }
 
 void EncMMap::set_access_mode(AccessMode mode) {
@@ -516,7 +528,7 @@ struct PageGluer {
 
 // signal handler. The whole magic happens here
 void EncMMap::handle_signal(siginfo_t* info) {
-    if (!lock()) {
+    if (!try_lock()) {
         S_DEBUG_N("encmmap collision\n");
         return;
     }
