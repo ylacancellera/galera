@@ -35,7 +35,7 @@ struct PPage {
 */
 class PMemoryManager {
 public:
-    PMemoryManager(size_t pagesCnt, size_t alloc_page_size);
+    PMemoryManager(size_t size, size_t alloc_page_size);
     ~PMemoryManager();
     PMemoryManager(const gu::PMemoryManager&) = delete;
     PMemoryManager operator=(const gu::PMemoryManager&) = delete;

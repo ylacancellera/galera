@@ -134,6 +134,21 @@ void dump_mappings() {
     EncMMapsRepository::DumpMappings();
 }
 
+const char* page_protection_to_string(int page_protection){
+    static std::map<int, std::string> prot2string = {
+        {PROT_NONE, "PROT_NONE"},
+        {PROT_READ, "PROT_READ"},
+        {PROT_WRITE, "PROT_WRITE"},
+        {PROT_READ | PROT_WRITE, "PROT_READ | PROT_WRITE"},
+        {-1, "UNKNOWN"}
+    };
+
+    auto item = prot2string.find(page_protection);
+    if (item == prot2string.end()) {
+        return prot2string[-1].c_str();
+    }
+    return item->second.c_str();
+}
 
 void EncMMap::dump_mappings()
 {
@@ -353,8 +368,8 @@ void EncMMap::dont_need() const {
 }
 
 void EncMMap::mprotectd(unsigned char *ptr, size_t size, int prot) const {
-    S_DEBUG_N("mprotect ptr: x%llX, size: %ld, prot: %d\n",
-      ptr2ull(ptr), size, prot);
+    S_DEBUG_N("mprotect ptr: x%llX, size: %ld, prot: %s\n",
+      ptr2ull(ptr), size, page_protection_to_string(prot));
     if (0 != mprotect(ptr, size, prot)) {
         S_DEBUG_E("mprotect failed. errno: %d, msg: %s\n", errno, strerror(errno));
     }
@@ -396,8 +411,8 @@ void EncMMap::sync(void *addr, size_t length) const {
         int protection = vpage2protection_[page_no];
         unsigned char* vpage_start = kv->first;
 
-        S_DEBUG_N("sync page_no: %d, prot: %d (x%llX - x%llX)\n",
-            page_no, vpage2protection_[page_no], ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
+        S_DEBUG_N("sync page_no: %d, prot: %s (x%llX - x%llX)\n",
+            page_no, page_protection_to_string(vpage2protection_[page_no]), ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
 
         if(protection == (PROT_READ | PROT_WRITE)) {
             // flush
@@ -420,8 +435,8 @@ void EncMMap::sync() const {
         int page_no = page_number(kv->first);
         int protection = vpage2protection_[page_no];
         unsigned char* vpage_start = kv->first;
-        S_DEBUG_N("sync() page_no: %d, prot: %d (x%llX - x%llX)\n",
-            page_no, vpage2protection_[page_no], ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
+        S_DEBUG_N("sync() page_no: %d, prot: %s (x%llX - x%llX)\n",
+            page_no, page_protection_to_string(vpage2protection_[page_no]), ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
         if(protection == (PROT_READ | PROT_WRITE)) {
             // flush
             mprotectd(vpage_start, page_size_, PROT_READ);
@@ -543,8 +558,8 @@ void EncMMap::handle_signal(siginfo_t* info) {
 
     assert(req_page_no < pages_cnt_);
 
-    S_DEBUG_N("req_page_no: %llu, prot: %d\n",
-      req_page_no, vpage2protection_[req_page_no]);
+    S_DEBUG_N("req_page_no: %llu, prot: %s\n",
+      req_page_no, page_protection_to_string(vpage2protection_[req_page_no]));
 
     if (vpage2protection_[req_page_no] == PROT_NONE) {
         // Page is not mapped. Find free one
@@ -564,8 +579,8 @@ void EncMMap::handle_signal(siginfo_t* info) {
                 size_t page_no = page_number(kv.first);
                 int protection = vpage2protection_[page_no];
                 vpage_start = kv.first;
-                S_DEBUG_N("free page_no: %d, prot: %d (x%llX - x%llX)\n",
-                  page_no, protection, ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
+                S_DEBUG_N("free page_no: %d, prot: %s (x%llX - x%llX)\n",
+                  page_no, page_protection_to_string(protection), ptr2ull(vpage_start), ptr2ull(vpage_start)+page_size_);
                 freed_count++;
                 if(protection == (PROT_READ | PROT_WRITE)) {
                     // flush
@@ -638,11 +653,13 @@ void EncMMap::handle_signal(siginfo_t* info) {
            assert(0); 
         }
 
+        S_DEBUG_N("read req_page_no: %d (x%llX - x%llX) %s -> %s\n",
+            req_page_no, ptr2ull(req_page_start),
+            ptr2ull(req_page_start)+page_size_,
+            page_protection_to_string(vpage2protection_[req_page_no]),
+            page_protection_to_string(default_page_protection_));
         vpage2protection_[req_page_no] = default_page_protection_;
         vpage2ppage_[req_page_start] = p;
-        S_DEBUG_N("read req_page_no: %d (x%llX - x%llX) PROT_NONE -> PROT_READ\n",
-            req_page_no, ptr2ull(req_page_start),
-            ptr2ull(req_page_start)+page_size_);
 
         // read ahead
         // This is useful for GCache recovery when the whole buffer is scanned
@@ -651,10 +668,10 @@ void EncMMap::handle_signal(siginfo_t* info) {
             req_page_no = req_page_no+1 < pages_cnt_ ? req_page_no+1 : 0;
             // only not mapped pages
             if (vpage2protection_[req_page_no] != PROT_NONE) {
-                S_DEBUG_N("read ahead req_page_no: %d (x%llX - x%llX) already mapped. prot: %d\n",
+                S_DEBUG_N("read ahead req_page_no: %d (x%llX - x%llX) already mapped. prot: %s\n",
                   req_page_no, ptr2ull(page_start(req_page_no)),
                   ptr2ull(page_start(req_page_no))+page_size_,
-                  vpage2protection_[req_page_no]);
+                  page_protection_to_string(vpage2protection_[req_page_no]));
                 continue;
             }
             p = memory_manager_.alloc();
@@ -670,12 +687,15 @@ void EncMMap::handle_signal(siginfo_t* info) {
             req_page_start = page_start(req_page_no);
 
             mmap(req_page_start, page_size_, default_page_protection_, MAP_SHARED|MAP_FIXED, p->fd_, p->offset_);
+
+            S_DEBUG_N("read ahead req_page_no: %d (x%llX - x%llX) %s -> %s\n",
+                req_page_no, ptr2ull(req_page_start),
+                ptr2ull(req_page_start)+page_size_,
+                page_protection_to_string(vpage2protection_[req_page_no]),
+                page_protection_to_string(default_page_protection_));
             vpage2protection_[req_page_no] = default_page_protection_;
             vpage2ppage_[req_page_start] = p;
             total_read_ahead++;
-            S_DEBUG_N("read ahead req_page_no: %d (x%llX - x%llX) PROT_NONE -> PROT_READ\n",
-              req_page_no, ptr2ull(req_page_start),
-              ptr2ull(req_page_start)+page_size_);
         }
         S_DEBUG_N("Read ahead %ld pages\n", total_read_ahead);
     } else if (vpage2protection_[req_page_no] == PROT_READ) {

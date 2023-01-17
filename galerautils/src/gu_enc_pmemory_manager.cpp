@@ -27,8 +27,22 @@
 
 
 namespace gu {
-// We allow to allocate max 512 pages (allocation pages, not CPU pages).
-// If cache size needs to be bigger, gcache.encryption_cache_page_size should be bigger
+
+/* We need at least 2 pages in the encryption cache.
+   This is because memcpy is optimized to copy data
+   in batches rather than byte-by-byte. It may happen that the client
+   tries to memcpy >= 16 bytes at the virtual mamory pages boundary.
+   In such a case we need two cache pages to be mapped to these virtual pages.
+   If we had only one page, it would be not possible, and we would start
+   infinite cycle of cache page map-unmap-map.
+   There is one corner case when one cache page is enough. It is when the mapped
+   virtual memory is the same size as the cache size.
+   As the page size is a multiple of CPU page size (4k) and is rather kB than MB
+   it seems not to be a big problem having always at least 2 pages. */
+static const size_t CACHE_ALLOC_PAGES_MIN = 2;
+
+/* We allow to allocate max 512 pages (allocation pages, not CPU pages).
+   If cache size needs to be bigger, gcache.encryption_cache_page_size should be bigger */
 static const size_t CACHE_ALLOC_PAGES_MAX = 512;
 
 #define CLEAR_BUFFERS 0
@@ -41,7 +55,7 @@ static inline std::size_t getCpuPageSize() {
 };
 
 PMemoryManager::PMemoryManager(size_t size, size_t alloc_page_size)
-: create_size_(size)  // actual size may differ because of limits
+: create_size_(size)  // Actual size may differ because of limits
 , base_(0)
 , size_(0)
 , free_pages_()
@@ -66,6 +80,9 @@ PMemoryManager::PMemoryManager(size_t size, size_t alloc_page_size)
         S_DEBUG_N("PMemoryManager::PMemoryManager() adding page, size %ld is not aligned to allocation unit\n", size);
         alloc_pages_cnt_++;
     }
+
+    alloc_pages_cnt_ = alloc_pages_cnt_ < CACHE_ALLOC_PAGES_MIN ? CACHE_ALLOC_PAGES_MIN : alloc_pages_cnt_;
+
     alloc_pages_cnt_ = alloc_pages_cnt_ < CACHE_ALLOC_PAGES_MAX ? alloc_pages_cnt_ : CACHE_ALLOC_PAGES_MAX;
 
     size_ = alloc_pages_cnt_ * alloc_page_size_;

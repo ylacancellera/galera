@@ -49,7 +49,7 @@ std::shared_ptr<PMemoryManager> PMemoryManagerPool::allocate(size_t alloc_page_s
     std::lock_guard<std::mutex> l(mtx_);
     std::shared_ptr<PMemoryManager> result;
 
-    S_DEBUG_N("PMemoryManagerPool::allocate(). size: %ld, pageSize: %ld, Pool size: %ld/%ld\n",
+    S_DEBUG_N("PMemoryManagerPool::allocate(). size: %ld, page size: %ld, Pool size: %ld/%ld\n",
       size, alloc_page_size, pool_size_, pool_size_max_);
     timestamp_server++;
     bool doErase = (timestamp_server % ERASE_TRIGGER == 0);
@@ -61,7 +61,8 @@ std::shared_ptr<PMemoryManager> PMemoryManagerPool::allocate(size_t alloc_page_s
             ++iter;
             managers_.erase(erase_iter);
             pool_size_--;
-            S_DEBUG_N("Reusing PMemoryManager\n");
+            S_DEBUG_N("Reusing PMemoryManager (size: %ld, page size: %ld\n",
+              iter->mgr_size_, iter->mgr_alloc_page_size_);
         }
         if(result && !doErase) {
             break;
