@@ -19,9 +19,11 @@
 #include <cstdlib>     // realloc(), free()
 #include <string>
 #include <iostream>
+#include <memory>
 
 namespace gu
 {
+class Config;
 
 class Allocator
 {
@@ -67,6 +69,10 @@ public:
     /* After we allocated 3 heap pages, spilling vector into heap should not
      * be an issue. */
     static size_t const INITIAL_VECTOR_SIZE = 4;
+
+    static void register_params(gu::Config& conf);
+    static void configure_encryption(gu::Config& conf);
+    static void param_set (const std::string& key, const std::string& value);
 
 private:
 
@@ -129,7 +135,8 @@ private:
     private:
 
         FileDescriptor fd_;
-        MMap           mmap_;
+        std::shared_ptr<gu::IMMap>  mmapptr_;  // keep mmap_ member as the reference
+        gu::IMMap&         mmap_;
     };
 
     class PageStore

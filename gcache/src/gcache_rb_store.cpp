@@ -13,11 +13,27 @@
 #include <gu_hexdump.hpp>
 #include <gu_hash.h>
 
+#include <gu_enc_mmap_factory.hpp>
+#include <gu_enc_utils.hpp>
+#include <gu_crc.hpp>
+
 #include <cassert>
 #include <iostream> // std::cerr
 
 namespace gcache
 {
+    class RecursiveLock {
+        gu::RecursiveMutex& mtx_;
+    public:
+        RecursiveLock(gu::RecursiveMutex& mtx)
+          : mtx_(mtx) {
+            mtx_.lock();
+          }
+        ~RecursiveLock() {
+            mtx_.unlock();
+        }
+    };
+
     static inline size_t check_size (size_t s)
     {
         return s + RingBuffer::pad_size() + sizeof(BufferHeader);
@@ -74,9 +90,20 @@ namespace gcache
                             seqno2ptr_t&       seqno2ptr,
                             gu::UUID&          gid,
                             int const          dbg,
-                            bool const         recover)
+                            bool const         recover,
+                            bool               encrypt,
+                            size_t             encrypt_cache_page_size,
+                            size_t             encrypt_cache_size,
+                            gu::MasterKeyProvider* master_key_provider)
     :
         pcb_       (pcb),
+        master_key_id_(0),
+        const_mk_id_(),
+        master_key_uuid_(),
+        file_key_(),
+        master_key_provider_(master_key_provider),
+        mk_rotation_mutex_(),
+        encrypt_   (encrypt && master_key_provider_ != nullptr),  // protects access to master_key_provider_ ptr as well
 #ifdef PXC
 #ifdef HAVE_PSI_INTERFACE
         fd_        (name, WSREP_PFS_INSTR_TAG_RINGBUFFER_FILE, check_size(size)),
@@ -86,17 +113,18 @@ namespace gcache
 #else
         fd_        (name, check_size(size)),
 #endif /* PXC */
-        mmap_      (fd_),
-        preamble_  (static_cast<char*>(mmap_.ptr)),
+        mmapptr_   (gu::MMapFactory::create(fd_, encrypt, encrypt_cache_page_size, check_size(encrypt_cache_size), false, static_cast<size_t>(PREAMBLE_LEN))),
+        mmap_      (*mmapptr_),
+        preamble_  (static_cast<char*>(mmap_.get_ptr())),
         header_    (reinterpret_cast<int64_t*>(preamble_ + PREAMBLE_LEN)),
         start_     (reinterpret_cast<uint8_t*>(header_   + HEADER_LEN)),
-        end_       (reinterpret_cast<uint8_t*>(preamble_ + mmap_.size)),
+        end_       (reinterpret_cast<uint8_t*>(preamble_ + mmap_.get_size())),
         first_     (start_),
         next_      (first_),
         seqno2ptr_ (seqno2ptr),
         gid_       (gid),
 #ifdef PXC
-        max_used_  (first_ - static_cast<uint8_t*>(mmap_.ptr) +
+        max_used_  (first_ - static_cast<uint8_t*>(mmap_.get_ptr()) +
                     sizeof(BufferHeader)),
         freeze_purge_at_seqno_(SEQNO_ILL),
 #endif /* PXC */
@@ -111,12 +139,36 @@ namespace gcache
     {
         assert((uintptr_t(start_) % MemOps::ALIGNMENT) == 0);
         constructor_common ();
+        if (encrypt_) {
+            master_key_provider_->register_key_rotation_request_observer(
+                [this]() {
+                  return rotate_master_key();
+                });
+        } else if (master_key_provider_) {
+            /* To be compatible with existing unit tests, master_key_provider
+               constructor parameter is nullptr by default. Normal flow
+               creates the provider in ReplicatorSMM constructor and injects
+               it to GCache regardless of encryption being enabled or not.
+               encrypt_ flag protects access to master_key_provider_ member
+               in all places, besides this one, so we have to handle it
+               explicitly. */
+            master_key_provider_->register_key_rotation_request_observer(
+                []() {
+                  log_info << "GCache Encryption Master Key has not been rotated"
+                           << " because GCache encryption is disabled.";
+                  return false;
+                }
+            );
+        }
         open_preamble(recover);
         BH_clear (BH_cast(next_));
     }
 
     RingBuffer::~RingBuffer ()
     {
+        if (encrypt_) {
+            master_key_provider_->register_key_rotation_request_observer([](){ return true; });
+        }
         close_preamble();
         open_ = false;
         mmap_.sync();
@@ -303,7 +355,7 @@ namespace gcache
 
 #ifdef PXC
         size_t max_used =
-            next_ - static_cast<uint8_t*>(mmap_.ptr) + sizeof(BufferHeader);
+            next_ - static_cast<uint8_t*>(mmap_.get_ptr()) + sizeof(BufferHeader);
 
         if (max_used > max_used_)
         {
@@ -605,16 +657,78 @@ namespace gcache
             << "\nused   : " << size_used_;
     }
 
+    std::string
+    RingBuffer::generate_new_master_key(const std::string& key_name)
+    {
+        std::string key = master_key_provider_->get_key(key_name);
+        if (!key.empty()) {
+            return std::string();
+        }
+
+        // Key does not exist, so creation should succeed.
+        if(master_key_provider_->create_key(key_name)) {
+            return std::string();
+        }
+
+        key = master_key_provider_->get_key(key_name);
+        if (key.empty()) {
+            return std::string();
+        }
+
+        return key;
+    }
+
+    bool
+    RingBuffer::rotate_master_key()
+    {
+        RecursiveLock mk_rotation_lock(mk_rotation_mutex_);
+        std::string old_mk_name = gu::create_master_key_name(const_mk_id_, master_key_uuid_, master_key_id_);
+        std::string old_mk = master_key_provider_->get_key(old_mk_name);
+        if (old_mk.empty()) return true;
+
+        // decrypt file_key_ with the old MK
+        std::string unencrypted_file_key = gu::decrypt_key(gu::decode64(file_key_), old_mk);
+
+        std::string new_mk_name = gu::create_master_key_name(const_mk_id_, master_key_uuid_, master_key_id_ + 1);
+        std::string new_mk = generate_new_master_key(new_mk_name);
+
+        if(new_mk.empty()) {
+            log_info << "Generation of Master Key " << new_mk_name << " failed.";
+            return true;
+        }
+
+        master_key_id_++;
+        log_info << "Generated new Master Key: " << new_mk_name;
+
+        // encrypt with new MK
+        file_key_ = gu::encode64(gu::encrypt_key(unencrypted_file_key, new_mk));
+
+        // store preamble
+        write_preamble(false);
+
+        log_info << "GCache Encryption Master Key has been rotated."
+                 << " Current Master Key id: " << new_mk_name;
+        return false;
+    }
+
     std::string const RingBuffer::PR_KEY_VERSION   = "Version:";
     std::string const RingBuffer::PR_KEY_GID       = "GID:";
     std::string const RingBuffer::PR_KEY_SEQNO_MAX = "seqno_max:";
     std::string const RingBuffer::PR_KEY_SEQNO_MIN = "seqno_min:";
     std::string const RingBuffer::PR_KEY_OFFSET    = "offset:";
     std::string const RingBuffer::PR_KEY_SYNCED    = "synced:";
+    std::string const RingBuffer::PR_KEY_ENCRYPTION_VERSION = "enc_version:";
+    std::string const RingBuffer::PR_KEY_ENCRYPTED = "enc_encrypted:";
+    std::string const RingBuffer::PR_KEY_MK_ID = "enc_mk_id:";
+    std::string const RingBuffer::PR_KEY_MK_CONST_ID = "enc_mk_const_id:";
+    std::string const RingBuffer::PR_KEY_MK_UUID = "enc_mk_uuid:";
+    std::string const RingBuffer::PR_KEY_FILE_KEY = "enc_fk_id:";
+    std::string const RingBuffer::PR_KEY_ENC_CRC = "enc_crc:";
 
     void
     RingBuffer::write_preamble(bool const synced)
     {
+        RecursiveLock mk_rotation_lock(mk_rotation_mutex_);
         uint8_t* const preamble(reinterpret_cast<uint8_t*>(preamble_));
 
         std::ostringstream os;
@@ -642,6 +756,26 @@ namespace gcache
         }
 
         os << PR_KEY_SYNCED << ' ' << synced << '\n';
+
+        // Encryption info
+        static const int ENCRYPTION_VERSION = 1;
+        os << PR_KEY_ENCRYPTION_VERSION << ' ' << ENCRYPTION_VERSION << '\n';
+        os << PR_KEY_ENCRYPTED << ' ' << encrypt_ << '\n';
+        os << PR_KEY_MK_ID << ' ' << master_key_id_ << '\n';
+        os << PR_KEY_MK_CONST_ID << ' ' << const_mk_id_ << '\n';
+        os << PR_KEY_MK_UUID << ' ' << master_key_uuid_ << '\n';
+        os << PR_KEY_FILE_KEY << ' ' << file_key_ << '\n';
+
+        gu::CRC32C crc;
+        crc.append(&ENCRYPTION_VERSION, sizeof(ENCRYPTION_VERSION));
+        crc.append(&encrypt_, sizeof(encrypt_));
+        crc.append(&master_key_id_, sizeof(master_key_id_));
+        crc.append(const_mk_id_.ptr(), GU_UUID_LEN);
+        crc.append(master_key_uuid_.ptr(), GU_UUID_LEN);
+        crc.append(file_key_.c_str(), file_key_.length());
+        uint32_t crc_val = crc.get();
+        os << PR_KEY_ENC_CRC << ' ' << crc_val << '\n';
+
         os << '\n';
 
         ::memset(preamble_, '\0', PREAMBLE_LEN);
@@ -664,6 +798,12 @@ namespace gcache
         off_t offset(-1);
         bool  synced(false);
 
+        bool enc_encrypted(false);
+        int enc_version(0);
+        uint32_t enc_crc(0);
+        bool force_reset(false);
+
+        RecursiveLock mk_rotation_lock(mk_rotation_mutex_);
         {
             std::istringstream iss(preamble_);
 
@@ -685,6 +825,13 @@ namespace gcache
                 else if (PR_KEY_SEQNO_MIN == key) istr >> seqno_min;
                 else if (PR_KEY_OFFSET    == key) istr >> offset;
                 else if (PR_KEY_SYNCED    == key) istr >> synced;
+                else if (PR_KEY_ENCRYPTION_VERSION == key) istr >> enc_version;
+                else if (PR_KEY_ENCRYPTED == key) istr >> enc_encrypted;
+                else if (PR_KEY_MK_ID     == key) istr >> master_key_id_;
+                else if (PR_KEY_MK_CONST_ID == key) istr >> const_mk_id_;
+                else if (PR_KEY_MK_UUID    == key) istr >> master_key_uuid_;
+                else if (PR_KEY_FILE_KEY  == key) istr >> file_key_;
+                else if (PR_KEY_ENC_CRC   == key) istr >> enc_crc;
             }
         }
 
@@ -704,14 +851,169 @@ namespace gcache
            offset = -1;
         }
 
+        if (const_mk_id_ == GU_UUID_NIL) {
+            const_mk_id_ = gu::UUID(0, 0);
+            log_info << "Generated new GCache ID: " << const_mk_id_;
+        }
+
+        if (enc_encrypted != encrypt_) {
+            // if we are switching enc <-> not enc, no point in recovering
+            log_info << "Switching GCache encryption "
+                     << (enc_encrypted ? "ON" : "OFF")
+                     << " -> "
+                     << (encrypt_ ? "ON" : "OFF")
+                     << ". This forces GCache reset.";
+            file_key_.clear();
+            master_key_id_ = 0;
+            master_key_uuid_ = gu::UUID();
+            force_reset = true;
+        }
+
+        if (encrypt_) {
+            /* Q: Why do we store master key ID in gcache.preamble instead of
+               doing the whole key management (e.g rotation) on server side
+               and only informing Galera about the new key?
+               A: We need access to the master key when Galera is initialized
+               to be able to perform GCache recovery. At this stage storage
+               engines are not initialized yet.
+               If we did key management on server side, we would need to store
+               key name info somewhere. Wsrep_schema and dedicated table seems to
+               be ideal place, but again, we don't have access to it when Galera
+               starts, so another solution is keeping it in dedicated file.
+               But having yet another file on server side if we have this preamble
+               does not seem to be good idea. */
+            uint32_t crc_val = 0;
+            if (enc_crc != 0) {
+                // we've got some CRC, check if encryption data is consistent
+                gu::CRC32C crc;
+                crc.append(&enc_version, sizeof(enc_version));
+                crc.append(&enc_encrypted, sizeof(enc_encrypted));
+                crc.append(&master_key_id_, sizeof(master_key_id_));
+                crc.append(const_mk_id_.ptr(), GU_UUID_LEN);
+                crc.append(master_key_uuid_.ptr(), GU_UUID_LEN);
+                crc.append(file_key_.c_str(), file_key_.length());
+                crc_val = crc.get();
+            }
+            if (crc_val != enc_crc) {
+                log_warn << "Encryption header CRC mismatch."
+                            << " Calculated: " << crc_val
+                            << " Expected: " << enc_crc;
+            }
+            if (enc_crc == 0 || crc_val != enc_crc) {
+                // No crc info (no header?) or crc mismatch.
+                // This will trigger new file key generation and GCache reset
+                file_key_.clear();
+                // master key can be spoiled as well
+                master_key_id_ = 0;
+            }
+
+            std::string mk;
+            bool allow_retry = true;
+            while (allow_retry) {
+                std::string mk_name;
+                if (master_key_id_ == 0 || master_key_uuid_ == GU_UUID_NIL) {
+                    // no MasterKey. Generate the new one
+                    master_key_uuid_ = gu::UUID(0,0);
+                    master_key_id_ = 1;
+
+                    mk_name = gu::create_master_key_name(const_mk_id_, master_key_uuid_, master_key_id_);
+
+                    log_info << "Master Key does not exist. Generating the new one: " << mk_name;
+                    /* The following call should generate new MK because we use new uuid.
+                    If it returns empty string it means something wrong happens to the keyring.
+                    Such a case will be caught by the 'if' after loop. */
+                    mk = generate_new_master_key(mk_name);
+
+                    // This is new key. Do not allow retry.
+                    allow_retry = false;
+                } else {
+                    mk_name = gu::create_master_key_name(const_mk_id_, master_key_uuid_, master_key_id_);
+                    mk = master_key_provider_->get_key(mk_name);
+
+                    /* Check for the existence of next Master Key. If it exists it can be:
+                    1. Previous rotation was interrupted after new MK generation, but before
+                       writing preamble
+                    2. We are starting from old backup. The Master Key is valid, but as there
+                       were rotations in the meantime, next keys exist as well
+                    In both cases the 'future' keys we see may be already compromised,
+                    so we shouldn't use them.
+                    In such a case generate new Master Key with new, unique ID and trigger
+                    GCache reset.
+                    Note: for simplicity we just generate new key and reset GCache. If necessary
+                    it is possible to only rotate MK with forced use o new uuid, but do not 
+                    overcomplicate for now. */
+                    std::string next_mk_name = gu::create_master_key_name(const_mk_id_, master_key_uuid_, master_key_id_+1);
+                    std::string next_mk = master_key_provider_->get_key(next_mk_name);
+                    if (mk.empty()) {
+                        log_info << "GCache is encrypted with Master Key: "
+                                 << mk_name << " but the key is missing. "
+                                 << "Generating the new one.";
+                    } else if(!next_mk.empty()) {
+                        log_info << "GCache Master Key " << mk_name << " exists, but next key "
+                                 << next_mk_name
+                                 << " (and probably more following as well) exists as well."
+                                 << " It may be caused by interrupting of previous rotation"
+                                 << " in the middle or by starting the server with old GCache."
+                                 << " Generating brand new Master Key to avoid usage of potentially"
+                                 << " compromised keys.";
+                        mk.clear();
+                    }
+                }
+
+                if (!mk.empty()) break;
+
+                // MK not found. Generate the new one, but try only once.
+                master_key_id_ = 0;
+                file_key_.clear();
+            }
+
+            if (mk.empty()) {
+                std::stringstream oss;
+                oss << "GCache encryption Master Key not generated or not found. "
+                    << "Please check the keyring is loaded or disable GCache "
+                    << "encryption. Aborting.";
+                throw gu::Exception(oss.str(), 0);
+            }
+
+            // 2. Decrypt file_key_ (or generate the new one)
+            std::string unencrypted_file_key;
+
+            if (file_key_.empty()) {
+                // no file key. Generate the new one and force GCache reset.
+                log_info << "File Key empty. Generating the new one. This forces GCache reset.";
+                unencrypted_file_key = gu::generate_random_key();
+                file_key_ = gu::encode64(gu::encrypt_key(unencrypted_file_key, mk));
+                force_reset = true;
+            } else {
+                unencrypted_file_key = gu::decrypt_key(gu::decode64(file_key_), mk);
+            }
+            // 3. pass file key to the mmap
+            // Yes, I know this is ugly and IMMap should not have set_key() method,
+            // and we should setup file key when MMapEnc decorator is created by factory,
+            // but we have file key now, not earlier when mmap is created,
+            // mmap_ is the reference, so no way to wrap it here
+            // so just to not touch too much of the original code, and to not couple
+            // RingBuffer class with MMapEnc class...
+            mmap_.set_key(unencrypted_file_key);
+        }
+
         log_info << "GCache DEBUG: opened preamble:"
                  << "\nVersion: " << version
                  << "\nUUID: " << gid_
                  << "\nSeqno: " << seqno_min << " - " << seqno_max
                  << "\nOffset: " << offset
-                 << "\nSynced: " << synced;
+                 << "\nSynced: " << synced
+                 << "\nEncVersion: " << enc_version
+                 << "\nEncrypted: " << encrypt_
+                 << "\nMasterKeyConst UUID: " << const_mk_id_
+                 << "\nMasterKey UUID: " << master_key_uuid_
+                 << "\nMasterKey ID: " << master_key_id_;
 
-        if (do_recover)
+        if (force_reset){
+            log_info << "GCache ring buffer forced reset";
+            reset();
+        }
+        else if (do_recover)
         {
             if (gid_ != gu::UUID())
             {
@@ -776,6 +1078,7 @@ namespace gcache
         uint8_t* segment_start(start_);
         uint8_t* segment_end(end_ - sizeof(BufferHeader));
 
+        mmap_.set_access_mode(gu::IMMap::READ);
         /* start at offset (first segment) if we know it and it is valid */
         if (offset >= 0)
         {
@@ -1029,6 +1332,7 @@ namespace gcache
             dump_map();
         }
 
+        mmap_.set_access_mode(gu::IMMap::READ_WRITE);
         return erase_up_to;
     }
 
