@@ -20,21 +20,30 @@
 
 void my_write_libcoredumper(int sig, const char *path, time_t curr_time) {
   int ret = 0;
-  char suffix[512];
-  char core[512];
+  static constexpr std::size_t buf_size = 512;
+  char suffix[buf_size];
+  char core[buf_size];
+  memset(suffix, '\0', buf_size);
+  memset(core, '\0', buf_size);
   struct tm *timeinfo = gmtime(&curr_time);
-  if (path == NULL)
+
+  if (path == nullptr)
     strcpy(core, "core");
   else
-    strcpy(core, path);
+    strncpy(core, path, buf_size - 1);
+
   sprintf(suffix, ".%d%02d%02d%02d%02d%02d", (1900 + timeinfo->tm_year),
       timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour,
       timeinfo->tm_min, timeinfo->tm_sec);
-  strcat(core, suffix);
-  fprintf(stderr, "CORE PATH: %s\n\n", core);
+  strncat(core, suffix, buf_size - strlen(core) - 1);
+  static constexpr auto core_msg = "CORE PATH: ";
+  write(STDERR_FILENO, core_msg, strlen(core_msg));
+  write(STDERR_FILENO, core, strlen(core));
+  write(STDERR_FILENO, "\n\n", 2);
   ret = WriteCoreDump(core);
   if (ret != 0) {
-    fprintf(stderr, "Error writting coredump: %d Signal: %d\n", ret, sig);
+    static constexpr auto err_msg = "Error writing coredump.";
+    write(STDERR_FILENO, err_msg, strlen(err_msg));
   }
 }
 
@@ -160,7 +169,7 @@ main (int argc, char* argv[])
 {
     Config config(argc, argv);
 #if defined(WITH_COREDUMPER) && WITH_COREDUMPER
-    if(!config.coredumper().empty()) {
+    if (!config.coredumper().empty()) {
       set_coredumper_signals(config.coredumper());
     }
 #endif
