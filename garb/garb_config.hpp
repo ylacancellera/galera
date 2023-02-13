@@ -28,6 +28,9 @@ public:
     const std::string& cfg()     const { return cfg_    ; }
     const std::string& log()     const { return log_    ; }
     const std::string& workdir() const { return workdir_; }
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+    const std::string& coredumper() const { return coredumper_; }
+#endif
     bool               exit()    const { return exit_   ; }
     const std::string& recv_script() const { return recv_script_    ; }
 
@@ -44,6 +47,9 @@ private:
     std::string cfg_;
     std::string recv_script_;
     std::string workdir_;
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+    std::string coredumper_;
+#endif
     bool exit_; /* Exit on --help or --version */
 
 }; /* class Config */

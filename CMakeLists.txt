@@ -33,6 +33,7 @@ option(GALERA_VERSION_SCRIPT "Limit symbols visible from Galera DSO" ON)
 option(GALERA_STATIC "Build statically linked binaries" OFF)
 option(GALERA_SOURCE
   "Configure for source package only, skipping build configuration" OFF)
+option(WITH_COREDUMPER "Build garbd with coredumper" ON)
 
 # Developer options and instrumentation.
 option(GALERA_WITH_ASAN "Enable ASAN instrumentation" OFF)

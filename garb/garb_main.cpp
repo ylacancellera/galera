@@ -13,6 +13,80 @@
 #include <thread>
 #include <chrono>
 
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+#include "coredumper/coredumper.h"
+
+#include <signal.h>
+
+void my_write_libcoredumper(int sig, const char *path, time_t curr_time) {
+  int ret = 0;
+  static constexpr std::size_t buf_size = 512;
+  char suffix[buf_size];
+  char core[buf_size];
+  memset(suffix, '\0', buf_size);
+  memset(core, '\0', buf_size);
+  struct tm *timeinfo = gmtime(&curr_time);
+
+  if (path == nullptr)
+    strcpy(core, "core");
+  else
+    strncpy(core, path, buf_size - 1);
+
+  sprintf(suffix, ".%d%02d%02d%02d%02d%02d", (1900 + timeinfo->tm_year),
+      timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour,
+      timeinfo->tm_min, timeinfo->tm_sec);
+  strncat(core, suffix, buf_size - strlen(core) - 1);
+  static constexpr auto core_msg = "CORE PATH: ";
+  write(STDERR_FILENO, core_msg, strlen(core_msg));
+  write(STDERR_FILENO, core, strlen(core));
+  write(STDERR_FILENO, "\n\n", 2);
+  ret = WriteCoreDump(core);
+  if (ret != 0) {
+    static constexpr auto err_msg = "Error writing coredump.";
+    write(STDERR_FILENO, err_msg, strlen(err_msg));
+  }
+}
+
+std::string coredumper_core_path;
+
+extern "C" void handle_fatal_signal(int sig) {
+  my_write_libcoredumper(sig, coredumper_core_path.c_str(), time(nullptr));
+  _exit(1);  // Using _exit(), since exit() is not async
+             // signal safe
+}
+
+extern "C" {
+  static void empty_signal_handler(int sig [[maybe_unused]]) {
+  }
+
+  void set_coredumper_signals(std::string const& core_path) {
+    coredumper_core_path = core_path;
+
+    // init signal handler to use coredumper
+    struct sigaction sa;
+    (void)sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESETHAND | SA_NODEFER;
+    sa.sa_handler = handle_fatal_signal;
+    // Treat these as fatal and handle them.
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGSEGV, &sa, nullptr);
+    sa.sa_handler = empty_signal_handler;
+    (void)sigaction(SIGALRM, &sa, nullptr);
+    sa.sa_handler = SIG_DFL;
+    (void)sigaction(SIGTERM, &sa, nullptr);
+    (void)sigaction(SIGHUP, &sa, nullptr);
+    (void)sigaction(SIGUSR1, &sa, nullptr);
+    // Ignore SIGPIPE
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+    (void)sigaction(SIGPIPE, &sa, nullptr);
+  }
+}
+#endif
+
 namespace garb
 {
 
@@ -94,6 +168,11 @@ int
 main (int argc, char* argv[])
 {
     Config config(argc, argv);
+#if defined(WITH_COREDUMPER) && WITH_COREDUMPER
+    if (!config.coredumper().empty()) {
+      set_coredumper_signals(config.coredumper());
+    }
+#endif
     if (config.exit()) return 0;
 
     log_info << "Read config: " <<  config << std::endl;

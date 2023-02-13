@@ -46,3 +46,12 @@ if (NOT ${CMAKE_SYSTEM_NAME} MATCHES ".*BSD")
     ${PROJECT_SOURCE_DIR}/man/garbd.8
     DESTINATION man/man8)
 endif()
+
+if(WITH_COREDUMPER)
+  target_link_libraries( garbd coredumper )
+  target_compile_definitions(garbd
+    PRIVATE
+    -DWITH_COREDUMPER=1
+  )
+
+endif()
