@@ -477,7 +477,7 @@ void EncMMap::set_key(const std::string& key) {
 
     lock();
     assert(key.length() >= Aes_ctr_encryptor::FILE_KEY_LENGTH);
-    unsigned char *kkey = (unsigned char*)key.c_str();
+    unsigned const char *kkey = (unsigned const char*)key.c_str();
     encryptor_.close();
     decryptor_.close();
     encryptor_.open(kkey, iv);
