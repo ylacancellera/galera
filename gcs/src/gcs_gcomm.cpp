@@ -195,6 +195,7 @@ public:
 
     ~GCommConn()
     {
+<<<<<<< HEAD
         // We cannot call gcs_close() to perform cleanup if there is an
         // exception. So, we need to explicity free the objects in the
         // destructor.
@@ -222,6 +223,10 @@ public:
         {
             mutex_.unlock();
         }
+||||||| 63116854
+=======
+        delete tp_;
+>>>>>>> codership/galera/4.x
         delete net_;
     }
 

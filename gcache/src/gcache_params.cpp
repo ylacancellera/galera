@@ -42,15 +42,22 @@ static const std::string GCACHE_DEFAULT_ENCRYPTION_CACHE_SIZE("16777216");  // 5
 void
 gcache::GCache::Params::register_params(gu::Config& cfg)
 {
-    cfg.add(GCACHE_PARAMS_DIR,             GCACHE_DEFAULT_DIR);
-    cfg.add(GCACHE_PARAMS_RB_NAME,         GCACHE_DEFAULT_RB_NAME);
-    cfg.add(GCACHE_PARAMS_MEM_SIZE,        GCACHE_DEFAULT_MEM_SIZE);
-    cfg.add(GCACHE_PARAMS_RB_SIZE,         GCACHE_DEFAULT_RB_SIZE);
-    cfg.add(GCACHE_PARAMS_PAGE_SIZE,       GCACHE_DEFAULT_PAGE_SIZE);
-    cfg.add(GCACHE_PARAMS_KEEP_PAGES_SIZE, GCACHE_DEFAULT_KEEP_PAGES_SIZE);
+    cfg.add(GCACHE_PARAMS_DIR, GCACHE_DEFAULT_DIR,
+            gu::Config::Flag::read_only);
+    cfg.add(GCACHE_PARAMS_RB_NAME, GCACHE_DEFAULT_RB_NAME,
+            gu::Config::Flag::read_only);
+    cfg.add(GCACHE_PARAMS_MEM_SIZE, GCACHE_DEFAULT_MEM_SIZE,
+            gu::Config::Flag::type_integer);
+    cfg.add(GCACHE_PARAMS_RB_SIZE, GCACHE_DEFAULT_RB_SIZE,
+            gu::Config::Flag::read_only | gu::Config::Flag::type_integer);
+    cfg.add(GCACHE_PARAMS_PAGE_SIZE, GCACHE_DEFAULT_PAGE_SIZE,
+            gu::Config::Flag::type_integer);
+    cfg.add(GCACHE_PARAMS_KEEP_PAGES_SIZE, GCACHE_DEFAULT_KEEP_PAGES_SIZE,
+            gu::Config::Flag::type_integer);
 #ifndef NDEBUG
     cfg.add(GCACHE_PARAMS_DEBUG,           GCACHE_DEFAULT_DEBUG);
 #endif
+<<<<<<< HEAD
     cfg.add(GCACHE_PARAMS_RECOVER,         GCACHE_DEFAULT_RECOVER);
 #ifdef PXC
     cfg.add(GCACHE_PARAMS_KEEP_PAGES_COUNT, GCACHE_DEFAULT_KEEP_PAGES_COUNT);
@@ -59,6 +66,12 @@ gcache::GCache::Params::register_params(gu::Config& cfg)
     cfg.add(GCACHE_PARAMS_ENCRYPTION, GCACHE_DEFAULT_ENCRYPTION);
     cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_PAGE_SIZE);
     cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_SIZE);
+||||||| 63116854
+    cfg.add(GCACHE_PARAMS_RECOVER,         GCACHE_DEFAULT_RECOVER);
+=======
+    cfg.add(GCACHE_PARAMS_RECOVER, GCACHE_DEFAULT_RECOVER,
+            gu::Config::Flag::read_only | gu::Config::Flag::type_bool);
+>>>>>>> codership/galera/4.x
 }
 
 static const std::string
