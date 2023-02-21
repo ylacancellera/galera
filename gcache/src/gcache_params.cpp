@@ -57,21 +57,20 @@ gcache::GCache::Params::register_params(gu::Config& cfg)
 #ifndef NDEBUG
     cfg.add(GCACHE_PARAMS_DEBUG,           GCACHE_DEFAULT_DEBUG);
 #endif
-<<<<<<< HEAD
-    cfg.add(GCACHE_PARAMS_RECOVER,         GCACHE_DEFAULT_RECOVER);
-#ifdef PXC
-    cfg.add(GCACHE_PARAMS_KEEP_PAGES_COUNT, GCACHE_DEFAULT_KEEP_PAGES_COUNT);
-    cfg.add(GCACHE_PARAMS_FREEZE_PURGE_SEQNO, GCACHE_DEFAULT_FREEZE_PURGE_SEQNO);
-#endif /* PXC */
-    cfg.add(GCACHE_PARAMS_ENCRYPTION, GCACHE_DEFAULT_ENCRYPTION);
-    cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_PAGE_SIZE);
-    cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_SIZE);
-||||||| 63116854
-    cfg.add(GCACHE_PARAMS_RECOVER,         GCACHE_DEFAULT_RECOVER);
-=======
     cfg.add(GCACHE_PARAMS_RECOVER, GCACHE_DEFAULT_RECOVER,
             gu::Config::Flag::read_only | gu::Config::Flag::type_bool);
->>>>>>> codership/galera/4.x
+#ifdef PXC
+    cfg.add(GCACHE_PARAMS_KEEP_PAGES_COUNT, GCACHE_DEFAULT_KEEP_PAGES_COUNT,
+            gu::Config::Flag::type_integer);
+    cfg.add(GCACHE_PARAMS_FREEZE_PURGE_SEQNO, GCACHE_DEFAULT_FREEZE_PURGE_SEQNO,
+            gu::Config::Flag::type_integer);
+#endif /* PXC */
+    cfg.add(GCACHE_PARAMS_ENCRYPTION, GCACHE_DEFAULT_ENCRYPTION,
+            gu::Config::Flag::read_only | gu::Config::Flag::type_bool);
+    cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_PAGE_SIZE,
+            gu::Config::Flag::read_only | gu::Config::Flag::type_integer);
+    cfg.add(GCACHE_PARAMS_ENCRYPTION_CACHE_SIZE, GCACHE_DEFAULT_ENCRYPTION_CACHE_SIZE,
+            gu::Config::Flag::read_only | gu::Config::Flag::type_integer);
 }
 
 static const std::string

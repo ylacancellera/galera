@@ -61,6 +61,10 @@ namespace gcomm
         static const int BasePort = gu::Config::Flag::read_only |
                                     gu::Config::Flag::type_integer;
 
+#ifdef PXC
+        static const int BaseDir = 0;
+#endif
+
         static const int ProtonetBackend = gu::Config::Flag::read_only;
         static const int ProtonetVersion = gu::Config::Flag::read_only;
 

@@ -495,11 +495,6 @@ protected:
         ec_ = asio::error::timed_out;
         return traits_type::eof();
       }
-<<<<<<< HEAD
-      setp(put_buffer_.data(), put_buffer_.data() + put_buffer_.size());
-||||||| 63116854
-      setp(&put_buffer_[0], &put_buffer_[0] + put_buffer_.size());
-=======
 
       // Try to complete the operation without blocking.
       if (!socket().native_non_blocking())
@@ -529,8 +524,7 @@ protected:
 
     if (!put_buffer_.empty())
     {
-      setp(&put_buffer_[0], &put_buffer_[0] + put_buffer_.size());
->>>>>>> codership/galera/4.x
+      setp(put_buffer_.data(), put_buffer_.data() + put_buffer_.size());
 
       // If the new character is eof then our work here is done.
       if (traits_type::eq_int_type(c, traits_type::eof()))

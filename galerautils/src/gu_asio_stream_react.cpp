@@ -946,65 +946,7 @@ void gu::AsioAcceptorReact::accept_handler(
     }
 
     socket->connected_ = true;
-<<<<<<< HEAD
-    auto result(socket->engine_->server_handshake());
-    switch (result)
-    {
-    case AsioStreamEngine::success:
-        handler->accept_handler(*this, socket, AsioErrorCode());
-        break;
-    case AsioStreamEngine::want_read:
-        socket->start_async_read(&AsioStreamReact::server_handshake_handler,
-                                 shared_from_this(),
-                                 handler);
-        break;
-    case AsioStreamEngine::want_write:
-        socket->start_async_write(&AsioStreamReact::server_handshake_handler,
-                                  shared_from_this(),
-                                  handler);
-        break;
-    case AsioStreamEngine::error:
-        log_warn << "Handshake failed: "
-                 << socket->engine_->last_error();
-        __attribute__((fallthrough));
-    case AsioStreamEngine::eof:
-        // Continue accepting transparently if socket handshake fails.
-        // From user handler point of view this connection never existed
-        // and it will go out of scope when this handler returns.
-        async_accept(handler);
-        break;
-    }
-||||||| 63116854
-    auto result(socket->engine_->server_handshake());
-    switch (result)
-    {
-    case AsioStreamEngine::success:
-        handler->accept_handler(*this, socket, AsioErrorCode());
-        break;
-    case AsioStreamEngine::want_read:
-        socket->start_async_read(&AsioStreamReact::server_handshake_handler,
-                                 shared_from_this(),
-                                 handler);
-        break;
-    case AsioStreamEngine::want_write:
-        socket->start_async_write(&AsioStreamReact::server_handshake_handler,
-                                  shared_from_this(),
-                                  handler);
-        break;
-    case AsioStreamEngine::error:
-        log_warn << "Handshake failed: "
-                 << socket->engine_->last_error();
-        // Fall through
-    case AsioStreamEngine::eof:
-        // Continue accepting transparently if socket handshake fails.
-        // From user handler point of view this connection never existed
-        // and it will go out of scope when this handler returns.
-        async_accept(handler);
-        break;
-    }
-=======
     // Necessary async reads/writes/waits are done within
     // server_handshake_handler().
     socket->server_handshake_handler(shared_from_this(), handler, ec);
->>>>>>> codership/galera/4.x
 }
