@@ -69,9 +69,16 @@ target_link_libraries(galerautils
   ${GALERA_SYSTEM_LIBS})
 
 add_library(galerautilsxx STATIC
+  enc_stream_cipher.cpp
   gu_vlq.cpp
   gu_datetime.cpp
   gu_gtid.cpp
+  gu_enc_debug.cpp
+  gu_enc_mmap.cpp
+  gu_enc_mmap_factory.cpp
+  gu_enc_pmemory_manager.cpp
+  gu_enc_pmemory_manager_pool.cpp
+  gu_enc_utils.cpp
   gu_exception.cpp
   gu_hexdump.cpp
   gu_serialize.cpp

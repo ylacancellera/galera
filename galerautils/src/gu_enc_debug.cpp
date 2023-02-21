@@ -61,6 +61,7 @@ static const char* get_prefix(DebugLevel level, size_t* prefix_len) {
     return format;
 }
 
+__attribute__ ((format (printf, 2, 0)))
 void swrite(DebugLevel level, const char* format, ...)
 {
     static const size_t buffer_len = 8*1024;

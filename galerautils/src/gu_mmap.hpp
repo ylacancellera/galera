@@ -50,7 +50,7 @@ public:
     void sync() const override;
     void unmap() override;
     void set_key(const std::string& key) override {}
-    void set_access_mode(AccessMode mode) override {};
+    void set_access_mode(AccessMode mode) override {}
 
 private:
 
