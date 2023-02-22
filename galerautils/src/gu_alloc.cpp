@@ -227,9 +227,12 @@ static const std::string ALLOCATOR_DEFAULT_ENCRYPTION_CACHE_SIZE("16777216");  /
 
 void gu::Allocator::register_params(gu::Config& conf)
 {
-    conf.add(ALLOCATOR_PARAMS_DISK_PAGES_ENCRYPTION, ALLOCATOR_DEFAULT_DISK_PAGES_ENCRYPTION);
-    conf.add(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE, ALLOCATOR_DEFAULT_ENCRYPTION_CACHE_PAGE_SIZE);
-    conf.add(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_SIZE, ALLOCATOR_DEFAULT_ENCRYPTION_CACHE_SIZE);
+    conf.add(ALLOCATOR_PARAMS_DISK_PAGES_ENCRYPTION, ALLOCATOR_DEFAULT_DISK_PAGES_ENCRYPTION,
+             gu::Config::Flag::read_only | gu::Config::Flag::type_bool);
+    conf.add(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_PAGE_SIZE, ALLOCATOR_DEFAULT_ENCRYPTION_CACHE_PAGE_SIZE,
+             gu::Config::Flag::read_only | gu::Config::Flag::type_integer);
+    conf.add(ALLOCATOR_PARAMS_ENCRYPTION_CACHE_SIZE, ALLOCATOR_DEFAULT_ENCRYPTION_CACHE_SIZE,
+             gu::Config::Flag::read_only | gu::Config::Flag::type_integer);
 }
 
 // We can do it this way as these parameters cannot be changed in runtime
