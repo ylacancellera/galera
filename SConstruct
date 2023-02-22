@@ -351,6 +351,8 @@ int main()
     return 0;
 }
 
+#error Forcing bundled ASIO to be used always!
+
 """
     context.Message('Checking ASIO version (>= 1.10.8 and < 1.11.0) ... ')
     result = context.TryLink(system_asio_test_source_file, '.cpp')
