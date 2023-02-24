@@ -46,13 +46,15 @@ static const size_t CACHE_ALLOC_PAGES_MIN = 2;
 static const size_t CACHE_ALLOC_PAGES_MAX = 512;
 
 #define CLEAR_BUFFERS 0
+#if CLEAR_BUFFERS
 static const unsigned char FREE_PAGE_PATTERN = 0xAB;
 static const unsigned char ALLOCATED_PAGE_PATTERN = 0xED;
+#endif
 
 static inline std::size_t getCpuPageSize() {
     static const std::size_t nbytes = sysconf(_SC_PAGESIZE);
     return nbytes;
-};
+}
 
 PMemoryManager::PMemoryManager(size_t size, size_t alloc_page_size)
 : create_size_(size)  // Actual size may differ because of limits

@@ -32,7 +32,7 @@
 
 namespace gu {
 
-class PPage;
+struct PPage;
 class PMemoryManager;
 
 void dump_mappings();
@@ -44,7 +44,7 @@ public:
     EncMMap(const std::string &key, std::shared_ptr<MMap> mmap,
             size_t cache_page_size, size_t cache_size, bool sync_on_destroy = false,
             size_t encryptionStartOffset = 0);
-    ~EncMMap();
+    ~EncMMap() override;
 
     EncMMap(const EncMMap&) = delete;
     EncMMap operator=(const EncMMap&) = delete;
@@ -91,7 +91,7 @@ private:
     size_t encryption_start_offset_;
     int default_page_protection_;
     size_t read_ahead_cnt_;
-    mutable std::atomic_flag lock_;
+    mutable std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
     mutable Aes_ctr_encryptor encryptor_;
     mutable Aes_ctr_decryptor decryptor_;
     bool sync_on_destroy_;

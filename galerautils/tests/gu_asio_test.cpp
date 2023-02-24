@@ -1310,7 +1310,7 @@ public:
         }
         else if (errno == EAGAIN)
         {
-            static_assert(EAGAIN == EWOULDBLOCK);
+            static_assert(EAGAIN == EWOULDBLOCK, "EAGAIN and EWOULDBLOCK are the same");
             last_error_ = errno;
             return {return_on_block, size_t(result)};
         }

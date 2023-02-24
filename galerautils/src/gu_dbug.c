@@ -85,6 +85,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include "gu_macros.h"
 
 #ifndef GU_DBUG_ON
 #define GU_DBUG_ON
@@ -1673,7 +1674,7 @@ CloseFile(FILE * fp)
  *
  */
 
-static void
+GU_NORETURN static void
 DbugExit(const char *why)
 {
     (void) fprintf(stderr, ERR_ABORT, _gu_db_process_, why);

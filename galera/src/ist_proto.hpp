@@ -638,8 +638,8 @@ namespace galera
                         (msg_type == Message::T_CCHANGE ?
                          GCS_ACT_CCHANGE : GCS_ACT_WRITESET);
 
-                    const void* wbuf;
-                    ssize_t     wsize;
+                    const void* wbuf = nullptr;
+                    ssize_t     wsize = 0;
                     bool        already_cached(false);
 
                     // Check if cert index preload trx is already in gcache.

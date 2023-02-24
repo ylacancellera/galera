@@ -37,13 +37,13 @@ void my_write_libcoredumper(int sig, const char *path, time_t curr_time) {
       timeinfo->tm_min, timeinfo->tm_sec);
   strncat(core, suffix, buf_size - strlen(core) - 1);
   static constexpr auto core_msg = "CORE PATH: ";
-  write(STDERR_FILENO, core_msg, strlen(core_msg));
-  write(STDERR_FILENO, core, strlen(core));
-  write(STDERR_FILENO, "\n\n", 2);
+  (void)write(STDERR_FILENO, core_msg, strlen(core_msg));
+  (void)write(STDERR_FILENO, core, strlen(core));
+  (void)write(STDERR_FILENO, "\n\n", 2);
   ret = WriteCoreDump(core);
   if (ret != 0) {
     static constexpr auto err_msg = "Error writing coredump.";
-    write(STDERR_FILENO, err_msg, strlen(err_msg));
+    (void)write(STDERR_FILENO, err_msg, strlen(err_msg));
   }
 }
 
