@@ -64,3 +64,19 @@ add_definitions(-DPXC)
 if (GALERA_PSI_INTERFACE)
   add_definitions(-DWITH_PSI_INTERFACE)
 endif()
+
+
+#
+# Instead using -Wno-some-flag we can use this macro to remove -Wsome-flag from compiler flags
+# usage: remove_compile_flags(-Wvla -Wextra-semi)
+#
+MACRO (remove_compile_flags)
+  FOREACH (flag ${ARGN})
+    IF(CMAKE_C_FLAGS MATCHES ${flag})
+      STRING(REGEX REPLACE "${flag}( |$)" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    ENDIF(CMAKE_C_FLAGS MATCHES ${flag})
+    IF(CMAKE_CXX_FLAGS MATCHES ${flag})
+      STRING(REGEX REPLACE "${flag}( |$)" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    ENDIF(CMAKE_CXX_FLAGS MATCHES ${flag})
+  ENDFOREACH (flag)
+ENDMACRO (remove_compile_flags)

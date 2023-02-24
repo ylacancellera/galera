@@ -92,7 +92,7 @@ void swrite(DebugLevel level, const char* format, ...)
     // actual message
     vsnprintf(buffer + offset, buffer_len - offset, format, args);
 
-    (void) write(STDERR_FILENO, buffer, strlen(buffer));
+    [[maybe_unused]] auto r = write(STDERR_FILENO, buffer, strlen(buffer));
     va_end(args);
 }
 
