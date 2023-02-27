@@ -80,3 +80,22 @@ MACRO (remove_compile_flags)
     ENDIF(CMAKE_CXX_FLAGS MATCHES ${flag})
   ENDFOREACH (flag)
 ENDMACRO (remove_compile_flags)
+
+
+#
+# Append flags CMAKE_C_FLAGS to CMAKE_CXX_FLAGS if supported by compiler
+# usage: append_cflags_if_supported(-Wno-return-stack-address)
+#
+MACRO (append_cflags_if_supported)
+  FOREACH (flag ${ARGN})
+    STRING (REGEX REPLACE "-" "_" temp_flag ${flag})
+    check_c_compiler_flag (${flag} HAVE_C_${temp_flag})
+    IF (HAVE_C_${temp_flag})
+      SET (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flag}")
+    ENDIF ()
+    check_cxx_compiler_flag (${flag} HAVE_CXX_${temp_flag})
+    IF (HAVE_CXX_${temp_flag})
+      SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flag}")
+    ENDIF ()
+  ENDFOREACH (flag)
+ENDMACRO (append_cflags_if_supported)

@@ -108,6 +108,10 @@ endif()
 # Suppress warnings for all clang versions
 IF(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   remove_compile_flags(-Wdeprecated -Wdeprecated-dynamic-exception-spec -Winconsistent-missing-destructor-override -Wshadow-field -Wheader-hygiene)
+  # fix clang-12 issue: galerautils/src/gu_deqmap.hpp:505:20: error: returning address of local temporary object [-Werror,-Wreturn-stack-address]
+  IF(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+    append_cflags_if_supported(-Wno-return-stack-address)
+  ENDIF()
 ENDIF()
 
 add_subdirectory(galerautils)

@@ -231,7 +231,7 @@ public:
 #else
                 ret = (lhs[2] == rhs[2] && lhs[3] == rhs[3]);
 #endif /* WORDSIZE */
-                __attribute((fallthrough));
+                [[fallthrough]];
             case FLAT8:
             case FLAT8A:
                 /* shift is to clear up the header */

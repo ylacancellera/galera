@@ -808,7 +808,7 @@ namespace galera
                     return is_local_;
 #endif /* PXC */
                     // in case of remote trx fall through
-                    __attribute__((fallthrough));
+                    [[fallthrough]];
                 case NO_OOOC:
                     return (last_left + 1 == global_seqno_);
                 }
