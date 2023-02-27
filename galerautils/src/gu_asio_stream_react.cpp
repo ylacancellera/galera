@@ -419,7 +419,7 @@ void gu::AsioStreamReact::complete_server_handshake(
         break;
     case AsioStreamEngine::error:
         log_warn << "Handshake failed: " << engine_->last_error();
-        __attribute__((fallthrough));
+        [[fallthrough]];
     case AsioStreamEngine::eof:
         // Restart accepting transparently. The socket will go out of
         // scope and will be destructed.

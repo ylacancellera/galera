@@ -711,7 +711,7 @@ namespace galera
                     case Message::T_CCHANGE:
                         act.buf  = wbuf;           // not skip
                         act.size = wsize;
-                        __attribute((fallthrough));
+                        [[fallthrough]];
                     case Message::T_SKIP:
                         act.seqno_g = msg.seqno(); // not EOF
                         act.type    = gcs_type;
