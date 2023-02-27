@@ -92,14 +92,13 @@ void swrite(DebugLevel level, const char* format, ...)
     // actual message
     vsnprintf(buffer + offset, buffer_len - offset, format, args);
 
-    write(STDERR_FILENO, buffer, strlen(buffer));
+    [[maybe_unused]] auto r = write(STDERR_FILENO, buffer, strlen(buffer));
     va_end(args);
 }
 
 void dump_memory(void *ptr, size_t size) {
     S_DEBUG_N("DUMP START x%llX, size: %ld", (unsigned long long)ptr, size);
-    unsigned char *p = (unsigned char*)ptr;
-    p = p;  // make the compile happy when debug macros are disabled
+    [[maybe_unused]] unsigned char *p = (unsigned char*)ptr;
     for (size_t i = 0; i < size; ++i) {
         if(i%16==0) {
             S_DEBUG_N("\n");

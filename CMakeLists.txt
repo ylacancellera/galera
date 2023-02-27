@@ -105,6 +105,11 @@ if(DEFINED WITH_PERFSCHEMA_STORAGE_ENGINE)
   add_definitions(-DHAVE_PSI_INTERFACE=1)
 endif()
 
+# Suppress warnings for all clang versions
+IF(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  remove_compile_flags(-Wdeprecated -Wdeprecated-dynamic-exception-spec -Winconsistent-missing-destructor-override -Wshadow-field -Wheader-hygiene)
+ENDIF()
+
 add_subdirectory(galerautils)
 add_subdirectory(garb)
 add_subdirectory(gcomm)

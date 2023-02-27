@@ -1073,7 +1073,6 @@ namespace gcache
         seqno_t seqno_max(SEQNO_ILL);
         uint8_t* ptr;
         BufferHeader* bh;
-        size_t collision_count(0);
         seqno_t erase_up_to(-1);
         uint8_t* segment_start(start_);
         uint8_t* segment_end(end_ - sizeof(BufferHeader));
@@ -1133,8 +1132,6 @@ namespace gcache
 
                     if (gu_unlikely(collision))
                     {
-                        collision_count++;
-
                         /* compare two buffers */
                         seqno2ptr_t::const_reference old_ptr
                             (seqno2ptr_[seqno_g]);
@@ -1607,7 +1604,7 @@ namespace gcache
 
         chain_t chain(NONE);
         const uint8_t* chain_start = nullptr;
-        size_t count;
+        size_t count = 0;
 
         bool next(false);
         const uint8_t* ptr(start_);

@@ -18,6 +18,30 @@
 
 #include <signal.h>
 
+/**
+   Copies strlen(src) characters of source to destination.
+   If strlen(src) is equal or bigger than num then dst will be truncated.
+   The null-character is always appended at the end of destination.
+   Destination is not padded with zeros until a total of num characters.
+
+   @param dst   Destination
+   @param src   Source
+   @param n     Maximum number of characters to copy.
+
+   @return pointer to Destination is returned.
+*/
+static inline char *my_strncpy_trunc(char *dst, const char *src, size_t num) {
+  size_t len = strlen(src);
+  if (len >= num) {
+    len = num - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+  } else {
+    memcpy(dst, src, len + 1);
+  }
+  return dst;
+}
+
 void my_write_libcoredumper(int sig, const char *path, time_t curr_time) {
   int ret = 0;
   static constexpr std::size_t buf_size = 512;
@@ -35,15 +59,17 @@ void my_write_libcoredumper(int sig, const char *path, time_t curr_time) {
   sprintf(suffix, ".%d%02d%02d%02d%02d%02d", (1900 + timeinfo->tm_year),
       timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour,
       timeinfo->tm_min, timeinfo->tm_sec);
-  strncat(core, suffix, buf_size - strlen(core) - 1);
+
+  size_t core_len = strlen(core);
+  my_strncpy_trunc(core + core_len, suffix, buf_size - core_len);
   static constexpr auto core_msg = "CORE PATH: ";
-  write(STDERR_FILENO, core_msg, strlen(core_msg));
-  write(STDERR_FILENO, core, strlen(core));
-  write(STDERR_FILENO, "\n\n", 2);
+  [[maybe_unused]] auto r = write(STDERR_FILENO, core_msg, strlen(core_msg));
+  r = write(STDERR_FILENO, core, strlen(core));
+  r = write(STDERR_FILENO, "\n\n", 2);
   ret = WriteCoreDump(core);
   if (ret != 0) {
     static constexpr auto err_msg = "Error writing coredump.";
-    write(STDERR_FILENO, err_msg, strlen(err_msg));
+    r = write(STDERR_FILENO, err_msg, strlen(err_msg));
   }
 }
 

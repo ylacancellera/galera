@@ -680,7 +680,7 @@ gu::AsioIoService::AsioIoService(const gu::Config& conf)
 gu::AsioIoService::~AsioIoService()
 {
     signal_connection_.disconnect();
-};
+}
 
 void gu::AsioIoService::handle_signal(const gu::Signals::SignalType& type)
 {

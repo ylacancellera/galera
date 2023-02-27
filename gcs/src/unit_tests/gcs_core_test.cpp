@@ -499,7 +499,7 @@ START_TEST (gcs_core_test_api)
     ck_assert(NULL != Core);
     ck_assert(NULL != Backend);
 
-    long     ret;
+    long     ret = 0;
     long     tout = 100; // 100 ms timeout
     const struct gu_buf* act = act3;
     const void* act_buf  = act3_str;

@@ -289,7 +289,6 @@ EncMMap::EncMMap(const std::string& key, std::shared_ptr<MMap> rawmmap,
 , encryption_start_offset_(encryption_start_offset)
 , default_page_protection_(PROT_READ | PROT_WRITE )
 , read_ahead_cnt_(0)
-, lock_(ATOMIC_FLAG_INIT)
 , encryptor_()
 , decryptor_()
 , sync_on_destroy_(sync_on_destroy) {
@@ -565,8 +564,8 @@ void EncMMap::handle_signal(siginfo_t* info) {
         // Page is not mapped. Find free one
         auto p = memory_manager_.alloc();
         if (!p) {
-            size_t freed_count = 0;
-            size_t flushed_count = 0;
+            [[maybe_unused]] size_t freed_count = 0;
+            [[maybe_unused]] size_t flushed_count = 0;
             unsigned char *vpage_start = nullptr;
 
             // free FLUSH_LIMIT pages, no more
@@ -663,7 +662,7 @@ void EncMMap::handle_signal(siginfo_t* info) {
 
         // read ahead
         // This is useful for GCache recovery when the whole buffer is scanned
-        size_t total_read_ahead = 0;
+        [[maybe_unused]] size_t total_read_ahead = 0;
         for (size_t i = 0; i < read_ahead_cnt_; ++i) {
             req_page_no = req_page_no+1 < pages_cnt_ ? req_page_no+1 : 0;
             // only not mapped pages
