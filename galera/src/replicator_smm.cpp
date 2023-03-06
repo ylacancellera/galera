@@ -3150,6 +3150,8 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
     /* Invalidate sst_seqno_ in case of group change. */
     if (state_uuid_ != group_uuid) sst_seqno_ = WSREP_SEQNO_UNDEFINED;
 
+    bool const mixed_ver_cluster(view_info->proto_ver < 4);
+
     if (conf.seqno <= sst_seqno_)
     {
         // contained already in SST, skip any further processing
@@ -3158,9 +3160,19 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
             // was not part of IST, don't discard
             cc_buf_discard.keep(conf.seqno);
         }
+
+        /* 5.7 does not generate new seqno for CC, so if we are in the
+           mixed version cluster (5.7 and 8.0 nodes) and nodes are:
+           node_1 (5.7), node_2 (8.0 - this node), node_3 (8.0 - just joining)
+           and there was no any DDL/DML between node_2 and node_3 join,
+           during node_3 join we still see the same conf.seqno as it was
+           recorded during node_2's SST. */
+        if (conf.seqno == sst_seqno_ && mixed_ver_cluster)
+        {
+            submit_ordered_view_info(recv_ctx, view_info.get());
+        }
         return;
     }
-
     log_info << "####### processing CC " << group_seqno
              << ", local"
              << (ordered ? ", ordered" : ", unordered");
@@ -3215,6 +3227,15 @@ void galera::ReplicatorSMM::process_prim_conf_change(void* recv_ctx,
         if (group_proto_version <= PROTO_VER_GALERA_3_MAX)
         {
             establish_protocol_versions(group_proto_version);
+        }
+
+        /* 5.7 does not store view info in the stable storage, so it cannot
+           be received via SST (check wsrep::server_state::sst_received()
+           implementation), and application expects view to be delivered
+           after SST. */
+        if (mixed_ver_cluster)
+        {
+            submit_ordered_view_info(recv_ctx, view_info.get());
         }
         return;
     }
