@@ -250,6 +250,8 @@ core_error (core_state_t state)
  * restart flag may be raised if configuration changes and new nodes are
  * added - that would require all previous members to resend partially sent
  * actions.
+ *
+ * @return negative error code, 0 in case of success.
  */
 static inline ssize_t
 core_msg_send (gcs_core_t*    core,
@@ -294,6 +296,8 @@ core_msg_send (gcs_core_t*    core,
 /*!
  * Repeats attempt at sending the message if -EAGAIN was returned
  * by core_msg_send()
+ *
+ * @return negative error code, 0 in case of success.
  */
 static inline ssize_t
 core_msg_send_retry (gcs_core_t*    core,

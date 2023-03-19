@@ -142,7 +142,7 @@ struct gcs_conn
     gcs_seqno_t  local_act_id; /* local seqno of the action */
     gcs_seqno_t  global_seqno;
 
-    /* A queue for threads waiting for replicated actions */
+    /* A queue for threads waiting for replicated actions (slave queue) */
     gcs_fifo_lite_t* repl_q;
     gu_thread_t      send_thread;
 
@@ -182,12 +182,24 @@ struct gcs_conn
         assert(stop_sent_ > 0);
         stop_sent_ -= val;
     }
-    long         stop_count;          // counts stop requests received
+    /*
+      How many STOPs - CONTs requests received, including those
+      the node has sent.
+     */
+    long         stop_count;
+
     long         queue_len;           // slave queue length
     long         upper_limit;         // upper slave queue limit
     long         lower_limit;         // lower slave queue limit
     long         fc_offset;           // offset for catchup phase
-    gcs_conn_state_t max_fc_state;    // maximum state when FC is enabled
+    /*
+      Maximum state when FC is enabled.
+
+      Currently it depends on sync_donor parameter only
+      (conn->params.sync_donor ? GCS_CONN_DONOR : GCS_CONN_JOINED),
+      but used in more generic way.
+     */
+    gcs_conn_state_t max_fc_state;
     long         stats_fc_stop_sent;  // FC stats counters
     long         stats_fc_cont_sent;  //
     long         stats_fc_received;   //
@@ -503,7 +515,12 @@ gcs_fc_stop_begin (gcs_conn_t* conn)
     return ret;
 }
 
-/* Complement to gcs_fc_stop_begin. */
+/*
+  Complement to gcs_fc_stop_begin.
+
+  Works just like gcs_fc_cont_end(), but does the opposite:
+  sends FC_STOP event, collects statistics and releases fc_lock.
+*/
 static inline int
 gcs_fc_stop_end (gcs_conn_t* conn)
 {
@@ -568,7 +585,12 @@ gcs_fc_cont_begin (gcs_conn_t* conn)
     return ret;
 }
 
-/* Complement to gcs_fc_cont_begin() */
+/*
+  Complement to gcs_fc_cont_begin().
+
+  Works just like gcs_fc_stop_end(), but does the opposite:
+  sends FC_CONT event, collects statistics and releases fc_lock.
+*/
 static inline int
 gcs_fc_cont_end (gcs_conn_t* conn)
 {

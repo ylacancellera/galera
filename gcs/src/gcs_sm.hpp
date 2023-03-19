@@ -30,8 +30,8 @@ gcs_sm_user_t;
 
 typedef struct gcs_sm_stats
 {
-    long long sample_start;// beginning of the sample period
-    long long pause_start; // start of the pause
+    long long sample_start;// beginning of the sample period (from the last flush)
+    long long pause_start; // start of the last pause
     long long paused_ns;     // total nanoseconds paused
     long long paused_sample; // paused_ns at the beginning of the sample
     long long send_q_samples;
@@ -498,7 +498,7 @@ gcs_sm_interrupt (gcs_sm_t* sm, long handle)
 }
 
 /*!
- * Each call to this function resets stats and starts new sampling interval
+ * Copies send monitor statistics to the variables
  *
  * @param q_len      current send queue length
  * @param q_len_avg  set to an average number of preceding users seen by each
@@ -518,7 +518,11 @@ gcs_sm_stats_get (gcs_sm_t*  sm,
                   long long* paused_ns,
                   double*    paused_avg);
 
-/*! resets average/max/min stats calculation */
+/*!
+ * Resets average/max/min stats calculation
+ *
+ * Each call to this function resets stats and starts new sampling interval.
+ */
 extern void
 gcs_sm_stats_flush(gcs_sm_t* sm);
 
