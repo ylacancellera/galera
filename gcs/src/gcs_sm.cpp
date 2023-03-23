@@ -26,7 +26,7 @@ sm_init_stats (gcs_sm_stats_t* stats)
 }
 
 gcs_sm_t*
-gcs_sm_create (long len, long n)
+gcs_sm_create (long len, long n, bool fc_auto_evict)
 {
     if ((len < 2 /* 2 is minimum */) || (len & (len - 1))) {
         gu_error ("Monitor length parameter is not a power of 2: %ld", len);
@@ -61,6 +61,8 @@ gcs_sm_create (long len, long n)
         sm->cc          = n; // concurrency param.
 #endif /* GCS_SM_CONCURRENCY */
         sm->pause       = false;
+        gcs_sm_enable_fc_auto_evict(sm, fc_auto_evict);
+        new (&sm->pauses_window) std::vector<long long>();
         sm->wait_time   = gu::datetime::Sec;
 
 #ifdef GCS_SM_DEBUG
@@ -72,6 +74,12 @@ gcs_sm_create (long len, long n)
     }
 
     return sm;
+}
+
+void
+gcs_sm_enable_fc_auto_evict(gcs_sm_t* sm, bool fc_auto_evict)
+{
+    sm->fc_auto_evict = fc_auto_evict;
 }
 
 long
@@ -137,7 +145,49 @@ gcs_sm_destroy (gcs_sm_t* sm)
 {
     gu_mutex_destroy(&sm->lock);
     gu_cond_destroy(&sm->cond);
+    sm->pauses_window.~vector();
     gu_free (sm);
+}
+
+long long
+gcs_sm_paused_in_window_get (gcs_sm_t* const sm, long long window_ns,
+                             bool erase_outdated)
+{
+    const long long now = gu_time_monotonic();
+    const long long window_start_ns = now - window_ns;
+
+    if (gu_unlikely(gu_mutex_lock (&sm->lock))) abort();
+
+    auto& window = sm->pauses_window;
+    const auto size = window.size();
+    assert(size % 2 == sm->pause);
+
+    long long total_ns = 0;
+    ssize_t i;
+    if (sm->pause) { // paused => handle the last pause separately,
+                     // start from the next pair
+        assert(window[size-1] == sm->stats.pause_start);
+        total_ns = now - sm->stats.pause_start;
+        i = size - 2;
+    } else { // not paused => num pauses == num conts,
+             // just start from the end
+        i = size - 1;
+    }
+    assert(i % 2); // there are pairs of pause and cont moments
+
+    for (; i > 0 && window[i] > window_start_ns; i -= 2) {
+        total_ns += window[i] - window[i-1]; // cont - pause
+    }
+
+    /* Remove outdated moments. We need to move all fresh elements, but
+       it seems good anyway, because window probably won't be big. */
+    if (erase_outdated && i > 0) {
+        window.erase(window.begin(), window.begin()+i+1);
+        assert(window.size() % 2 == sm->pause);
+    }
+
+    gu_mutex_unlock (&sm->lock);
+    return total_ns;
 }
 
 void
