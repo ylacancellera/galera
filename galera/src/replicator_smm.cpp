@@ -312,13 +312,29 @@ void galera::ReplicatorSMM::shift_to_CLOSED()
     /* Cleanup for re-opening. */
     uuid_ = WSREP_UUID_UNDEFINED;
     closing_ = false;
+
+    /* this is a synchronization hack to make sure all receivers are done
+     * with their work and won't access cert module any more. The usual
+     * monitor drain is not enough here. */
+
+    /* Wait up to 10 mins to avoid infinite waiting in case of
+       serious troubles. */
+
+    size_t wait_ms(10 * 60 * 1000);
+    while (receivers_() > 1 && wait_ms > 0)
+    {
+        // log every 30 secs
+        if (wait_ms % (30 * 1000) == 0)
+        {
+            log_info << "Waiting " << wait_ms / 1000 << " seconds"
+                     << " for " << receivers_() << " receivers to finish";
+        }
+        usleep(1000);
+        --wait_ms;
+    }
+
     if (st_.corrupt())
     {
-        /* this is a synchronization hack to make sure all receivers are done
-         * with their work and won't access cert module any more. The usual
-         * monitor drain is not enough here. */
-        while (receivers_() > 1) usleep(1000);
-
         // this should erase the memory of a pre-existing state.
         set_initial_position(WSREP_UUID_UNDEFINED, WSREP_SEQNO_UNDEFINED);
         cert_.assign_initial_position(gu::GTID(GU_UUID_NIL, -1),
@@ -466,7 +482,7 @@ wsrep_status_t galera::ReplicatorSMM::async_recv(void* recv_ctx)
 
         ssize_t rc;
 
-        while (gu_unlikely((rc = as_->process(recv_ctx, exit_loop))
+        while (gu_unlikely((state_() > S_CLOSED) && (rc = as_->process(recv_ctx, exit_loop))
                            == -ECANCELED))
         {
             recv_IST(recv_ctx);
@@ -543,7 +559,7 @@ wsrep_status_t galera::ReplicatorSMM::async_recv(void* recv_ctx)
         }
     }
 
-    log_debug << "Slave thread exit. Return code: " << retval;
+    log_info << "Slave thread exit. Return code: " << retval;
 
     return retval;
 }
