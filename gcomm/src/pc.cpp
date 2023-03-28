@@ -89,6 +89,12 @@ void gcomm::PC::connect(bool start_prim)
     const gu::datetime::Period wait_prim_timeout(
         param<gu::datetime::Period>(conf_, uri_, Conf::PcWaitPrimTimeout,
                                     Defaults::PcWaitPrimTimeout));
+    const gu::datetime::Period wait_restored_prim_timeout(
+        param<gu::datetime::Period>(conf_, uri_, Conf::PcWaitRestoredPrimTimeout,
+                                    Defaults::PcWaitRestoredPrimTimeout));
+
+    const gu::datetime::Period* wait_prim_timeout_p = &wait_prim_timeout;
+    std::string throw_message = Conf::PcWaitPrimTimeout;
 
     // --wsrep-new-cluster specified in command line
     // or cluster address as gcomm://0.0.0.0 or gcomm://
@@ -96,7 +102,16 @@ void gcomm::PC::connect(bool start_prim)
     if (start_prim) {
         log_info << "start_prim is enabled, turn off pc_recovery";
     } else if (rst_view_.type() == V_PRIM) {
-        wait_prim = false;
+        if (wait_restored_prim_timeout == gu::datetime::Period("PT0S")) {
+            wait_prim = false;
+            log_info << "pc.wait_restored_prim_timeout is set to 0. "
+                     << "The server will wait indefinitely to reach PC. "
+                     << "If this is undesirable, consider setting "
+                     << "pc.wait_restored_prim_timeout.";
+        } else {
+            wait_prim_timeout_p = &wait_restored_prim_timeout;
+            throw_message = Conf::PcWaitRestoredPrimTimeout;
+        }
     }
 
     pstack_.push_proto(gmcast_);
@@ -143,7 +158,7 @@ void gcomm::PC::connect(bool start_prim)
 
     // - Due to #658 we loop here only if node is told to start in prim.
     // - Fix for #680, bypass waiting prim only if explicitly required
-    try_until = gu::datetime::Date::monotonic() + wait_prim_timeout;
+    try_until = gu::datetime::Date::monotonic() + *wait_prim_timeout_p;
     while ((wait_prim == true || start_prim == true) &&
            pc_->state() != pc::Proto::S_PRIM)
     {
@@ -158,7 +173,7 @@ void gcomm::PC::connect(bool start_prim)
             pstack_.pop_proto(pc_);
             pstack_.pop_proto(evs_);
             pstack_.pop_proto(gmcast_);
-            gu_throw_error(ETIMEDOUT) << "failed to reach primary view (pc.wait_prim_timeout)";
+            gu_throw_error(ETIMEDOUT) << "failed to reach primary view (" << throw_message << ")";
         }
     }
 

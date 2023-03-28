@@ -120,6 +120,8 @@ std::string const gcomm::Conf::PcBootstrap = PcPrefix + "bootstrap";
 std::string const gcomm::Conf::PcWaitPrim = PcPrefix + "wait_prim";
 std::string const gcomm::Conf::PcWaitPrimTimeout =
     PcPrefix + "wait_prim_timeout";
+std::string const gcomm::Conf::PcWaitRestoredPrimTimeout =
+    PcPrefix + "wait_restored_prim_timeout";
 std::string const gcomm::Conf::PcWeight = PcPrefix + "weight";
 std::string const gcomm::Conf::PcRecovery = PcPrefix + "recovery";
 
@@ -188,6 +190,7 @@ gcomm::Conf::register_params(gu::Config& cnf)
     GCOMM_CONF_ADD        (PcBootstrap);
     GCOMM_CONF_ADD_DEFAULT(PcWaitPrim);
     GCOMM_CONF_ADD_DEFAULT(PcWaitPrimTimeout);
+    GCOMM_CONF_ADD_DEFAULT(PcWaitRestoredPrimTimeout);
     GCOMM_CONF_ADD_DEFAULT(PcWeight);
     GCOMM_CONF_ADD_DEFAULT(PcRecovery);
 
