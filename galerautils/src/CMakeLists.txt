@@ -73,12 +73,17 @@ add_library(galerautilsxx STATIC
   gu_vlq.cpp
   gu_datetime.cpp
   gu_gtid.cpp
+<<<<<<< HEAD
   gu_enc_debug.cpp
   gu_enc_mmap.cpp
   gu_enc_mmap_factory.cpp
   gu_enc_pmemory_manager.cpp
   gu_enc_pmemory_manager_pool.cpp
   gu_enc_utils.cpp
+||||||| 0f7af311
+=======
+  gu_event_service.cpp
+>>>>>>> release_26.4.14
   gu_exception.cpp
   gu_hexdump.cpp
   gu_serialize.cpp
