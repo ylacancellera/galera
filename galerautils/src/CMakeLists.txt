@@ -79,6 +79,7 @@ add_library(galerautilsxx STATIC
   gu_enc_pmemory_manager.cpp
   gu_enc_pmemory_manager_pool.cpp
   gu_enc_utils.cpp
+  gu_event_service.cpp
   gu_exception.cpp
   gu_hexdump.cpp
   gu_serialize.cpp
