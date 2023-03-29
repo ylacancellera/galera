@@ -61,22 +61,14 @@ namespace gcomm
         static const int BasePort = gu::Config::Flag::read_only |
                                     gu::Config::Flag::type_integer;
 
-<<<<<<< HEAD
 #ifdef PXC
         static const int BaseDir = 0;
 #endif
 
-        static const int ProtonetBackend = gu::Config::Flag::read_only;
-        static const int ProtonetVersion = gu::Config::Flag::read_only;
-||||||| 0f7af311
-        static const int ProtonetBackend = gu::Config::Flag::read_only;
-        static const int ProtonetVersion = gu::Config::Flag::read_only;
-=======
         static const int ProtonetBackend
             = gu::Config::Flag::read_only | gu::Config::Flag::deprecated;
         static const int ProtonetVersion
             = gu::Config::Flag::read_only | gu::Config::Flag::deprecated;
->>>>>>> release_26.4.14
 
         // Hidden because not documented / does not seem to be used?
         static const int TcpNonBlocking = gu::Config::Flag::hidden;
