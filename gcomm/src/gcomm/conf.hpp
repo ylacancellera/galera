@@ -411,6 +411,11 @@ namespace gcomm
         static std::string const PcWaitPrimTimeout;
 
         /*!
+         * @brief Timeout on waiting for restored primary component
+         */
+        static std::string const PcWaitRestoredPrimTimeout;
+
+        /*!
          * @brief Node weight in prim comp voting
          */
         static std::string const PcWeight;

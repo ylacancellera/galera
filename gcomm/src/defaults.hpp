@@ -51,6 +51,7 @@ namespace gcomm
         static std::string const PcVersion                ;
         static std::string const PcWaitPrim               ;
         static std::string const PcWaitPrimTimeout        ;
+        static std::string const PcWaitRestoredPrimTimeout;
         static std::string const PcWeight                 ;
         static std::string const PcRecovery               ;
     };
@@ -138,6 +139,8 @@ namespace gcomm
                                                 gu::Config::Flag::type_bool;
         static const int PcWaitPrimTimeout    = gu::Config::Flag::read_only |
                                                 gu::Config::Flag::type_duration;
+        static const int PcWaitRestoredPrimTimeout    = gu::Config::Flag::read_only |
+                                                        gu::Config::Flag::type_duration;
         static const int PcWeight             = gu::Config::Flag::type_integer;
         static const int PcRecovery           = gu::Config::Flag::read_only |
                                                 gu::Config::Flag::type_bool;

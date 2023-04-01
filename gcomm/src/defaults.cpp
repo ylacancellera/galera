@@ -58,6 +58,7 @@ namespace gcomm
     std::string const Defaults::PcVersion               = "0";
     std::string const Defaults::PcWaitPrim              = "true";
     std::string const Defaults::PcWaitPrimTimeout       = "PT30S";
+    std::string const Defaults::PcWaitRestoredPrimTimeout = "PT0S";
     std::string const Defaults::PcWeight                = "1";
     std::string const Defaults::PcRecovery              = "true";
 }
