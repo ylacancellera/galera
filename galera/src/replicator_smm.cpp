@@ -480,7 +480,7 @@ wsrep_status_t galera::ReplicatorSMM::async_recv(void* recv_ctx)
     {
         GU_DBUG_SYNC_EXECUTE("before_async_recv_process_sync", sleep(5););
 
-        ssize_t rc;
+        ssize_t rc(0);
 
         while (gu_unlikely((state_() > S_CLOSED) && (rc = as_->process(recv_ctx, exit_loop))
                            == -ECANCELED))
