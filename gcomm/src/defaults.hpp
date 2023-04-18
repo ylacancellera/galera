@@ -91,7 +91,7 @@ namespace gcomm
         static const int GMCastTimeWait    = gu::Config::Flag::read_only |
                                              gu::Config::Flag::type_duration;
         static const int GMCastPeerTimeout = gu::Config::Flag::read_only |
-                                             gu::Config::Flag::type_duration;;
+                                             gu::Config::Flag::type_duration;
         // Hidden because undocumented
         static const int GMCastMaxInitialReconnectAttempts =
             gu::Config::Flag::hidden | gu::Config::Flag::type_integer;
