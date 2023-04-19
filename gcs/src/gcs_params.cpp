@@ -11,12 +11,15 @@
 #include "gu_config.hpp" // gu::Config::Flag
 
 #include <cerrno>
+#include <cfloat>
 
 const char* const GCS_PARAMS_FC_FACTOR         = "gcs.fc_factor";
 const char* const GCS_PARAMS_FC_LIMIT          = "gcs.fc_limit";
 const char* const GCS_PARAMS_FC_MASTER_SLAVE   = "gcs.fc_master_slave";
 const char* const GCS_PARAMS_FC_SINGLE_PRIMARY = "gcs.fc_single_primary";
 const char* const GCS_PARAMS_FC_DEBUG          = "gcs.fc_debug";
+const char* const GCS_PARAMS_FC_AUTO_EVICT_WND = "gcs.fc_auto_evict_window";
+const char* const GCS_PARAMS_FC_AUTO_EVICT_TH  = "gcs.fc_auto_evict_threshold";
 const char* const GCS_PARAMS_SYNC_DONOR        = "gcs.sync_donor";
 const char* const GCS_PARAMS_MAX_PKT_SIZE      = "gcs.max_packet_size";
 const char* const GCS_PARAMS_RECV_Q_HARD_LIMIT = "gcs.recv_q_hard_limit";
@@ -35,6 +38,8 @@ static const char* const GCS_PARAMS_FC_LIMIT_DEFAULT          = "16";
 static const char* const GCS_PARAMS_FC_MASTER_SLAVE_DEFAULT   = "no";
 static const char* const GCS_PARAMS_FC_SINGLE_PRIMARY_DEFAULT = "no";
 static const char* const GCS_PARAMS_FC_DEBUG_DEFAULT          = "0";
+static const char* const GCS_PARAMS_FC_AUTO_EVICT_WND_DEFAULT = "0";
+static const char* const GCS_PARAMS_FC_AUTO_EVICT_TH_DEFAULT  = "0.75";
 static const char* const GCS_PARAMS_SYNC_DONOR_DEFAULT        = "no";
 static const char* const GCS_PARAMS_MAX_PKT_SIZE_DEFAULT      = "64500";
 static ssize_t const GCS_PARAMS_RECV_Q_HARD_LIMIT_DEFAULT     = SSIZE_MAX;
@@ -63,6 +68,12 @@ gcs_params_register(gu_config_t* conf)
     ret |= gu_config_add (conf, GCS_PARAMS_FC_DEBUG,
                           GCS_PARAMS_FC_DEBUG_DEFAULT,
                           gu::Config::Flag::type_integer);
+    ret |= gu_config_add (conf, GCS_PARAMS_FC_AUTO_EVICT_WND,
+                          GCS_PARAMS_FC_AUTO_EVICT_WND_DEFAULT,
+                          gu::Config::Flag::type_double);
+    ret |= gu_config_add (conf, GCS_PARAMS_FC_AUTO_EVICT_TH,
+                          GCS_PARAMS_FC_AUTO_EVICT_TH_DEFAULT,
+                          gu::Config::Flag::type_double);
     ret |= gu_config_add (conf, GCS_PARAMS_SYNC_DONOR,
                           GCS_PARAMS_SYNC_DONOR_DEFAULT,
                           gu::Config::Flag::type_bool);
@@ -221,6 +232,14 @@ gcs_params_init (struct gcs_params* params, gu_config_t* config)
 
     if ((ret = params_init_long (config, GCS_PARAMS_FC_DEBUG, 0, LONG_MAX,
                                  &params->fc_debug))) return ret;
+
+    if ((ret = params_init_double (config, GCS_PARAMS_FC_AUTO_EVICT_WND,
+                                   0.0, DBL_MAX,
+                                   &params->fc_auto_evict_window))) return ret;
+
+    if ((ret = params_init_double (config, GCS_PARAMS_FC_AUTO_EVICT_TH,
+                                   0.0 + 1.e-9, 1.0,
+                                   &params->fc_auto_evict_threshold))) return ret;
 
     if ((ret = params_init_long (config, GCS_PARAMS_MAX_PKT_SIZE, 0,LONG_MAX,
                                  &params->max_packet_size))) return ret;

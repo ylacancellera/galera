@@ -157,7 +157,10 @@ extern int
 gcs_core_send_vote (gcs_core_t* core, const gu::GTID& gtid, int64_t code,
                     const void* msg, size_t msg_len);
 
-/* sends flow control message */
+/* sends flow control message.
+ *
+ * @return negative error code, 0 in case of success.
+ */
 extern ssize_t
 gcs_core_send_fc (gcs_core_t* core, const void* fc, size_t fc_size);
 

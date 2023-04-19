@@ -7,6 +7,8 @@
 
 #include <math.h> // fabs
 #include <string.h>
+#include <functional>
+#include <numeric>
 
 #include "gcs_sm_test.hpp" // must be included last
 
@@ -526,6 +528,109 @@ START_TEST (gcs_sm_test_interrupt)
 }
 END_TEST
 
+static void pause_continue(gcs_sm_t* sm, useconds_t usec)
+{
+    gcs_sm_pause(sm);
+    usleep(usec);
+    gcs_sm_continue(sm);
+}
+
+static void run_fc_ae(std::function<void(gcs_sm_t*)> body)
+{
+    gcs_sm_t* sm = gcs_sm_create(2, 1, true);
+    ck_assert(sm != NULL);
+    body(sm);
+    gcs_sm_close(sm);
+    gcs_sm_destroy(sm);
+}
+
+
+static void assert_fc_ae(long long paused, std::vector<useconds_t> expected_usec)
+{
+    static const int EPS_USEC = 1000;
+    const long long expected = std::accumulate(expected_usec.begin(),
+                                         expected_usec.end(), 0) * 1000LL;
+    ck_assert_msg(paused >= expected &&
+                  paused <= expected + (int)expected_usec.size() * EPS_USEC * 1000LL,
+                  "paused = %lld, expected = %lld", paused, expected);
+}
+
+START_TEST (gcs_sm_fc_auto_evict)
+{
+    static const long long BIG_WINDOW = 1000000 * 1000LL;
+
+    /* Several pauses and continues, all are inside the window */
+    run_fc_ae([](gcs_sm_t* sm) {
+        pause_continue(sm, 25000);
+        pause_continue(sm, 10000);
+        pause_continue(sm, 14000);
+        double paused = gcs_sm_paused_in_window_get(sm, 60000 * 1000LL);
+        assert_fc_ae(paused, {25000, 10000, 14000});
+    });
+
+    /* A pause without a continue is taken into account */
+    run_fc_ae([](gcs_sm_t* sm) {
+        gcs_sm_pause(sm);
+        usleep(5000);
+        double paused = gcs_sm_paused_in_window_get(sm, BIG_WINDOW);
+        assert_fc_ae(paused, {5000});
+    });
+
+    /* Part of the moments is outside the window, account only the part
+       that's inside */
+    run_fc_ae([](gcs_sm_t* sm) {
+        pause_continue(sm, 3000);
+        pause_continue(sm, 7000);
+        pause_continue(sm, 5000);
+        double paused = gcs_sm_paused_in_window_get(sm, 9000 * 1000LL);
+        assert_fc_ae(paused, {7000, 5000}); // can outsize the window
+    });
+    run_fc_ae([](gcs_sm_t* sm) {
+        gcs_sm_pause(sm);
+        usleep(10000);
+        double paused = gcs_sm_paused_in_window_get(sm, 8000 * 1000LL);
+        assert_fc_ae(paused, {10000});
+    });
+
+    /* Repeated calls work fine */
+    run_fc_ae([](gcs_sm_t* sm) {
+        pause_continue(sm, 3000);
+        pause_continue(sm, 7000);
+        usleep(4000); // just random sleeps
+        pause_continue(sm, 6000);
+        double paused = gcs_sm_paused_in_window_get(sm, BIG_WINDOW, true);
+        assert_fc_ae(paused, {3000, 7000, 6000});
+
+        usleep(6000);
+        pause_continue(sm, 7000);
+        usleep(10000);
+        paused = gcs_sm_paused_in_window_get(sm, BIG_WINDOW, true);
+        assert_fc_ae(paused, {3000, 7000, 6000, 7000});
+    });
+
+    /* Erasing outdated data works fine */
+    run_fc_ae([](gcs_sm_t* sm) {
+        pause_continue(sm, 1000);
+        pause_continue(sm, 2000);
+        double paused = gcs_sm_paused_in_window_get(sm, 0, true);
+        assert_fc_ae(paused, {0});
+
+        paused = gcs_sm_paused_in_window_get(sm, BIG_WINDOW, true);
+        assert_fc_ae(paused, {0}); // all was erased
+    });
+    run_fc_ae([](gcs_sm_t* sm) {
+        pause_continue(sm, 7000);
+        pause_continue(sm, 25000);
+        pause_continue(sm, 10000);
+        pause_continue(sm, 14000);
+        double paused = gcs_sm_paused_in_window_get(sm, 15000 * 1000LL, true);
+        assert_fc_ae(paused, {10000, 14000});
+
+        paused = gcs_sm_paused_in_window_get(sm, BIG_WINDOW, true);
+        assert_fc_ae(paused, {10000, 14000}); // first two was deleted
+    });
+}
+END_TEST
 
 Suite *gcs_send_monitor_suite(void)
 {
@@ -538,6 +643,7 @@ Suite *gcs_send_monitor_suite(void)
   tcase_add_test  (tc, gcs_sm_test_close);
   tcase_add_test  (tc, gcs_sm_test_pause);
   tcase_add_test  (tc, gcs_sm_test_interrupt);
+  tcase_add_test  (tc, gcs_sm_fc_auto_evict);
   return s;
 }
 

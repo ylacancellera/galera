@@ -396,7 +396,7 @@ gcs_vote (gcs_conn_t* conn, const gu::GTID& gtid, uint64_t code,
 extern bool
 gcs_register_params (gu_config_t* conf);
 
-/*! sets the key to a given value
+/*! sets the key to a given value (isn't thread safe)
  *
  * @return 0 in case of success, 1 if key not found or negative error code */
 extern long

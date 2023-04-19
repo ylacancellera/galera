@@ -28,6 +28,7 @@
 #include <math.h>
 #include <errno.h>
 #include <assert.h>
+#include <atomic>
 
 #ifdef PXC
 #include "gu_debug_sync.hpp"
@@ -142,7 +143,7 @@ struct gcs_conn
     gcs_seqno_t  local_act_id; /* local seqno of the action */
     gcs_seqno_t  global_seqno;
 
-    /* A queue for threads waiting for replicated actions */
+    /* A queue for threads waiting for replicated actions (slave queue) */
     gcs_fifo_lite_t* repl_q;
     gu_thread_t      send_thread;
 
@@ -182,12 +183,26 @@ struct gcs_conn
         assert(stop_sent_ > 0);
         stop_sent_ -= val;
     }
-    long         stop_count;          // counts stop requests received
+    /*
+      How many STOPs - CONTs requests received, including those
+      the node has sent.
+     */
+    long         stop_count;
+
     long         queue_len;           // slave queue length
     long         upper_limit;         // upper slave queue limit
     long         lower_limit;         // lower slave queue limit
     long         fc_offset;           // offset for catchup phase
-    gcs_conn_state_t max_fc_state;    // maximum state when FC is enabled
+    std::atomic_llong fc_auto_evict_window_ns;
+    std::atomic_llong fc_auto_evict_threshold_ns;
+    /*
+      Maximum state when FC is enabled.
+
+      Currently it depends on sync_donor parameter only
+      (conn->params.sync_donor ? GCS_CONN_DONOR : GCS_CONN_JOINED),
+      but used in more generic way.
+     */
+    gcs_conn_state_t max_fc_state;
     long         stats_fc_stop_sent;  // FC stats counters
     long         stats_fc_cont_sent;  //
     long         stats_fc_received;   //
@@ -313,6 +328,17 @@ enomem:
     return rc;
 }
 
+static void
+update_fc_auto_evict_params(gcs_conn_t* conn, bool update_window = true)
+{
+    if (update_window) {
+        conn->fc_auto_evict_window_ns =
+            conn->params.fc_auto_evict_window * 1000000000LL;
+    }
+    conn->fc_auto_evict_threshold_ns =
+        conn->fc_auto_evict_window_ns * conn->params.fc_auto_evict_threshold;
+}
+
 /* Creates a group connection handle */
 gcs_conn_t*
 gcs_create (gu_config_t* const conf, gcache_t* const gcache,
@@ -380,7 +406,7 @@ gcs_create (gu_config_t* const conf, gcache_t* const gcache,
         goto recv_q_failed;
     }
 
-    conn->sm = gcs_sm_create(1<<16, 1);
+    conn->sm = gcs_sm_create(1<<16, 1, conn->params.fc_auto_evict_window > 0);
 
     if (!conn->sm) {
         gu_error ("Failed to create send monitor");
@@ -398,6 +424,7 @@ gcs_create (gu_config_t* const conf, gcache_t* const gcache,
     conn->gcache       = gcache;
     conn->max_fc_state = conn->params.sync_donor ?
         GCS_CONN_DONOR : GCS_CONN_JOINED;
+    update_fc_auto_evict_params(conn);
 
     gu_mutex_init (&conn->fc_lock, NULL);
     gu_mutex_init (&conn->vote_lock_, NULL);
@@ -503,7 +530,12 @@ gcs_fc_stop_begin (gcs_conn_t* conn)
     return ret;
 }
 
-/* Complement to gcs_fc_stop_begin. */
+/*
+  Complement to gcs_fc_stop_begin.
+
+  Works just like gcs_fc_cont_end(), but does the opposite:
+  sends FC_STOP event, collects statistics and releases fc_lock.
+*/
 static inline int
 gcs_fc_stop_end (gcs_conn_t* conn)
 {
@@ -568,7 +600,12 @@ gcs_fc_cont_begin (gcs_conn_t* conn)
     return ret;
 }
 
-/* Complement to gcs_fc_cont_begin() */
+/*
+  Complement to gcs_fc_cont_begin().
+
+  Works just like gcs_fc_stop_end(), but does the opposite:
+  sends FC_CONT event, collects statistics and releases fc_lock.
+*/
 static inline int
 gcs_fc_cont_end (gcs_conn_t* conn)
 {
@@ -972,6 +1009,13 @@ _set_fc_limits (gcs_conn_t* conn)
              conn->lower_limit, conn->upper_limit);
 }
 
+static long
+#ifdef GCS_FOR_GARB
+_close(gcs_conn_t* conn, bool join_recv_thread, bool explicit_close = false);
+#else
+_close(gcs_conn_t* conn, bool join_recv_thread);
+#endif
+
 /*! Handles flow control events
  *  (this is frequent, so leave it inlined) */
 static inline void
@@ -991,6 +1035,23 @@ gcs_handle_flow_control (gcs_conn_t*                conn,
     }
     else if (0 == conn->stop_count) {
         gcs_sm_continue (conn->sm); // last CONT request
+    }
+
+    if (conn->params.fc_auto_evict_window > 0) {
+        const long long paused =
+            gcs_sm_paused_in_window_get(conn->sm, conn->fc_auto_evict_window_ns,
+                                        !(conn->local_act_id % 10)); // erase not very often
+        gu_debug ("FC auto evict: paused for %lld ns.", paused);
+
+        if (paused >= conn->fc_auto_evict_threshold_ns) {
+            gu_info ("Triggering automatic eviction of the node since flow control pause limit "
+                     "exceeded (%f from %f in %f sec window). The node will be aborted.",
+                     paused * 1.0e-9, conn->fc_auto_evict_threshold_ns * 1.0e-9,
+                     conn->fc_auto_evict_window_ns * 1.0e-9);
+            gcs_shift_state (conn, GCS_CONN_CLOSED);
+            _close(conn, false);
+            gu_abort();
+        }
     }
 
     return;
@@ -1450,7 +1511,7 @@ _check_recv_queue_growth (gcs_conn_t* conn, ssize_t size)
 
 static long
 #ifdef GCS_FOR_GARB
-_close(gcs_conn_t* conn, bool join_recv_thread, bool explicit_close = false)
+_close(gcs_conn_t* conn, bool join_recv_thread, bool explicit_close)
 #else
 _close(gcs_conn_t* conn, bool join_recv_thread)
 #endif
@@ -2681,6 +2742,47 @@ _set_fc_debug (gcs_conn_t* conn, const char* value)
 }
 
 static long
+_set_fc_auto_evict_window (gcs_conn_t* conn, const char* value)
+{
+    double window;
+    const char* const endptr = gu_str2dbl(value, &window);
+
+    if (window >= 0.0 && *endptr == '\0') {
+        if (window == conn->params.fc_auto_evict_window) return 0;
+
+        conn->params.fc_auto_evict_window = window;
+        update_fc_auto_evict_params(conn);
+        gcs_sm_enable_fc_auto_evict(conn->sm, window > 0);
+        gu_config_set_double (conn->config, GCS_PARAMS_FC_AUTO_EVICT_WND,
+                              window);
+        return 0;
+    }
+    else {
+        return -EINVAL;
+    }
+}
+
+static long
+_set_fc_auto_evict_threshold (gcs_conn_t* conn, const char* value)
+{
+    double threshold;
+    const char* const endptr = gu_str2dbl(value, &threshold);
+
+    if (threshold > 0.0 && threshold <= 1.0 && *endptr == '\0') {
+        if (threshold == conn->params.fc_auto_evict_threshold) return 0;
+
+        conn->params.fc_auto_evict_threshold = threshold;
+        update_fc_auto_evict_params(conn, false);
+        gu_config_set_double (conn->config, GCS_PARAMS_FC_AUTO_EVICT_TH,
+                              threshold);
+        return 0;
+    }
+    else {
+        return -EINVAL;
+    }
+}
+
+static long
 _set_sync_donor (gcs_conn_t* conn, const char* value)
 {
     bool sd;
@@ -2804,6 +2906,12 @@ long gcs_param_set  (gcs_conn_t* conn, const char* key, const char *value)
     }
     else if (!strcmp (key, GCS_PARAMS_FC_DEBUG)) {
         return _set_fc_debug (conn, value);
+    }
+    else if (!strcmp (key, GCS_PARAMS_FC_AUTO_EVICT_WND)) {
+        return _set_fc_auto_evict_window (conn, value);
+    }
+    else if (!strcmp (key, GCS_PARAMS_FC_AUTO_EVICT_TH)) {
+        return _set_fc_auto_evict_threshold (conn, value);
     }
     else if (!strcmp (key, GCS_PARAMS_SYNC_DONOR)) {
         return _set_sync_donor (conn, value);

@@ -14,6 +14,7 @@
 #include "gu_datetime.hpp"
 #include <galerautils.h>
 #include <errno.h>
+#include <vector>
 
 #ifdef GCS_SM_CONCURRENCY
 #define GCS_SM_CC sm->cc
@@ -30,8 +31,8 @@ gcs_sm_user_t;
 
 typedef struct gcs_sm_stats
 {
-    long long sample_start;// beginning of the sample period
-    long long pause_start; // start of the pause
+    long long sample_start;// beginning of the sample period (from the last flush)
+    long long pause_start; // start of the last pause
     long long paused_ns;     // total nanoseconds paused
     long long paused_sample; // paused_ns at the beginning of the sample
     long long send_q_samples;
@@ -60,6 +61,12 @@ typedef struct gcs_sm
     long          cc;
 #endif /* GCS_SM_CONCURRENCY */
     bool          pause;
+    bool          fc_auto_evict; // is FC auto eviction enabled
+    /*
+      Sequence of pause and continue moments (first element is always pause),
+      eventually truncated to last GCS_PARAMS_FC_AUTO_EVICT_WND seconds.
+     */
+    std::vector<long long> pauses_window;
     gu::datetime::Period wait_time;
 
 #ifdef GCS_SM_DEBUG
@@ -111,9 +118,16 @@ gcs_sm_dump_state(gcs_sm_t* sm, FILE* file);
  *
  * @param len size of the monitor, should be a power of 2
  * @param n   concurrency parameter (how many users can enter at the same time)
+ * @param fc_auto_evict is FC auto eviction enabled
  */
 extern gcs_sm_t*
-gcs_sm_create (long len, long n);
+gcs_sm_create (long len, long n, bool fc_auto_evict = false);
+
+/*!
+ * Enables or disables FC auto eviction
+ */
+extern void
+gcs_sm_enable_fc_auto_evict(gcs_sm_t* sm, bool fc_auto_evict = true);
 
 /*!
  * Closes monitor for entering and makes all users to exit with error.
@@ -424,6 +438,12 @@ gcs_sm_pause (gcs_sm_t* sm)
     /* don't pause closed monitor */
     if (gu_likely(0 == sm->ret) && !sm->pause) {
         sm->stats.pause_start = gu_time_monotonic();
+        if (sm->fc_auto_evict) {
+            /* sm->pause guarantees that sequence of pauses and continues
+               will be alternating and pause will be the first in it */
+            assert(!(sm->pauses_window.size() % 2));
+            sm->pauses_window.push_back(sm->stats.pause_start);
+        }
         sm->pause = true;
     }
     GCS_SM_HIST_LOG("paused");
@@ -433,6 +453,11 @@ gcs_sm_pause (gcs_sm_t* sm)
 static inline void
 _gcs_sm_continue_common (gcs_sm_t* sm)
 {
+    /* Skip the continue if complementing it pause wasn't collected.
+       It can occur if we enable sm->fc_auto_evict in the middle of a pause. */
+    if (sm->fc_auto_evict && sm->pauses_window.size() % 2) {
+        sm->pauses_window.push_back(gu_time_monotonic());
+    }
     sm->pause = false;
 
     _gcs_sm_wake_up_next(sm); /* wake up next waiter if any */
@@ -498,7 +523,17 @@ gcs_sm_interrupt (gcs_sm_t* sm, long handle)
 }
 
 /*!
- * Each call to this function resets stats and starts new sampling interval
+ * Calculates total nanoseconds of pause in the last window_ns and optionally
+ * erases the outdated statistics.
+ *
+ * Pause can exceed the window if it's overlapped by pause-continue interval.
+ */
+extern long long
+gcs_sm_paused_in_window_get (gcs_sm_t* const sm, long long window_ns,
+                             bool erase_outdated = true);
+
+/*!
+ * Copies send monitor statistics to the variables
  *
  * @param q_len      current send queue length
  * @param q_len_avg  set to an average number of preceding users seen by each
@@ -518,7 +553,11 @@ gcs_sm_stats_get (gcs_sm_t*  sm,
                   long long* paused_ns,
                   double*    paused_avg);
 
-/*! resets average/max/min stats calculation */
+/*!
+ * Resets average/max/min stats calculation
+ *
+ * Each call to this function resets stats and starts new sampling interval.
+ */
 extern void
 gcs_sm_stats_flush(gcs_sm_t* sm);
 

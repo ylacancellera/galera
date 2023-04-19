@@ -17,6 +17,8 @@ struct gcs_params
     long    fc_base_limit;
     long    max_packet_size;
     long    fc_debug;
+    double  fc_auto_evict_window;
+    double  fc_auto_evict_threshold;
     bool    fc_single_primary;
     bool    sync_donor;
 };
@@ -25,6 +27,8 @@ extern const char* const GCS_PARAMS_FC_FACTOR;
 extern const char* const GCS_PARAMS_FC_LIMIT;
 extern const char* const GCS_PARAMS_FC_MASTER_SLAVE;
 extern const char* const GCS_PARAMS_FC_DEBUG;
+extern const char* const GCS_PARAMS_FC_AUTO_EVICT_WND;
+extern const char* const GCS_PARAMS_FC_AUTO_EVICT_TH;
 extern const char* const GCS_PARAMS_SYNC_DONOR;
 extern const char* const GCS_PARAMS_MAX_PKT_SIZE;
 extern const char* const GCS_PARAMS_RECV_Q_HARD_LIMIT;
