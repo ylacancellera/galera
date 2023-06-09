@@ -101,7 +101,9 @@ gcs_act_cchange::gcs_act_cchange(const void* const cc_buf, int const cc_size)
     const char* b(static_cast<const char*>(cc_buf));
     Version const cc_ver(_version(b[0]));
     int const check_len(_checksum_len(cc_ver));
-    int const check_offset(cc_size - check_len);
+    if (check_len > cc_size) abort();
+
+    size_t const check_offset(cc_size - check_len);
 
     checksum_t check;
     _checksum(cc_ver, cc_buf, check_offset, check);
