@@ -51,7 +51,9 @@ START_TEST (gcs_proto_test)
                   " - increase send action length");
 
     // write action to the buffer, it should not fit
-    strncpy (static_cast<char*>(const_cast<void*>(frg_send.frag)), act_send_ptr, frg_send.frag_len);
+    char* frg = static_cast<char*>(const_cast<void*>(frg_send.frag));
+    int cnt = std::min(strlen(frg)+1, frg_send.frag_len);
+    memcpy(frg, act_send_ptr, cnt);
     act_send_ptr += frg_send.frag_len;
 
     // message was sent and received, now parse the header
