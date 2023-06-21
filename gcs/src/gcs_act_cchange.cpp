@@ -168,7 +168,7 @@ gcs_act_cchange::gcs_act_cchange(const void* const cc_buf, int const cc_size)
         memb.push_back(m);
     }
 
-    assert(b - static_cast<const char*>(cc_buf) <= check_offset);
+    assert(static_cast<size_t>(b - static_cast<const char*>(cc_buf)) <= check_offset);
 }
 
 static size_t
