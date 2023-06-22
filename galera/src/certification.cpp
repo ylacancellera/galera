@@ -82,10 +82,12 @@ static void purge_key_set(galera::Certification::CertIndexNG& cert_index,
         const galera::KeySet::KeyPart& kp(key_set.next());
         galera::KeyEntryNG ke(kp);
         galera::Certification::CertIndexNG::iterator ci(cert_index.find(&ke));
-        assert(ci != cert_index.end());
+
+        /* It is possible that transaction is not present in cert_index
+           if it failed 1st stage of certification (regular certification).
+           See comment on caller side in PurgeAndDiscard. */
         if (ci == cert_index.end())
         {
-            log_warn << "Could not find key from index";
             continue;
         }
         galera::KeyEntryNG* const kep(*ci);
@@ -504,8 +506,16 @@ galera::Certification::do_test(const TrxHandleSlavePtr& trx, bool store_keys)
         index_size_ = cert_index_ng_.size();
     }
 
+    /* The original flow does certification against ongoing NBOs only for other NBOs and TOIs.
+       If the certification fails, the requestor ends up with a deadlock error.
+       Normal transactions and SR transactions are not certified against NBO, so they may
+       be replicated causing BF-BF conflicts on the client side.
+       PXC does the certification against ongoing NBO transactions for regular transactions
+       and SR transactions as well. Ordering of such transactions is skipped at this stage,
+       because it was already done above, here we are interested only if we can proceed with
+       transaction or not (see implementation of do_test_nbo())*/
     // Additional NBO certification.
-    if (trx->flags() & TrxHandle::F_ISOLATION)
+    if (res == TEST_OK)
     {
         res = do_test_nbo(trx);
         assert(TEST_FAILED == res || trx->depends_seqno() >= 0);
@@ -787,21 +797,39 @@ do_ref_keys_nbo(galera::Certification::CertIndexNBO& index,
 galera::Certification::TestResult galera::Certification::do_test_nbo(
     const TrxHandleSlavePtr& ts)
 {
-    assert(!ts->is_dummy());
-    assert(ts->flags() & TrxHandle::F_ISOLATION);
-    assert(ts->flags() & (TrxHandle::F_BEGIN | TrxHandle::F_COMMIT));
+    bool begins_transaction(ts->flags() & TrxHandle::F_BEGIN);
+    bool ends_transaction(ts->flags() & TrxHandle::F_COMMIT);
+
+    bool begins_transaction_only(begins_transaction & !ends_transaction);
+    bool ends_transaction_only(ends_transaction & !begins_transaction);
+    bool to_isolation(ts->flags() & TrxHandle::F_ISOLATION);
+
+    // It is streaming if not TOI and begins-only, ends-only or in-the-middle
+    bool is_streaming(!to_isolation && (
+                      (begins_transaction_only ^ ends_transaction_only) ||
+                      (!begins_transaction && !ends_transaction) ));
+    bool is_toi(to_isolation && begins_transaction && ends_transaction);
+    bool is_regular_transaction (!to_isolation && begins_transaction && ends_transaction);
+    bool is_nbo_start(to_isolation && begins_transaction_only);
+#ifndef NDEBUG
+    bool is_nbo_end(to_isolation && ends_transaction_only);
+#endif
 
     if (nbo_position_ >= ts->global_seqno())
     {
         // This is part of cert index preload, needs to be dropped since
         // it is already processed by this node before partitioning.
-        assert(ts->certified() == true);
-        // Return TEST_OK. If the trx is in index preload, it has
-        // passed certification on donor.
-        log_debug << "Dropping NBO " << *ts;
-        return TEST_OK;
+        // It may happen that SR BF aborts already
+        // certified transaction which advanced nbo_position_ and then
+        // is rolled back
+        if (ts->certified()) {
+            // Return TEST_OK. If the trx is in index preload, it has
+            // passed certification on donor.
+            log_info << "Dropping NBO " << *ts;
+            return TEST_OK;
+        }
     }
-    nbo_position_ = ts->global_seqno();
+    nbo_position_ = std::max(nbo_position_, ts->global_seqno());
 
 #ifndef NDEBUG
     size_t prev_nbo_index_size(nbo_index_.size());
@@ -810,11 +838,11 @@ galera::Certification::TestResult galera::Certification::do_test_nbo(
     bool ineffective(false);
 
     galera::Certification::TestResult ret(TEST_OK);
-    if ((ts->flags() & TrxHandle::F_BEGIN) &&
-        (ts->flags() & TrxHandle::F_COMMIT))
+    if (is_toi || is_regular_transaction || is_streaming)
     {
-        // Old school atomic TOI
-        log_debug << "TOI: " << *ts;
+        // Old school atomic TOI, regular transaction or streaming fragment
+        const char *type = is_toi ? "TOI: " : (is_regular_transaction ? "REGULAR: " : "SR: " );
+        log_debug << type << *ts;
         const KeySetIn& key_set(ts->write_set().keyset());
         long const      key_count(key_set.count());
         long            processed(0);
@@ -829,11 +857,11 @@ galera::Certification::TestResult galera::Certification::do_test_nbo(
                 break;
             }
         }
-        log_debug << "NBO test result " << ret << " for TOI " << *ts;
+        log_debug << "NBO test result " << ret << " for " << type << *ts;
         // Atomic TOI should not cause change in NBO index
         assert(prev_nbo_index_size == nbo_index_.size());
     }
-    else if (ts->flags() & TrxHandle::F_BEGIN)
+    else if (is_nbo_start)
     {
         // Beginning of non-blocking operation
         log_debug << "NBO start: " << *ts;
@@ -873,6 +901,7 @@ galera::Certification::TestResult galera::Certification::do_test_nbo(
     }
     else
     {
+        assert(is_nbo_end);
         assert(ts->nbo_end());
         // End of non-blocking operation
         log_debug << "NBO end: " << *ts;
@@ -913,18 +942,20 @@ galera::Certification::TestResult galera::Certification::do_test_nbo(
         }
     }
 
-    if (gu_likely(TEST_OK == ret))
-    {
-        ts->set_depends_seqno(ts->global_seqno() - 1);
-        if (gu_unlikely(ineffective))
+    if (!(is_toi || is_regular_transaction || is_streaming)) {
+        if (gu_likely(TEST_OK == ret))
         {
-            assert(ts->nbo_end());
-            assert(ts->ends_nbo() == WSREP_SEQNO_UNDEFINED);
-            ret = TEST_FAILED;
+            ts->set_depends_seqno(ts->global_seqno() - 1);
+            if (gu_unlikely(ineffective))
+            {
+                assert(ts->nbo_end());
+                assert(ts->ends_nbo() == WSREP_SEQNO_UNDEFINED);
+                ret = TEST_FAILED;
+            }
         }
-    }
 
-    assert(TEST_FAILED == ret || ts->depends_seqno() >= 0);
+        assert(TEST_FAILED == ret || ts->depends_seqno() >= 0);
+    }
 
     return ret;
 }
@@ -1077,7 +1108,7 @@ void galera::Certification::assign_initial_position(const gu::GTID& gtid,
 
     if (service_thd_)
     {
-        service_thd_->release_seqno(position_);
+        service_thd_->release_seqno(position_, true);
         service_thd_->flush(gtid.uuid());
     }
 
@@ -1097,7 +1128,8 @@ void galera::Certification::assign_initial_position(const gu::GTID& gtid,
 void
 galera::Certification::adjust_position(const View&         view,
                                        const gu::GTID&     gtid,
-                                       int           const version)
+                                       int           const version,
+                                       bool                abort_nbo_waiters)
 {
     assert(gtid.uuid()  != GU_UUID_NIL);
     assert(gtid.seqno() >= 0);
@@ -1132,13 +1164,15 @@ galera::Certification::adjust_position(const View&         view,
     version_        = version;
     current_view_   = view;
 
-    // Loop over NBO entries, clear state and abort waiters. NBO end waiters
-    // must resend end messages.
-    for (NBOMap::iterator i(nbo_map_.begin()); i != nbo_map_.end(); ++i)
-    {
-        NBOEntry& e(i->second);
-        e.clear_ended();
-        e.nbo_ctx()->set_aborted(true);
+    if (abort_nbo_waiters) {
+        // Loop over NBO entries, clear state and abort waiters. NBO end waiters
+        // must resend end messages.
+        for (NBOMap::iterator i(nbo_map_.begin()); i != nbo_map_.end(); ++i)
+        {
+            NBOEntry& e(i->second);
+            e.clear_ended();
+            e.nbo_ctx()->set_aborted(true);
+        }
     }
 }
 

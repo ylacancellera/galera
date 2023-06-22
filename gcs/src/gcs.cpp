@@ -1782,6 +1782,11 @@ static void *gcs_recv_thread (void *arg)
                      rcvd.act.buf, rcvd.act.buf_len,
                      gcs_act_type_to_str(rcvd.act.type), rcvd.sender_idx,
                      rcvd.id);
+            if (rcvd.act.buf)
+            {
+                gcs_gcache_free (conn->gcache, rcvd.act.buf);
+                rcvd.act.buf = nullptr;
+            }
         }
         else
         {
@@ -1812,7 +1817,7 @@ static void *gcs_recv_thread (void *arg)
         /* In case of error call _close() to release repl_q waiters. */
         (void)_close(conn, false);
         gcs_shift_state (conn, GCS_CONN_CLOSED);
-#endif /* PXC */ 
+#endif /* PXC */
     }
     gu_info ("RECV thread exiting %d: %s", ret, strerror(-ret));
 
@@ -2556,7 +2561,7 @@ gcs_join (gcs_conn_t* conn, const gu::GTID& gtid, int const code)
     // in the gcs_join() function to return from it immediately
     // if the node's communication channel was closed:
 
-    if (conn->state >= GCS_CONN_CLOSED) 
+    if (conn->state >= GCS_CONN_CLOSED)
     {
       return GCS_CLOSED_ERROR;
     }

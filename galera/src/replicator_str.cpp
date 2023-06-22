@@ -1836,8 +1836,12 @@ void ReplicatorSMM::ist_cc(const gcs_action& act, bool must_apply,
              * Order of these calls is essential: trx_params_.version_ may
              * be altered by establish_protocol_versions() */
             establish_protocol_versions(conf.repl_proto_ver);
+            /* Do not reset NBO waiters. It may be that this node re-joins
+               primary component and NBO already finished in primary component,
+               so if we reset nbo waiters, we may not get notifications from
+               some nodes. The only way is to learn the history through IST */
             cert_.adjust_position(*view_info, gu::GTID(conf.uuid, conf.seqno),
-                                  trx_params_.version_);
+                                  trx_params_.version_, false);
             // record CC related state seqnos, needed for IST on DONOR
             record_cc_seqnos(conf.seqno, "preload");
             ::free(view_info);

@@ -441,7 +441,7 @@ wsrep_status_t galera::ReplicatorSMM::close()
 {
     gu::Lock lock(closing_mutex_);
 
-#if PXC 
+#if PXC
     /* If IST is prepared waiting for SST to complete and if SST fails
     then ensure that IST is signaled about the interruption or failure.
     IST is waiting on condition variable to get signaled after SST

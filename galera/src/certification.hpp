@@ -72,7 +72,7 @@ namespace galera
         wsrep_seqno_t position() const { return position_; }
 
         /* this is for configuration change use */
-        void adjust_position(const View&, const gu::GTID& gtid, int version);
+        void adjust_position(const View&, const gu::GTID& gtid, int version, bool abort_nbo_waiters = true);
 
         wsrep_seqno_t
         get_safe_to_discard_seqno() const
@@ -224,10 +224,17 @@ namespace galera
                     // NBO certification depends seqno is set to
                     // WSREP_SEQNO_UNDEFINED. Therefore purge should always
                     // be done for TOI write sets.
-                    if (trx->is_dummy() == false || trx->is_toi() == true)
-                    {
-                        cert_.purge_for_trx(trx);
-                    }
+                    /* Transactions go through 2 phases of certification:
+                       1. regular certification
+                       2. nbo certification
+                       It may happen that transaction passes regular certification
+                       but fails nbo certification and will be marked as dummy.
+                       But we need to remove it from regular certification index,
+                       that's why wil call purge_for_trx always.
+                       On the other hand the transaction may be not present in
+                       regular certification index if it failed 1st certification.
+                       In such a case the following call will be noop. */
+                    cert_.purge_for_trx(trx);
                 }
             }
 
