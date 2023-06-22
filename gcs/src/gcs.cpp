@@ -919,7 +919,6 @@ start_progress(gcs_conn_t* conn)
         {
             conn->progress_->finish();
             delete conn->progress_;
-            conn->progress_ = nullptr;
         }
 
         conn->progress_ = new gu::Progress<gcs_seqno_t>(
@@ -1925,6 +1924,11 @@ long gcs_close (gcs_conn_t *conn)
     GU_DBUG_SYNC_WAIT("gcs_close_before_exit");
 #endif
 #endif /* PXC */
+    if (conn->progress_)
+    {
+        delete conn->progress_;
+        conn->progress_ = nullptr;
+    }
     return ret;
 }
 
