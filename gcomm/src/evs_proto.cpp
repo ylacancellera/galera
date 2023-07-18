@@ -238,7 +238,7 @@ gcomm::evs::Proto::~Proto()
 
 
 bool
-gcomm::evs::Proto::set_param(const std::string& key, const std::string& val, 
+gcomm::evs::Proto::set_param(const std::string& key, const std::string& val,
                             Protolay::sync_param_cb_t& sync_param_cb)
 {
     if (key == gcomm::Conf::EvsVersion)
@@ -2582,6 +2582,8 @@ void gcomm::evs::Proto::handle_up(const void* cid,
 
         default:
             log_fatal << "exception caused by message: " << msg;
+            log_fatal << "errno: " << e.get_errno();
+            log_fatal << "what: " << e.what();
             std::cerr << " state after handling message: " << *this;
             throw;
         }
@@ -3220,7 +3222,6 @@ void gcomm::evs::Proto::deliver_trans()
                 }
                 else
                 {
-                    gcomm_assert(mn.operational() == false);
                     log_info << "filtering out trans message higher than "
                              << "install message hs "
                              << mn.im_range().hs()

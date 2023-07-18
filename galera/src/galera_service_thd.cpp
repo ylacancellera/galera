@@ -90,6 +90,10 @@ galera::ServiceThd::thd_func (void* arg)
                     log_warn << "Exception releasing seqno "
                              << data.release_seqno_ << ": " << e.what();
                 }
+                if(data.clear_release_seqno_) {
+                    data.release_seqno_ = 0;
+                    data.clear_release_seqno_ = false;
+                }
             }
         }
     }
@@ -185,13 +189,14 @@ galera::ServiceThd::report_last_committed(gcs_seqno_t const seqno,
 }
 
 void
-galera::ServiceThd::release_seqno(gcs_seqno_t seqno)
+galera::ServiceThd::release_seqno(gcs_seqno_t seqno, bool reset)
 {
     gu::Lock lock(mtx_);
 
     if (data_.release_seqno_ < seqno)
     {
         data_.release_seqno_ = seqno;
+        data_.clear_release_seqno_ = reset;
 
         if (data_.act_ == A_NONE) cond_.signal();
 

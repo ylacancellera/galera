@@ -39,7 +39,7 @@ namespace galera
         void report_last_committed (gcs_seqno_t seqno, bool const report = true);
 
         /*! release write sets up to and including seqno */
-        void release_seqno (gcs_seqno_t seqno);
+        void release_seqno (gcs_seqno_t seqno, bool reset = false);
 
     private:
 
@@ -49,11 +49,13 @@ namespace galera
         {
             gu::GTID    last_committed_;
             gcs_seqno_t release_seqno_;
+            bool        clear_release_seqno_;
             uint32_t    act_;
 
             Data() :
                 last_committed_(),
                 release_seqno_ (0),
+                clear_release_seqno_(false),
                 act_           (A_NONE)
             {}
         };
