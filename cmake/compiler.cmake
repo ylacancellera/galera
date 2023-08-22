@@ -61,8 +61,10 @@ endif()
 
 add_definitions(-DPXC)
 
-if (GALERA_PSI_INTERFACE)
-  add_definitions(-DWITH_PSI_INTERFACE)
+# GALERA_PSI_INTERFACE comes from percona-xtradb-cluster-galera/CMakeLists.txt
+# WITH_PERFSCHEMA_STORAGE_ENGINE comes from server's cmake files
+if (GALERA_PSI_INTERFACE AND DEFINED WITH_PERFSCHEMA_STORAGE_ENGINE)
+  add_definitions(-DHAVE_PSI_INTERFACE=1)
 endif()
 
 
