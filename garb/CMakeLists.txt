@@ -19,7 +19,7 @@ target_include_directories(garbd
 target_compile_definitions(garbd
   PRIVATE
   -DGALERA_VER="${GALERA_VERSION}"
-  -DGALERA_REV="${GALERA_REVISION}"
+  -DGALERA_REV="${GALERA_GIT_REVISION}"
   )
 
 # TODO: Fix.
