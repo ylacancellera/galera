@@ -1195,16 +1195,10 @@ galera::Certification::purge_trxs_upto_(wsrep_seqno_t const seqno,
 
     TrxMap::iterator purge_bound(trx_map_.upper_bound(seqno));
 
-<<<<<<< HEAD
-    log_debug << "purging index up to " << seqno;
-||||||| 86ced4c6
-    cert_debug << "purging index up to " << seqno;
-=======
     cert_debug << "purging index up to " << seqno << ", safe to discard seqno " << get_safe_to_discard_seqno_();
 
     assert(purge_bound == trx_map_.end() ||
            purge_bound->first <= get_safe_to_discard_seqno_() + 1);
->>>>>>> release_26.4.16
 
     for_each(trx_map_.begin(), purge_bound, PurgeAndDiscard(*this));
     trx_map_.erase(trx_map_.begin(), purge_bound);

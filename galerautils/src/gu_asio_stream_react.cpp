@@ -1007,36 +1007,9 @@ void gu::AsioAcceptorReact::accept_handler(
     set_socket_options(socket->socket_);
     socket->set_non_blocking(true);
     socket->prepare_engine(true);
-<<<<<<< HEAD
-    std::string remote_ip;
-    try
-    {
-       socket->assign_addresses();
-       remote_ip = gu::unescape_addr(::escape_addr(socket->socket_.remote_endpoint().address()));
-    }
-    catch(const asio::system_error& e)
-    {
-        log_warn << "Failed to accept: " << e.what();
-        async_accept(handler);
-        return;
-    }
-||||||| 86ced4c6
-    try
-    {
-       socket->assign_addresses();
-    }
-    catch(const asio::system_error& e)
-    {
-        log_warn << "Failed to accept: " << e.what();
-        async_accept(handler);
-        return;
-    }
-    std::string remote_ip = gu::unescape_addr(::escape_addr(socket->socket_.remote_endpoint().address()));
-=======
     socket->assign_addresses();
 
     std::string remote_ip = gu::unescape_addr(::escape_addr(socket->socket_.remote_endpoint().address()));
->>>>>>> release_26.4.16
     auto connection_allowed(gu::allowlist_value_check(WSREP_ALLOWLIST_KEY_IP, remote_ip));
     if (connection_allowed == false)
     {
