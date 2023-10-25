@@ -33,6 +33,10 @@
 #ifdef PXC
 #include "gu_debug_sync.hpp"
 #endif /* PXC */
+extern int64_t recompute_vote_based_on_error_code (const gu::GTID& gtid,
+                                                   const std::string& err_msg,
+                                                   const int64_t old_vote,
+                                                   const bool needs_logging);
 
 const char* gcs_node_state_to_str (gcs_node_state_t state)
 {
@@ -2452,6 +2456,28 @@ gcs_proto_ver(gcs_conn_t* conn)
     return gcs_core_proto_ver(conn->core);
 }
 
+int64_t compute_vote (const gu::GTID& gtid, uint64_t const code,
+                      const void* const msg, size_t const msg_len)
+{
+    uint64_t vote;
+    size_t const buf_len(gtid.serial_size() + sizeof(code));
+    std::vector<char> buf(buf_len);
+    size_t offset(0);
+
+    offset = gtid.serialize(buf.data(), buf.size(), offset);
+    offset = gu::serialize8(code, buf.data(), buf.size(), offset);
+    assert(buf.size() == offset);
+
+    gu::MMH3 hash;
+    hash.append(buf.data(), buf.size());
+    hash.append(msg, msg_len);
+
+    // make sure it is never 0 (and always negative) in case of error
+    vote = (hash.gather8() | (1ULL << 63));
+
+    return vote;
+}
+
 int
 gcs_vote (gcs_conn_t* const conn, const gu::GTID& gtid, uint64_t const code,
           const void* const msg, size_t const msg_len)
@@ -2495,27 +2521,20 @@ gcs_vote (gcs_conn_t* const conn, const gu::GTID& gtid, uint64_t const code,
      * 1. either we want to report an error
      * 2. or we are voting by request (in which case code == 0) */
 
-    int64_t my_vote;
+    int64_t my_vote, my_recomputed_vote;
     if (0 != code)
     {
-        size_t const buf_len(gtid.serial_size() + sizeof(code));
-        std::vector<char> buf(buf_len);
-        size_t offset(0);
+        my_vote = compute_vote(gtid, code, msg, msg_len);
 
-        offset = gtid.serialize(buf.data(), buf.size(), offset);
-        offset = gu::serialize8(code, buf.data(), buf.size(), offset);
-        assert(buf.size() == offset);
-
-        gu::MMH3 hash;
-        hash.append(buf.data(), buf.size());
-        hash.append(msg, msg_len);
-
-        my_vote = (hash.gather8() | (1ULL << 63));
-        // make sure it is never 0 (and always negative) in case of error
+        // Use the recomputed value for the final steps.
+        std::string err_msg(reinterpret_cast<const char *>(msg), msg_len);
+        my_recomputed_vote =
+            recompute_vote_based_on_error_code(gtid, err_msg, my_vote, false);
     }
     else
     {
         my_vote = 0;
+        my_recomputed_vote = 0;
     }
 
     int ret(gcs_core_send_vote(conn->core, gtid, my_vote, msg, msg_len));
@@ -2532,7 +2551,7 @@ gcs_vote (gcs_conn_t* const conn, const gu::GTID& gtid, uint64_t const code,
     ret = conn->vote_err_; assert(ret <= 0);
     if (0 == ret)
     {
-        ret = my_vote != conn->vote_res_; // 0 for agreement, 1 for disagreement
+        ret = my_recomputed_vote != conn->vote_res_; // 0 for agreement, 1 for disagreement
     }
     conn->vote_wait_ = false;
 

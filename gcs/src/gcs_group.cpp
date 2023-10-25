@@ -22,6 +22,10 @@
 #endif /* PXC */
 
 #include <limits>
+#include <regex>
+
+int64_t compute_vote (const gu::GTID& gtid, uint64_t const code,
+                      const void* const msg, size_t const msg_len);
 
 std::string const GCS_VOTE_POLICY_KEY("gcs.vote_policy");
 uint8_t     const GCS_VOTE_POLICY_DEFAULT(0);
@@ -1005,6 +1009,65 @@ group_recount_votes (gcs_group_t& group)
     return true;
 }
 
+/* Function to recompute vote based on only on the error code */
+int64_t recompute_vote_based_on_error_code (const gu::GTID& gtid,
+                                            const std::string& err_msg,
+                                            const int64_t old_vote,
+                                            const bool needs_logging)
+{
+
+    // Define a regular expression to match either a 4-digit or a 5-digit error
+    // code following "Error_code:"
+    std::regex errCodeRegex(R"(Error_code: (\b\d{4}\b|\b\d{5}\b))");
+
+    // A vector to store the matched 4-digit and 5-digit error codes
+    std::vector<std::string> matchedErrorCodes;
+
+    // Use std::sregex_iterator to find all matches in the error message
+    std::sregex_iterator it(err_msg.begin(), err_msg.end(), errCodeRegex);
+    std::sregex_iterator end;
+
+    // Iterate through all matches and store them in the vector
+    while (it != end)
+    {
+        // Extract the error code
+        std::smatch match = *it;
+        matchedErrorCodes.push_back(match[1].str());
+        ++it;
+    }
+
+    // Sort the matched error_codes in ascending order
+    std::sort(matchedErrorCodes.begin(), matchedErrorCodes.end());
+
+    // Create a stringstream to build the comma-separated string
+    std::stringstream ss;
+    for (size_t i = 0; i < matchedErrorCodes.size(); ++i)
+    {
+        ss << matchedErrorCodes[i];
+        if (i < matchedErrorCodes.size() - 1)
+        {
+            ss << ", ";
+        }
+    }
+
+    // Store the comma-separated string in a variable
+    std::string commaSeparatedErrorCodes = ss.str();
+
+    // Now compute vote based on the sorted list of error codes.
+    int64_t vote = compute_vote(gtid, -1, commaSeparatedErrorCodes.c_str(),
+                                commaSeparatedErrorCodes.length());
+
+    if (needs_logging)
+    {
+        log_info << "Recomputed vote based on error codes: " <<
+            commaSeparatedErrorCodes.c_str() << ". New vote " <<
+            gu::PrintBase<>(vote) << " will be used for further steps. Old "
+            "Vote: " << gu::PrintBase<>(old_vote);
+    }
+
+    return vote;
+}
+
 VoteResult
 gcs_group_handle_vote_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
 {
@@ -1036,6 +1099,12 @@ gcs_group_handle_vote_msg (gcs_group_t* group, const gcs_recv_msg_t* msg)
                  << (code ? "initiates" : "responds to") << " vote on "
                  << gtid << ',' << gu::PrintBase<>(code) << ": "
                  << (code ? (data ? data : "(null)") : "Success");
+
+        if (code != 0)
+        {
+            std::string err_msg(data, strlen(data));
+            code = recompute_vote_based_on_error_code(gtid, err_msg, code, true);
+        }
 
         gcs_node_set_vote (&sender, gtid.seqno(), code);
 
