@@ -76,6 +76,22 @@ void gu::AsioStreamReact::close() try
     {
         GU_ASIO_DEBUG(debug_print() << "Socket not open on close");
     }
+
+    /* Before closing the socket, we need to shutdown stream processing engine.
+       If we don't, we may end up with closed file descriptor which is used
+       by the engine when shutdown() is called in the destructor.
+       Moreover, if the file descriptor is closed by socket_.close() and another
+       stream is opened with the same file descriptor number just after that,
+       calling to shutdown() may use the descriptor that is valid, but not
+       pointing to what we expect.
+       shutdown() is the implementation detail of AsioStreamReact class as is
+       used by the client via AsioSocket interface, which has just close()
+       method. So the client expects that close() stops all the underlying machinery.
+
+       We can call shutdown() here even if it was called before. In such a case
+       it will become noop.
+       */
+    shutdown();
     socket_.close();
 }
 // Catch all the possible exceptions here, not only asio ones.
