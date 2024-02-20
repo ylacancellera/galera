@@ -35,6 +35,7 @@ static GCommSuite suites[] = {
     {"types", types_suite},
     {"evs2", evs2_suite},
     {"pc", pc_suite},
+    {"lab", lab_suite},
     {"", 0}
 };
 

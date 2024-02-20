@@ -37,5 +37,6 @@ Suite* pc_suite();
 Suite* pc_nondet_suite();
 /* Fair send queue suite */
 Suite* fair_send_queue_suite();
+Suite* lab_suite();
 
 #endif // CHECK_GCOMM_HPP

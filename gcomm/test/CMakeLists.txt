@@ -10,6 +10,7 @@ add_executable(check_gcomm
   check_util.cpp
   check_evs2.cpp
   check_pc.cpp
+  lab_evs_debug.cpp
   )
 
 target_link_libraries(check_gcomm
